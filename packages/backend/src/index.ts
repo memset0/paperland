@@ -10,6 +10,8 @@ import { serviceRoutes } from './api/services.js'
 import { startBackupScheduler } from './db/backup.js'
 import { serviceRunner } from './services/service_runner.js'
 import { arxivService } from './services/arxiv_service.js'
+import { semanticScholarService } from './services/semantic_scholar_service.js'
+import { pdfParseService } from './services/pdf_parse_service.js'
 
 async function main() {
   // Load config
@@ -24,6 +26,8 @@ async function main() {
   // Initialize service runner
   serviceRunner.initialize()
   serviceRunner.register(arxivService)
+  serviceRunner.register(semanticScholarService)
+  serviceRunner.register(pdfParseService)
 
   // Create Fastify instance
   const app = Fastify({ logger: true })

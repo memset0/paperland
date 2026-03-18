@@ -15,6 +15,7 @@
     "@fastify/static": "*",
     "drizzle-orm": "*",
     "js-yaml": "^4.1.0",
+    "unpdf": "*",
     "zod": "^3.23.0"
   },
   "devDependencies": {
