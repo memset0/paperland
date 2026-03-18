@@ -24,11 +24,15 @@ export interface PaperTag {
 }
 
 // QA
+export type QAEntryStatus = 'pending' | 'running' | 'done' | 'failed'
+
 export interface QAEntry {
   id: number
   paper_id: number
   type: 'template' | 'free'
   template_name: string | null
+  status: QAEntryStatus
+  error: string | null
 }
 
 export interface QAResult {
@@ -93,9 +97,11 @@ export interface ServiceConfig {
 
 export interface ModelConfig {
   name: string
-  type: 'openai_api' | 'claude_cli' | 'codex_cli'
+  type: 'openai_api' | 'claude_cli' | 'codex_cli' | 'codex'
   endpoint?: string
   api_key_env?: string
+  shell?: string
+  timeout?: number
 }
 
 export interface ModelsConfig {

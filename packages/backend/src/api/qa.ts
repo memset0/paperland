@@ -5,10 +5,40 @@ import { getConfig } from '../config.js'
 import { loadTemplates, loadTemplate } from '../services/template_loader.js'
 import { askQuestion, resolveContent } from '../services/qa_service.js'
 
+function runQA(entryId: number, paperId: number, prompt: string, modelName: string) {
+  const db = getDatabase()
+  db.update(schema.qaEntries)
+    .set({ status: 'running', error: null })
+    .where(eq(schema.qaEntries.id, entryId))
+    .run()
+
+  askQuestion(paperId, prompt, modelName)
+    .then((res) => {
+      db.insert(schema.qaResults).values({
+        qa_entry_id: entryId,
+        prompt,
+        answer: res.answer,
+        model_name: res.model_name,
+        completed_at: new Date().toISOString(),
+      }).run()
+      db.update(schema.qaEntries)
+        .set({ status: 'done', error: null })
+        .where(eq(schema.qaEntries.id, entryId))
+        .run()
+    })
+    .catch((err) => {
+      console.error(`QA failed (entry ${entryId}):`, err.message)
+      db.update(schema.qaEntries)
+        .set({ status: 'failed', error: err.message })
+        .where(eq(schema.qaEntries.id, entryId))
+        .run()
+    })
+}
+
 export async function qaRoutes(app: FastifyInstance): Promise<void> {
   // List available templates
   app.get('/api/templates', async () => {
-    return { data: loadTemplates().map((t) => ({ name: t.name })) }
+    return { data: loadTemplates().map((t) => ({ name: t.name, prompt: t.prompt })) }
   })
 
   // Get available models from config
@@ -40,9 +70,19 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
 
     for (const entry of result) {
       if (entry.type === 'template' && entry.template_name) {
-        templateEntries[entry.template_name] = { entry_id: entry.id, results: entry.results }
+        templateEntries[entry.template_name] = {
+          entry_id: entry.id,
+          status: entry.status,
+          error: entry.error,
+          results: entry.results,
+        }
       } else {
-        freeEntries.push({ entry_id: entry.id, results: entry.results })
+        freeEntries.push({
+          entry_id: entry.id,
+          status: entry.status,
+          error: entry.error,
+          results: entry.results,
+        })
       }
     }
 
@@ -85,17 +125,14 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       if (existing) {
         entryId = existing.id
       } else {
-        const entry = db.insert(schema.qaEntries).values({ paper_id: paperId, type: 'template', template_name: tmpl.name }).returning().get()
+        const entry = db.insert(schema.qaEntries).values({
+          paper_id: paperId, type: 'template', template_name: tmpl.name, status: 'pending',
+        }).returning().get()
         entryId = entry.id
       }
 
       triggered.push(tmpl.name)
-      askQuestion(paperId, tmpl.prompt, defaultModel).then((res) => {
-        db.insert(schema.qaResults).values({
-          qa_entry_id: entryId, prompt: tmpl.prompt, answer: res.answer,
-          model_name: res.model_name, completed_at: new Date().toISOString(),
-        }).run()
-      }).catch((err) => { console.error(`Template QA failed for ${tmpl.name}:`, err.message) })
+      runQA(entryId, paperId, tmpl.prompt, defaultModel)
     }
 
     return { triggered, message: `Triggered ${triggered.length} template questions` }
@@ -119,16 +156,12 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       .get()
 
     if (!entry) {
-      entry = db.insert(schema.qaEntries).values({ paper_id: paperId, type: 'template', template_name: templateName }).returning().get()
+      entry = db.insert(schema.qaEntries).values({
+        paper_id: paperId, type: 'template', template_name: templateName, status: 'pending',
+      }).returning().get()
     }
 
-    askQuestion(paperId, tmpl.prompt, config.models.default).then((res) => {
-      db.insert(schema.qaResults).values({
-        qa_entry_id: entry!.id, prompt: tmpl!.prompt, answer: res.answer,
-        model_name: res.model_name, completed_at: new Date().toISOString(),
-      }).run()
-    }).catch((err) => { console.error(`Template regenerate failed:`, err.message) })
-
+    runQA(entry.id, paperId, tmpl.prompt, config.models.default)
     return { message: `Regenerating ${templateName}` }
   })
 
@@ -146,15 +179,12 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     const config = getConfig()
     const modelNames = models && models.length > 0 ? models : [config.models.default]
 
-    const entry = db.insert(schema.qaEntries).values({ paper_id: paperId, type: 'free' }).returning().get()
+    const entry = db.insert(schema.qaEntries).values({
+      paper_id: paperId, type: 'free', status: 'pending',
+    }).returning().get()
 
     for (const modelName of modelNames) {
-      askQuestion(paperId, question, modelName).then((res) => {
-        db.insert(schema.qaResults).values({
-          qa_entry_id: entry.id, prompt: question, answer: res.answer,
-          model_name: res.model_name, completed_at: new Date().toISOString(),
-        }).run()
-      }).catch((err) => { console.error(`Free QA failed for model ${modelName}:`, err.message) })
+      runQA(entry.id, paperId, question, modelName)
     }
 
     return { entry_id: entry.id, models: modelNames, message: 'Question submitted' }
@@ -184,12 +214,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     }
 
     for (const modelName of modelNames) {
-      askQuestion(entry.paper_id, prompt, modelName).then((res) => {
-        db.insert(schema.qaResults).values({
-          qa_entry_id: entryId, prompt, answer: res.answer,
-          model_name: res.model_name, completed_at: new Date().toISOString(),
-        }).run()
-      }).catch((err) => { console.error(`Regenerate failed:`, err.message) })
+      runQA(entryId, entry.paper_id, prompt, modelName)
     }
 
     return { message: `Regenerating with ${modelNames.length} model(s)` }

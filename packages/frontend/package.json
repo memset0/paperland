@@ -10,12 +10,13 @@
   },
   "dependencies": {
     "@paperland/shared": "workspace:*",
-    "vue": "^3.4.0",
-    "vue-router": "^4.3.0",
-    "pinia": "^2.1.0",
-    "lucide-vue-next": "*",
     "clsx": "*",
-    "tailwind-merge": "*"
+    "lucide-vue-next": "*",
+    "marked": "^17.0.4",
+    "pinia": "^2.1.0",
+    "tailwind-merge": "*",
+    "vue": "^3.4.0",
+    "vue-router": "^4.3.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

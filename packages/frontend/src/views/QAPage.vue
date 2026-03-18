@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, onUnmounted } from 'vue'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
 import { MessageSquare, Search } from 'lucide-vue-next'
@@ -12,7 +12,12 @@ const selectedPaperId = ref<number | null>(null)
 const paperSearch = ref('')
 
 onMounted(async () => { await papersStore.fetchPapers(1, ''); await qaStore.fetchTemplates() })
-watch(selectedPaperId, async (id) => { if (id) await qaStore.fetchQA(id) })
+onUnmounted(() => { qaStore.stopPolling() })
+
+watch(selectedPaperId, async (id) => {
+  qaStore.stopPolling()
+  if (id) await qaStore.fetchQA(id)
+})
 
 const filteredPapers = () => papersStore.papers.filter(p => !paperSearch.value || p.title.toLowerCase().includes(paperSearch.value.toLowerCase()))
 </script>
@@ -39,7 +44,13 @@ const filteredPapers = () => papersStore.papers.filter(p => !paperSearch.value |
       </div>
     </div>
 
-    <div v-if="selectedPaperId" class="space-y-5">
+    <!-- Loading -->
+    <div v-if="qaStore.loading && selectedPaperId" class="rounded-xl border border-gray-200 bg-white py-12 text-center">
+      <div class="h-6 w-6 mx-auto mb-3 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-500"></div>
+      <p class="text-sm text-gray-400">加载中...</p>
+    </div>
+
+    <div v-else-if="selectedPaperId" class="space-y-5">
       <TemplateQA :paper-id="selectedPaperId" />
       <FreeQA :paper-id="selectedPaperId" />
     </div>

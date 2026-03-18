@@ -5,7 +5,7 @@ import { getSystemPrompt } from './template_loader.js'
 
 function resolveContent(paper: any): string | null {
   const config = getConfig()
-  const priority = config.content_priority || ['user_input', 'alphaxiv', 'pdf_parsed']
+  const priority = config.content_priority || ['user_input', 'pdf_parsed']
 
   const contents = paper.contents
     ? (typeof paper.contents === 'string' ? JSON.parse(paper.contents) : paper.contents)
@@ -31,7 +31,7 @@ async function callOpenAI(prompt: string, modelConfig: any): Promise<string> {
     body: JSON.stringify({
       model: modelConfig.name,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 2048,
+      max_tokens: 8192,
     }),
   })
 

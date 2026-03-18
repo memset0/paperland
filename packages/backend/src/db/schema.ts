@@ -7,7 +7,7 @@ export const papers = sqliteTable('papers', {
   title: text('title').notNull(),
   authors: text('authors').notNull(), // JSON array
   abstract: text('abstract'),
-  contents: text('contents'), // JSON: { user_input, alphaxiv, pdf_parsed, ... }
+  contents: text('contents'), // JSON: { user_input, pdf_parsed, ... }
   pdf_path: text('pdf_path'),
   metadata: text('metadata'), // JSON
   created_at: text('created_at').notNull(),
@@ -30,6 +30,8 @@ export const qaEntries = sqliteTable('qa_entries', {
   paper_id: integer('paper_id').notNull().references(() => papers.id),
   type: text('type').notNull(), // 'template' | 'free'
   template_name: text('template_name'),
+  status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'done' | 'failed'
+  error: text('error'),
 })
 
 export const qaResults = sqliteTable('qa_results', {

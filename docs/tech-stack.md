@@ -114,7 +114,7 @@ papers
   title           text      not null
   authors         text      not null          // JSON array
   abstract        text      nullable
-  contents        text      nullable          // JSON: { user_input, alphaxiv, pdf_parsed, ... }
+  contents        text      nullable          // JSON: { user_input, pdf_parsed, ... }
   pdf_path        text      nullable
   metadata        text      nullable          // JSON
   created_at      text      not null          // ISO 8601
@@ -210,7 +210,6 @@ models:
 # Q&A 文本上下文优先级
 content_priority:
   - user_input
-  - alphaxiv
   - pdf_parsed
 ```
 

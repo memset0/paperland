@@ -141,7 +141,6 @@ Base URL: `/external-api/v1`
     "abstract": "The dominant sequence transduction models...",
     "contents": {
       "user_input": null,
-      "alphaxiv": null,
       "pdf_parsed": "We propose a new simple network architecture..."
     },
     "pdf_path": "/data/pdfs/2401.12345.pdf",

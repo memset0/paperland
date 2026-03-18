@@ -54,8 +54,8 @@ The config SHALL support a `models` section with `default` (string) and `availab
 The config SHALL support a `content_priority` array of strings defining the priority order for Q&A text context sources.
 
 #### Scenario: Default content priority
-- **WHEN** config.yml contains `content_priority: [user_input, alphaxiv, pdf_parsed]`
-- **THEN** the system SHALL use user_input first, then alphaxiv, then pdf_parsed when selecting text context for Q&A
+- **WHEN** config.yml contains `content_priority: [user_input, pdf_parsed]`
+- **THEN** the system SHALL use user_input first, then pdf_parsed when selecting text context for Q&A
 
 ### Requirement: Config schema validation
 The config Zod schema and `AppConfig` TypeScript interface SHALL be extended to include `system_prompt` (string) and `qa` (array of `{name: string, prompt: string}`) fields. Both are required.
