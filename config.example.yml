@@ -31,21 +31,20 @@ models:
       type: openai_api
       endpoint: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
-    - name: codex-gpt-5.4
-      type: codex
-      shell: 'codex exec --skip-git-repo-check --model "gpt-5.4"'
-      timeout: 600
+    # - name: codex-gpt-5.4
+    #   type: codex
+    #   shell: 'codex exec --skip-git-repo-check --model "gpt-5.4"'
+    #   timeout: 600
 
 content_priority:
   - user_input
-  - alphaxiv
   - pdf_parsed
 
 system_prompt: |
   【paperland】请根据下面的论文内容回答这个问题：{PROMPT}
 
   ---
-  
+
   {PAPER}
 
 

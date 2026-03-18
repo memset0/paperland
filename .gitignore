@@ -7,4 +7,5 @@ data/*.db-shm
 data/backups/*.db
 *.log
 .env
+config.yml
 *.pdf

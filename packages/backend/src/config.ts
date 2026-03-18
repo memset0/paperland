@@ -57,7 +57,7 @@ const configSchema = z.object({
   auth: authSchema,
   services: z.record(z.string(), serviceSchema).default({}),
   models: modelsSchema,
-  content_priority: z.array(z.string()).default(['user_input', 'alphaxiv', 'pdf_parsed']),
+  content_priority: z.array(z.string()).default(['user_input', 'pdf_parsed']),
   system_prompt: z.string(),
   qa: z.array(qaTemplateSchema).min(1),
 })
@@ -71,7 +71,7 @@ export function loadConfig(configPath?: string): AppConfig {
   try {
     rawContent = readFileSync(filePath, 'utf-8')
   } catch (err) {
-    throw new Error(`Config file not found: ${filePath}`)
+    throw new Error(`Config file not found: ${filePath}\n  Please copy config.example.yml to config.yml and update it with your settings:\n    cp config.example.yml config.yml`)
   }
 
   const rawConfig = yaml.load(rawContent)
