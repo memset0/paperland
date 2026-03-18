@@ -51,7 +51,7 @@ async function main() {
 
   // Start server
   const port = 3000
-  await app.listen({ port, host: '0.0.0.0' })
+  await app.listen({ port, host: '127.0.0.1' })
   console.log(`Paperland server running on http://localhost:${port}`)
 }
 
