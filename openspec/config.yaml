@@ -1,20 +1,16 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Project: Paperland - 论文管理网站
+  Tech stack: TypeScript, Vue 3 + Vite (frontend), Fastify (backend), Drizzle ORM, SQLite, Bun
+  Monorepo: packages/frontend, packages/backend, packages/shared
+  Naming: snake_case for all API keys, DB fields, JSON responses
+  Config: config.yml (unified site-wide config)
+  Services: services/ directory with unit tests, paper-bound services use depends_on/produces dependency graph
+  Auth: HTTP Basic Auth (website) + Bearer Token (External API)
+  See docs/ for detailed architecture: frontend-architecture.md, external-api.md, tech-stack.md
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  tasks:
+    - Reference docs/ architecture documents for implementation details
+    - Some unit tests call real external services (arxiv, semantic scholar, OpenAI) and may incur costs - do not run all tests blindly

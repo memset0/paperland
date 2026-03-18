@@ -1,0 +1,12 @@
+{
+  "name": "paperland",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '@paperland/backend' dev & bun run --filter '@paperland/frontend' dev",
+    "build": "bun run --filter '*' build",
+    "test": "bun run --filter '@paperland/backend' test"
+  }
+}

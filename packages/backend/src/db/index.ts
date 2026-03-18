@@ -1,0 +1,62 @@
+import { Database } from 'bun:sqlite'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
+import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
+import { resolve, dirname } from 'path'
+import { mkdirSync } from 'fs'
+import { getConfig } from '../config.js'
+import * as schema from './schema.js'
+
+let _db: ReturnType<typeof drizzle> | null = null
+let _sqlite: Database | null = null
+
+export function initDatabase(): ReturnType<typeof drizzle> {
+  const config = getConfig()
+  const dbPath = resolve(process.cwd(), config.database.path || './data/paperland.db')
+
+  // Ensure directory exists
+  mkdirSync(dirname(dbPath), { recursive: true })
+
+  _sqlite = new Database(dbPath)
+
+  // Enable WAL mode
+  _sqlite.exec('PRAGMA journal_mode = WAL')
+  _sqlite.exec('PRAGMA foreign_keys = ON')
+
+  _db = drizzle(_sqlite, { schema })
+
+  // Run migrations
+  const migrationsFolder = resolve(dirname(new URL(import.meta.url).pathname), 'migrations')
+  try {
+    migrate(_db, { migrationsFolder })
+  } catch (err) {
+    if (!(err instanceof Error) || !err.message.includes('does not exist')) {
+      throw err
+    }
+  }
+
+  return _db
+}
+
+export function getDatabase(): ReturnType<typeof drizzle> {
+  if (!_db) {
+    throw new Error('Database not initialized. Call initDatabase() first.')
+  }
+  return _db
+}
+
+export function getSqliteDatabase(): Database {
+  if (!_sqlite) {
+    throw new Error('Database not initialized. Call initDatabase() first.')
+  }
+  return _sqlite
+}
+
+export function closeDatabase(): void {
+  if (_sqlite) {
+    _sqlite.close()
+    _sqlite = null
+    _db = null
+  }
+}
+
+export { schema }

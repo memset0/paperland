@@ -1,0 +1,38 @@
+database:
+  type: sqlite
+  path: ./data/paperland.db
+  backup:
+    enabled: true
+    dir: ./data/backups
+    retention_days: 30
+
+auth:
+  users:
+    - username: admin
+      password: changeme
+
+services:
+  arxiv:
+    max_concurrency: 3
+    rate_limit_interval: 3
+  semantic_scholar:
+    max_concurrency: 5
+    rate_limit_interval: 1
+  pdf_parse:
+    max_concurrency: 2
+    method: nodejs
+  qa:
+    max_concurrency: 2
+
+models:
+  default: gpt-4o
+  available:
+    - name: gpt-4o
+      type: openai_api
+      endpoint: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+
+content_priority:
+  - user_input
+  - alphaxiv
+  - pdf_parsed
