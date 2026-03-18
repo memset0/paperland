@@ -297,9 +297,12 @@ corpus_id ──→ semantic_scholar_service ──→ arxiv_id ──→ arxiv_
 |---------|------|
 | qa_service | 调用大模型进行 Q&A |
 
-- 不参与依赖图，封装为 async function
+- 注册为 `pure` 类型到 `service_runner`，使用 `executePureService()` 执行
+- 受 `max_concurrency` 和 `rate_limit_interval` 约束，执行记录写入 `service_executions` 表
+- 在服务管理页面可见（显示运行中/排队/最大并发数）
 - 触发方式：用户手动提交 / External API 调用
-- **前置条件**：调用方负责检查 content 不为空（External API 中在调用前检查）
+- **前置条件**：调用方负责检查 content 不为空
+- **启动清理**：服务器启动时将所有 pending/running 状态的执行记录（service_executions 和 qa_entries）重置为 failed
 
 ### 3.4 服务执行模型
 
@@ -547,6 +550,8 @@ Q&A 取上下文时按 `config.yml` 中 `content_priority` 列表顺序，取第
 | paper_id | integer → Paper.id | 关联论文 |
 | type | text: "template" \| "free" | 提问类型 |
 | template_name | text (nullable) | 模板名称，仅 template 类型有值，作为索引 key |
+| status | text: "pending" \| "running" \| "done" \| "failed" | 执行状态 |
+| error | text (nullable) | 错误信息 |
 
 ### 6.4 QA Result
 
@@ -560,6 +565,7 @@ Q&A 取上下文时按 `config.yml` 中 `content_priority` 列表顺序，取第
 | answer | text | 模型的回答 |
 | model_name | text | 使用的模型名称 |
 | completed_at | datetime | 回答完成时间 |
+| execution_id | integer (nullable) → ServiceExecution.id | 关联的服务执行记录 |
 
 ### 6.5 Service Execution
 
@@ -652,6 +658,27 @@ Paper (1) ──→ (N) QA Entry (1) ──→ (N) QA Result
 | 论文列表 | 论文条目 |
 | 服务管理 - 执行历史 | Service Execution 记录 |
 | 独立 Q&A 页面 | QA Entry 列表 |
+
+---
+
+## 九、全局 API 错误提示
+
+前端通过 `api/client.ts` 发起的所有请求，如果返回非成功响应或网络错误，会自动在页面顶部弹出红色浮动 toast 通知。
+
+### 机制
+
+- `lib/error-bus.ts`：基于 `EventTarget` 的事件总线，API client 在 throw 错误前 dispatch 事件
+- `components/GlobalAlert.vue`：挂载在 `App.vue` 根级，监听错误事件并展示 toast
+- 该机制是补充性的全局兜底，不替代各页面已有的具体错误处理
+
+### Toast 行为
+
+| 特性 | 说明 |
+|------|------|
+| 自动消失 | 5 秒后自动移除 |
+| 手动关闭 | 点击 X 按钮立即移除 |
+| 最大数量 | 同时最多 5 条，超出时最旧的自动移除 |
+| 动画 | 使用 Vue TransitionGroup 实现淡入淡出 |
 
 ---
 

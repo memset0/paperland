@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { FileText, MessageSquare, Activity, Settings, ChevronLeft, ChevronRight, BookOpen, Menu, X } from 'lucide-vue-next'
+import GlobalAlert from '@/components/GlobalAlert.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +34,7 @@ function navigateMobile(path: string) {
 
 <template>
   <div class="flex h-screen overflow-hidden bg-gray-50/50">
+    <GlobalAlert />
 
     <!-- ========== DESKTOP: Sidebar ========== -->
     <aside v-if="!isMobile" :class="['flex flex-col border-r border-gray-200 bg-white transition-all duration-200 shrink-0', collapsed ? 'w-[52px]' : 'w-52']">
