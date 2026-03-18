@@ -21,6 +21,9 @@ services:
   pdf_parse:
     max_concurrency: 2
     method: nodejs
+  papers_cool:
+    max_concurrency: 1
+    rate_limit_interval: 5
   qa:
     max_concurrency: 2
 

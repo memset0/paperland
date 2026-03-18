@@ -3,10 +3,11 @@ import { onMounted, onUnmounted, computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, FileDown } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, FileDown, ChevronsUpDown, ChevronsDownUp } from 'lucide-vue-next'
 import PdfViewer from '@/components/PdfViewer.vue'
-import TemplateQA from '@/components/TemplateQA.vue'
-import FreeQA from '@/components/FreeQA.vue'
+import QAList from '@/components/QAList.vue'
+import QAInput from '@/components/QAInput.vue'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,14 +44,48 @@ onMounted(async () => {
   document.addEventListener('mouseup', stopDrag)
   await store.fetchPaper(paperId.value)
   await qaStore.fetchTemplates()
-  await qaStore.fetchQA(paperId.value)
+  qaStore.switchPaper(paperId.value)
+  await qaStore.fetchQA(paperId.value, true)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   document.removeEventListener('mousemove', onDrag)
   document.removeEventListener('mouseup', stopDrag)
+  qaStore.stopPolling()
 })
+
+// Papers.cool Chinese summary — FAQ panels
+const summaryFaqs = computed(() => {
+  const meta = store.currentPaper?.metadata
+  if (!meta || typeof meta !== 'object') return null
+  const raw = (meta as Record<string, unknown>).papers_cool_summary
+  if (typeof raw !== 'string' || raw.length === 0) return null
+
+  // Split by Q\d+: pattern into individual FAQ items
+  const parts = raw.split(/(?=Q\d+[:：])/)
+  const faqs: Array<{ question: string; answer: string }> = []
+  for (const part of parts) {
+    const trimmed = part.trim()
+    if (!trimmed) continue
+    const match = trimmed.match(/^Q\d+[:：]\s*(.+?)(?:\n\n|\n)([\s\S]*)$/)
+    if (match) {
+      faqs.push({ question: match[1].trim(), answer: match[2].trim() })
+    }
+  }
+  return faqs.length > 0 ? faqs : null
+})
+
+const papersCoolUrl = computed(() => {
+  const id = store.currentPaper?.arxiv_id
+  return id ? `https://papers.cool/arxiv/${id}` : null
+})
+
+function setAllKimiOpen(open: boolean) {
+  const container = document.querySelector('[data-kimi-list]')
+  if (!container) return
+  container.querySelectorAll<HTMLDetailsElement>('details').forEach(el => { el.open = open })
+}
 </script>
 
 <template>
@@ -67,9 +102,12 @@ onUnmounted(() => {
 
     <!-- Wide screen: split view -->
     <div v-if="isWide" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging }">
-      <!-- Left: PDF (iframe) -->
-      <div :style="{ width: leftWidth + '%' }" class="shrink-0 overflow-hidden">
+      <!-- Left: PDF + floating input overlay -->
+      <div :style="{ width: leftWidth + '%' }" class="shrink-0 overflow-hidden relative">
         <PdfViewer :pdf-path="store.currentPaper?.pdf_path || null" />
+        <div v-if="store.currentPaper" class="absolute bottom-0 left-0 right-0 z-10">
+          <QAInput :paper-id="paperId" :sticky="false" />
+        </div>
       </div>
 
       <!-- Divider -->
@@ -77,12 +115,12 @@ onUnmounted(() => {
         <div class="absolute inset-y-0 -left-1 -right-1"></div>
       </div>
 
-      <!-- Right: Info + QA -->
-      <div class="flex-1 overflow-y-auto">
+      <!-- Right: Info + QA + floating input -->
+      <div class="flex-1 overflow-y-auto relative">
         <div v-if="store.loading" class="flex items-center justify-center h-full">
           <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
         </div>
-        <div v-else-if="store.currentPaper" class="p-5 space-y-5">
+        <div v-else-if="store.currentPaper" class="p-5 space-y-5 pb-40">
           <!-- Paper info -->
           <div class="rounded-xl border border-gray-200 bg-white p-5">
             <h2 class="text-lg font-semibold text-gray-900 leading-snug mb-3">{{ store.currentPaper.title }}</h2>
@@ -114,18 +152,52 @@ onUnmounted(() => {
               <p class="text-sm text-gray-600 leading-relaxed">{{ store.currentPaper.abstract }}</p>
             </div>
           </div>
-          <TemplateQA :paper-id="paperId" />
-          <FreeQA :paper-id="paperId" />
+          <!-- Kimi summary from papers.cool -->
+          <div v-if="summaryFaqs" class="rounded-xl border border-gray-200 bg-white">
+            <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-semibold text-gray-900">Kimi 自动摘要</h3>
+                <a v-if="papersCoolUrl" :href="papersCoolUrl" target="_blank" rel="noopener noreferrer"
+                  class="inline-flex items-center gap-0.5 text-xs text-indigo-500 hover:text-indigo-700 transition-colors">
+                  (papers.cool) <ExternalLink class="h-2.5 w-2.5" />
+                </a>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button @click="setAllKimiOpen(true)" title="全部展开"
+                  class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+                  <ChevronsUpDown class="h-3.5 w-3.5" />
+                </button>
+                <button @click="setAllKimiOpen(false)" title="全部折叠"
+                  class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+                  <ChevronsDownUp class="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+            <div class="divide-y divide-gray-50" data-kimi-list>
+              <details v-for="(faq, i) in summaryFaqs" :key="i" class="group">
+                <summary class="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors list-none [&::-webkit-details-marker]:hidden">
+                  <span class="text-xs text-indigo-500 font-semibold shrink-0">Q{{ i + 1 }}</span>
+                  <div class="flex-1 min-w-0">
+                    <span class="text-sm font-semibold text-gray-800">{{ faq.question }}</span>
+                  </div>
+                </summary>
+                <div class="px-5 pb-4 pt-1">
+                  <MarkdownContent :content="faq.answer" class="text-sm text-gray-600" />
+                </div>
+              </details>
+            </div>
+          </div>
+          <QAList :paper-id="paperId" />
         </div>
       </div>
     </div>
 
     <!-- Narrow screen: single column -->
-    <div v-else class="flex-1 overflow-y-auto">
+    <div v-else class="flex-1 overflow-y-auto relative">
       <div v-if="store.loading" class="flex items-center justify-center py-20">
         <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
       </div>
-      <div v-else-if="store.currentPaper" class="p-5 space-y-5 max-w-3xl mx-auto">
+      <div v-else-if="store.currentPaper" class="p-5 space-y-5 max-w-3xl mx-auto pb-40">
         <!-- PDF link for narrow screens -->
         <a v-if="arxivPdfUrl" :href="arxivPdfUrl" target="_blank" rel="noopener noreferrer"
           class="flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-700 hover:bg-orange-100 transition-colors">
@@ -165,9 +237,45 @@ onUnmounted(() => {
             <p class="text-sm text-gray-600 leading-relaxed">{{ store.currentPaper.abstract }}</p>
           </div>
         </div>
-        <TemplateQA :paper-id="paperId" />
-        <FreeQA :paper-id="paperId" />
+        <!-- Kimi summary from papers.cool -->
+        <div v-if="summaryFaqs" class="rounded-xl border border-gray-200 bg-white">
+          <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-semibold text-gray-900">Kimi 自动摘要</h3>
+              <a v-if="papersCoolUrl" :href="papersCoolUrl" target="_blank" rel="noopener noreferrer"
+                class="inline-flex items-center gap-0.5 text-xs text-indigo-500 hover:text-indigo-700 transition-colors">
+                (papers.cool) <ExternalLink class="h-2.5 w-2.5" />
+              </a>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button @click="setAllKimiOpen(true)" title="全部展开"
+                class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+                <ChevronsUpDown class="h-3.5 w-3.5" />
+              </button>
+              <button @click="setAllKimiOpen(false)" title="全部折叠"
+                class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+                <ChevronsDownUp class="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          <div class="divide-y divide-gray-50" data-kimi-list>
+            <details v-for="(faq, i) in summaryFaqs" :key="i" class="group">
+              <summary class="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors list-none [&::-webkit-details-marker]:hidden">
+                <span class="text-xs text-indigo-500 font-semibold shrink-0">Q{{ i + 1 }}</span>
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-semibold text-gray-800">{{ faq.question }}</span>
+                </div>
+              </summary>
+              <div class="px-5 pb-4 pt-1">
+                <MarkdownContent :content="faq.answer" class="text-sm text-gray-600" />
+              </div>
+            </details>
+          </div>
+        </div>
+        <QAList :paper-id="paperId" />
       </div>
+      <!-- Floating input (sticky at bottom of page) -->
+      <QAInput v-if="store.currentPaper" :paper-id="paperId" />
     </div>
   </div>
 </template>

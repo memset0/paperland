@@ -13,10 +13,13 @@ import { qaRoutes } from './api/qa.js'
 import { externalPaperRoutes } from './external-api/papers.js'
 import { externalTagRoutes } from './external-api/tags.js'
 import { startBackupScheduler } from './db/backup.js'
+import { getDatabase, schema } from './db/index.js'
+import { inArray } from 'drizzle-orm'
 import { serviceRunner } from './services/service_runner.js'
 import { arxivService } from './services/arxiv_service.js'
 import { semanticScholarService } from './services/semantic_scholar_service.js'
 import { pdfParseService } from './services/pdf_parse_service.js'
+import { papersCoolService } from './services/papers_cool_service.js'
 
 async function main() {
   // Load config
@@ -24,6 +27,22 @@ async function main() {
 
   // Initialize database
   initDatabase()
+
+  // Clean up stale executions from previous runs
+  {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+    const staleStatuses = ['pending', 'running']
+    db.update(schema.serviceExecutions)
+      .set({ status: 'failed', error: 'interrupted by server restart', finished_at: now })
+      .where(inArray(schema.serviceExecutions.status, staleStatuses))
+      .run()
+    db.update(schema.qaEntries)
+      .set({ status: 'failed', error: 'interrupted by server restart' })
+      .where(inArray(schema.qaEntries.status, staleStatuses))
+      .run()
+    console.log('Cleaned up stale service executions and QA entries')
+  }
 
   // Start backup scheduler
   startBackupScheduler()
@@ -33,6 +52,8 @@ async function main() {
   serviceRunner.register(arxivService)
   serviceRunner.register(semanticScholarService)
   serviceRunner.register(pdfParseService)
+  serviceRunner.register(papersCoolService)
+  serviceRunner.register({ name: 'qa', type: 'pure', execute: async () => {} })
 
   // Create Fastify instance
   const app = Fastify({ logger: true })

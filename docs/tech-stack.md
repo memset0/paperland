@@ -61,6 +61,7 @@ paperland/
 │   │   │   │   ├── pdf_parse_service.test.ts
 │   │   │   │   ├── qa_service.ts
 │   │   │   │   ├── qa_service.test.ts
+│   │   │   │   ├── papers_cool_service.ts  # papers.cool 中文摘要抓取
 │   │   │   │   └── service_runner.ts   # 服务调度器 (并发控制、状态管理)
 │   │   │   ├── db/                 # Drizzle schema + migrations
 │   │   │   │   ├── schema.ts       # 数据库 schema 定义
@@ -191,6 +192,9 @@ services:
     max_concurrency: 2
     method: python                  # python | nodejs
     python_script: ./scripts/pdf_parser.py
+  papers_cool:
+    max_concurrency: 1
+    rate_limit_interval: 5          # papers.cool 限流保护
   qa:
     max_concurrency: 2
 
