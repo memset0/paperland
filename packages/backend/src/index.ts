@@ -6,7 +6,9 @@ import { basicAuth } from './auth/basic_auth.js'
 import { tokenAuth } from './auth/token_auth.js'
 import { settingsRoutes } from './api/settings.js'
 import { paperRoutes } from './api/papers.js'
+import { serviceRoutes } from './api/services.js'
 import { startBackupScheduler } from './db/backup.js'
+import { serviceRunner } from './services/service_runner.js'
 
 async function main() {
   // Load config
@@ -17,6 +19,9 @@ async function main() {
 
   // Start backup scheduler
   startBackupScheduler()
+
+  // Initialize service runner
+  serviceRunner.initialize()
 
   // Create Fastify instance
   const app = Fastify({ logger: true })
@@ -48,6 +53,7 @@ async function main() {
   // Register routes
   await app.register(settingsRoutes)
   await app.register(paperRoutes)
+  await app.register(serviceRoutes)
 
   // Start server
   const port = 3000

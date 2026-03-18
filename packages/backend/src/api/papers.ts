@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { eq, like, or, desc } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
+import { withDedup, getDedupKey } from '../services/paper_dedup.js'
+import { serviceRunner } from '../services/service_runner.js'
 
 export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // List papers with pagination and search
@@ -70,56 +72,79 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; content?: string; tags?: string[] } }>(
     '/api/papers',
     async (request, reply) => {
-      const db = getDatabase()
       const { arxiv_id, corpus_id, title, authors, content, tags: tagNames } = request.body || {}
-
-      // Check for existing paper
-      if (arxiv_id) {
-        const existing = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, arxiv_id)).get()
-        if (existing) {
-          return { ...parsePaper(existing), created: false }
-        }
-      }
-      if (corpus_id) {
-        const existing = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, corpus_id)).get()
-        if (existing) {
-          // Supplement missing id
-          if (arxiv_id && !existing.arxiv_id) {
-            db.update(schema.papers).set({ arxiv_id }).where(eq(schema.papers.id, existing.id)).run()
-          }
-          return { ...parsePaper(existing), created: false }
-        }
-      }
 
       if (!title && !arxiv_id && !corpus_id) {
         reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Must provide arxiv_id, corpus_id, or title' } })
         return
       }
 
-      const now = new Date().toISOString()
-      const contents = content ? JSON.stringify({ user_input: content }) : null
+      // Determine dedup key
+      const dedupKey = arxiv_id
+        ? getDedupKey('arxiv', arxiv_id)
+        : corpus_id
+          ? getDedupKey('corpus', corpus_id)
+          : null
 
-      const paper = db.insert(schema.papers).values({
-        arxiv_id: arxiv_id || null,
-        corpus_id: corpus_id || null,
-        title: title || 'Untitled',
-        authors: JSON.stringify(authors || []),
-        contents,
-        created_at: now,
-      }).returning().get()
+      const createFn = async () => {
+        const db = getDatabase()
 
-      // Handle tags
-      if (tagNames && tagNames.length > 0) {
-        for (const tagName of tagNames) {
-          let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-          if (!tag) {
-            tag = db.insert(schema.tags).values({ name: tagName }).returning().get()
+        // Check for existing paper
+        if (arxiv_id) {
+          const existing = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, arxiv_id)).get()
+          if (existing) {
+            if (corpus_id && !existing.corpus_id) {
+              db.update(schema.papers).set({ corpus_id }).where(eq(schema.papers.id, existing.id)).run()
+            }
+            return { ...parsePaper(existing), created: false }
           }
-          db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
         }
+        if (corpus_id) {
+          const existing = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, corpus_id)).get()
+          if (existing) {
+            if (arxiv_id && !existing.arxiv_id) {
+              db.update(schema.papers).set({ arxiv_id }).where(eq(schema.papers.id, existing.id)).run()
+            }
+            return { ...parsePaper(existing), created: false }
+          }
+        }
+
+        const now = new Date().toISOString()
+        const contents = content ? JSON.stringify({ user_input: content }) : null
+
+        const paper = db.insert(schema.papers).values({
+          arxiv_id: arxiv_id || null,
+          corpus_id: corpus_id || null,
+          title: title || 'Untitled',
+          authors: JSON.stringify(authors || []),
+          contents,
+          created_at: now,
+        }).returning().get()
+
+        // Handle tags
+        if (tagNames && tagNames.length > 0) {
+          for (const tagName of tagNames) {
+            let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
+            if (!tag) {
+              tag = db.insert(schema.tags).values({ name: tagName }).returning().get()
+            }
+            db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
+          }
+        }
+
+        // Trigger services in background (non-blocking)
+        serviceRunner.triggerForPaper(paper.id).catch((err) => {
+          console.error(`Failed to trigger services for paper ${paper.id}:`, err)
+        })
+
+        return { ...parsePaper(paper), created: true }
       }
 
-      return { ...parsePaper(paper), created: true }
+      // Use dedup if we have an external ID
+      if (dedupKey) {
+        return await withDedup(dedupKey, createFn)
+      }
+      return await createFn()
     }
   )
 }
