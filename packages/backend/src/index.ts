@@ -1,5 +1,7 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import { existsSync, createReadStream } from 'fs'
+import { resolve } from 'path'
 import { loadConfig } from './config.js'
 import { initDatabase } from './db/index.js'
 import { basicAuth } from './auth/basic_auth.js'
@@ -57,6 +59,18 @@ async function main() {
       await basicAuth(request, reply)
       return
     }
+  })
+
+  // File serving for PDF viewer
+  app.get<{ Params: { '*': string } }>('/api/files/*', async (request, reply) => {
+    const filePath = resolve(process.cwd(), decodeURIComponent(request.params['*']))
+    if (!existsSync(filePath)) {
+      reply.code(404).send({ error: 'File not found' })
+      return
+    }
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Cache-Control', 'public, max-age=86400')
+    return reply.send(Bun.file(filePath))
   })
 
   // Register routes

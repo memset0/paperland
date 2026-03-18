@@ -1,26 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { api } from '@/api/client'
+import { Activity, Clock, AlertCircle, CheckCircle2, Loader2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
-interface ServiceInfo {
-  name: string
-  type: string
-  running: number
-  pending: number
-  max_concurrency: number
-}
-
-interface Execution {
-  id: number
-  service_name: string
-  paper_id: number
-  status: string
-  progress: number
-  created_at: string
-  finished_at: string | null
-  result: string | null
-  error: string | null
-}
+interface ServiceInfo { name: string; type: string; running: number; pending: number; max_concurrency: number }
+interface Execution { id: number; service_name: string; paper_id: number; status: string; progress: number; created_at: string; finished_at: string | null; error: string | null }
 
 const services = ref<ServiceInfo[]>([])
 const executions = ref<Execution[]>([])
@@ -29,135 +13,99 @@ const loading = ref(false)
 const filterService = ref('')
 const filterStatus = ref('')
 
-const executionHeaders = [
-  { title: 'ID', key: 'id', width: '60px' },
-  { title: '服务', key: 'service_name' },
-  { title: '论文 ID', key: 'paper_id', width: '80px' },
-  { title: '状态', key: 'status', width: '100px' },
-  { title: '进度', key: 'progress', width: '80px' },
-  { title: '创建时间', key: 'created_at' },
-  { title: '完成时间', key: 'finished_at' },
-  { title: '错误', key: 'error' },
-]
+let poll: ReturnType<typeof setInterval> | null = null
+onMounted(async () => { await fetchAll(); poll = setInterval(fetchAll, 5000) })
+onUnmounted(() => { if (poll) clearInterval(poll) })
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
-onMounted(async () => {
-  await fetchServices()
-  await fetchExecutions()
-  pollTimer = setInterval(async () => {
-    await fetchServices()
-    await fetchExecutions()
-  }, 5000)
-})
-
-onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
-})
-
-async function fetchServices() {
-  const res = await api.get<{ data: ServiceInfo[] }>('/api/services')
-  services.value = res.data
-}
-
-async function fetchExecutions() {
+async function fetchAll() { await fetchServices(); await fetchExecs() }
+async function fetchServices() { services.value = (await api.get<{ data: ServiceInfo[] }>('/api/services')).data }
+async function fetchExecs() {
   loading.value = true
   try {
-    const params = new URLSearchParams({ page: String(pagination.value.page), page_size: String(pagination.value.page_size) })
-    if (filterService.value) params.set('service_name', filterService.value)
-    if (filterStatus.value) params.set('status', filterStatus.value)
-    const res = await api.get<{ data: Execution[]; pagination: typeof pagination.value }>(`/api/services/executions?${params}`)
-    executions.value = res.data
-    pagination.value = res.pagination
-  } finally {
-    loading.value = false
-  }
+    const p = new URLSearchParams({ page: String(pagination.value.page), page_size: '20' })
+    if (filterService.value) p.set('service_name', filterService.value)
+    if (filterStatus.value) p.set('status', filterStatus.value)
+    const r = await api.get<{ data: Execution[]; pagination: typeof pagination.value }>(`/api/services/executions?${p}`)
+    executions.value = r.data; pagination.value = r.pagination
+  } finally { loading.value = false }
 }
 
-function statusColor(status: string): string {
-  const map: Record<string, string> = { done: 'success', failed: 'error', running: 'info', pending: 'warning', waiting: 'warning', blocked: 'grey' }
-  return map[status] || 'grey'
+const statusStyle: Record<string, { bg: string; text: string; icon: any }> = {
+  done: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: CheckCircle2 },
+  failed: { bg: 'bg-red-50', text: 'text-red-700', icon: AlertCircle },
+  running: { bg: 'bg-blue-50', text: 'text-blue-700', icon: Loader2 },
+  pending: { bg: 'bg-amber-50', text: 'text-amber-700', icon: Clock },
+  waiting: { bg: 'bg-amber-50', text: 'text-amber-700', icon: Clock },
+  blocked: { bg: 'bg-gray-100', text: 'text-gray-500', icon: AlertCircle },
 }
-
-function onUpdateOptions(opts: any) {
-  pagination.value.page = opts.page
-  pagination.value.page_size = opts.itemsPerPage
-  fetchExecutions()
-}
+function getStyle(s: string) { return statusStyle[s] || statusStyle.pending }
 </script>
 
 <template>
-  <div>
-    <h1 class="text-h4 mb-4">服务管理</h1>
+  <div class="p-6">
+    <div class="mb-6">
+      <h1 class="text-xl font-semibold text-gray-900">服务管理</h1>
+      <p class="text-sm text-gray-500 mt-0.5">监控数据抓取和处理服务</p>
+    </div>
 
-    <!-- Service overview -->
-    <v-row class="mb-4">
-      <v-col v-for="svc in services" :key="svc.name" cols="12" sm="6" md="3">
-        <v-card>
-          <v-card-title class="text-subtitle-1">
-            <v-icon class="mr-1" size="small">mdi-cog</v-icon>
-            {{ svc.name }}
-          </v-card-title>
-          <v-card-text>
-            <div class="d-flex justify-space-between text-body-2">
-              <span>类型</span>
-              <v-chip size="x-small" variant="tonal">{{ svc.type }}</v-chip>
-            </div>
-            <div class="d-flex justify-space-between text-body-2 mt-1">
-              <span>并发</span>
-              <span>{{ svc.running }} / {{ svc.max_concurrency }}</span>
-            </div>
-            <div class="d-flex justify-space-between text-body-2 mt-1">
-              <span>排队</span>
-              <span>{{ svc.pending }}</span>
-            </div>
-          </v-card-text>
-        </v-card>
-      </v-col>
-      <v-col v-if="services.length === 0" cols="12">
-        <v-card><v-card-text class="text-center text-grey">暂无注册的服务</v-card-text></v-card>
-      </v-col>
-    </v-row>
+    <!-- Service cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div v-for="svc in services" :key="svc.name" class="rounded-xl border border-gray-200 bg-white p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <Activity class="h-4 w-4 text-indigo-500" />
+          <span class="text-sm font-semibold text-gray-900">{{ svc.name }}</span>
+        </div>
+        <div class="space-y-1.5 text-xs">
+          <div class="flex justify-between"><span class="text-gray-500">类型</span><span class="font-medium text-gray-700">{{ svc.type }}</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">并发</span><span class="font-mono text-gray-700">{{ svc.running }}/{{ svc.max_concurrency }}</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">排队</span><span class="font-mono text-gray-700">{{ svc.pending }}</span></div>
+        </div>
+      </div>
+    </div>
 
     <!-- Execution history -->
-    <v-card>
-      <v-card-title class="d-flex align-center">
-        <v-icon class="mr-2">mdi-history</v-icon>
-        执行历史
-      </v-card-title>
-      <v-card-text class="pb-0">
-        <v-row>
-          <v-col cols="12" sm="4">
-            <v-select v-model="filterService" :items="['', ...services.map(s => s.name)]" label="筛选服务" variant="outlined" density="compact" clearable hide-details @update:model-value="fetchExecutions" />
-          </v-col>
-          <v-col cols="12" sm="4">
-            <v-select v-model="filterStatus" :items="['', 'pending', 'waiting', 'running', 'done', 'failed', 'blocked']" label="筛选状态" variant="outlined" density="compact" clearable hide-details @update:model-value="fetchExecutions" />
-          </v-col>
-        </v-row>
-      </v-card-text>
-      <v-data-table-server
-        :headers="executionHeaders"
-        :items="executions"
-        :items-length="pagination.total"
-        :loading="loading"
-        :items-per-page="pagination.page_size"
-        :page="pagination.page"
-        @update:options="onUpdateOptions"
-      >
-        <template #item.status="{ item }">
-          <v-chip :color="statusColor(item.status)" size="small" variant="tonal">{{ item.status }}</v-chip>
-        </template>
-        <template #item.progress="{ item }">
-          <v-progress-linear v-if="item.status === 'running'" :model-value="item.progress" color="info" height="6" rounded />
-          <span v-else>{{ item.progress }}%</span>
-        </template>
-        <template #item.created_at="{ item }">{{ new Date(item.created_at).toLocaleString() }}</template>
-        <template #item.finished_at="{ item }">{{ item.finished_at ? new Date(item.finished_at).toLocaleString() : '-' }}</template>
-        <template #item.error="{ item }">
-          <span v-if="item.error" class="text-error text-truncate d-inline-block" style="max-width: 200px;">{{ item.error }}</span>
-          <span v-else>-</span>
-        </template>
-      </v-data-table-server>
-    </v-card>
+    <div class="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <div class="border-b border-gray-100 px-5 py-3 flex items-center gap-4">
+        <h3 class="text-sm font-semibold text-gray-900 shrink-0">执行历史</h3>
+        <select v-model="filterService" @change="fetchExecs()" class="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 focus:outline-none">
+          <option value="">全部服务</option>
+          <option v-for="s in services" :key="s.name" :value="s.name">{{ s.name }}</option>
+        </select>
+        <select v-model="filterStatus" @change="fetchExecs()" class="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 focus:outline-none">
+          <option value="">全部状态</option>
+          <option v-for="s in ['pending','running','done','failed','blocked']" :key="s" :value="s">{{ s }}</option>
+        </select>
+      </div>
+
+      <table class="w-full text-xs">
+        <thead><tr class="border-b border-gray-100 bg-gray-50/60">
+          <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider">服务</th>
+          <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider w-16">论文</th>
+          <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider w-24">状态</th>
+          <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider">时间</th>
+          <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider">错误</th>
+        </tr></thead>
+        <tbody class="divide-y divide-gray-50">
+          <tr v-for="e in executions" :key="e.id" class="hover:bg-gray-50/40">
+            <td class="px-4 py-2.5 font-medium text-gray-700">{{ e.service_name }}</td>
+            <td class="px-4 py-2.5 text-gray-500 font-mono">#{{ e.paper_id }}</td>
+            <td class="px-4 py-2.5">
+              <span :class="['inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium', getStyle(e.status).bg, getStyle(e.status).text]">
+                <component :is="getStyle(e.status).icon" class="h-3 w-3" :class="e.status === 'running' ? 'animate-spin' : ''" />
+                {{ e.status }}
+              </span>
+            </td>
+            <td class="px-4 py-2.5 text-gray-400">{{ new Date(e.created_at).toLocaleString() }}</td>
+            <td class="px-4 py-2.5 text-red-500 max-w-[200px] truncate">{{ e.error || '-' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-if="pagination.total_pages > 1" class="flex items-center justify-center gap-2 border-t border-gray-100 py-3">
+        <button :disabled="pagination.page <= 1" @click="pagination.page--; fetchExecs()" class="rounded-md border border-gray-200 p-1 disabled:opacity-30"><ChevronLeft class="h-3.5 w-3.5" /></button>
+        <span class="text-xs text-gray-500 tabular-nums">{{ pagination.page }}/{{ pagination.total_pages }}</span>
+        <button :disabled="pagination.page >= pagination.total_pages" @click="pagination.page++; fetchExecs()" class="rounded-md border border-gray-200 p-1 disabled:opacity-30"><ChevronRight class="h-3.5 w-3.5" /></button>
+      </div>
+    </div>
   </div>
 </template>

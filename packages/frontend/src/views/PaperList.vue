@@ -1,212 +1,139 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
+import { Plus, Search, X, FileText, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const store = usePapersStore()
 const router = useRouter()
 const search = ref('')
-const showAddDialog = ref(false)
-const addTab = ref('arxiv')
+const showAdd = ref(false)
+const addTab = ref<'arxiv' | 'corpus' | 'manual'>('arxiv')
 const addForm = ref({ arxiv_id: '', corpus_id: '', title: '', authors: '', content: '' })
 const adding = ref(false)
 
-const headers = [
-  { title: '标题', key: 'title', sortable: false },
-  { title: '作者', key: 'authors', sortable: false },
-  { title: 'arXiv ID', key: 'arxiv_id', sortable: false, width: '140px' },
-  { title: 'Corpus ID', key: 'corpus_id', sortable: false, width: '120px' },
-  { title: '添加时间', key: 'created_at', sortable: false, width: '120px' },
-]
+onMounted(() => store.fetchPapers())
 
-const tableOptions = ref({ page: 1, itemsPerPage: 20 })
+function onSearch() { store.fetchPapers(1, search.value) }
+function goToPage(p: number) { store.fetchPapers(p, search.value) }
 
-onMounted(() => {
-  loadPapers()
-})
-
-function loadPapers() {
-  store.fetchPapers(tableOptions.value.page, search.value)
-}
-
-function onUpdateOptions(opts: any) {
-  tableOptions.value.page = opts.page
-  tableOptions.value.itemsPerPage = opts.itemsPerPage
-  loadPapers()
-}
-
-function onSearch() {
-  tableOptions.value.page = 1
-  loadPapers()
-}
-
-function formatAuthors(authors: string[]): string {
-  if (!Array.isArray(authors) || authors.length === 0) return '-'
-  if (authors.length <= 3) return authors.join(', ')
-  return authors.slice(0, 3).join(', ') + ' ...'
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString()
+function formatAuthors(a: string[]) {
+  if (!Array.isArray(a) || !a.length) return '-'
+  return a.length <= 2 ? a.join(', ') : `${a[0]} et al.`
 }
 
 async function addPaper() {
   adding.value = true
   try {
     const data: any = {}
-    if (addTab.value === 'arxiv') {
-      data.arxiv_id = addForm.value.arxiv_id
-    } else if (addTab.value === 'corpus') {
-      data.corpus_id = addForm.value.corpus_id
-    } else {
-      data.title = addForm.value.title
-      data.authors = addForm.value.authors.split(',').map((a: string) => a.trim()).filter(Boolean)
-      data.content = addForm.value.content
-    }
+    if (addTab.value === 'arxiv') data.arxiv_id = addForm.value.arxiv_id
+    else if (addTab.value === 'corpus') data.corpus_id = addForm.value.corpus_id
+    else { data.title = addForm.value.title; data.authors = addForm.value.authors.split(',').map(s => s.trim()).filter(Boolean); data.content = addForm.value.content }
     const result = await store.createPaper(data)
-    showAddDialog.value = false
+    showAdd.value = false
     addForm.value = { arxiv_id: '', corpus_id: '', title: '', authors: '', content: '' }
-    loadPapers()
-    if (result.id) {
-      router.push(`/papers/${result.id}`)
-    }
-  } finally {
-    adding.value = false
-  }
+    store.fetchPapers()
+    if (result.id) router.push(`/papers/${result.id}`)
+  } finally { adding.value = false }
 }
 </script>
 
 <template>
-  <div>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h4">论文管理</h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="showAddDialog = true">
-        添加论文
-      </v-btn>
+  <div class="p-6">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-semibold text-gray-900">论文管理</h1>
+        <p class="text-sm text-gray-500 mt-0.5">管理你的学术论文库</p>
+      </div>
+      <button @click="showAdd = true" class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 transition-colors">
+        <Plus class="h-4 w-4" />添加论文
+      </button>
     </div>
 
-    <v-card>
-      <v-card-text class="pa-4">
-        <v-text-field
-          v-model="search"
-          prepend-inner-icon="mdi-magnify"
-          label="搜索论文 (标题、摘要)"
-          variant="outlined"
-          density="compact"
-          hide-details
-          clearable
-          @keyup.enter="onSearch"
-          @click:clear="search = ''; onSearch()"
-          class="mb-4"
-        />
-      </v-card-text>
+    <!-- Search -->
+    <div class="relative mb-4">
+      <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+      <input v-model="search" @keyup.enter="onSearch" placeholder="搜索论文标题、摘要..." class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm placeholder:text-gray-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition" />
+    </div>
 
-      <v-data-table-server
-        :headers="headers"
-        :items="store.papers"
-        :items-length="store.pagination.total"
-        :loading="store.loading"
-        :items-per-page="tableOptions.itemsPerPage"
-        :page="tableOptions.page"
-        hover
-        @update:options="onUpdateOptions"
-        @click:row="(_: any, { item }: any) => router.push(`/papers/${item.id}`)"
-        class="cursor-pointer"
-      >
-        <template #item.title="{ item }">
-          <span class="font-weight-medium">{{ item.title }}</span>
-        </template>
-        <template #item.authors="{ item }">
-          {{ formatAuthors(item.authors) }}
-        </template>
-        <template #item.arxiv_id="{ item }">
-          <v-chip v-if="item.arxiv_id" size="small" color="blue" variant="tonal">{{ item.arxiv_id }}</v-chip>
-          <span v-else class="text-grey">-</span>
-        </template>
-        <template #item.corpus_id="{ item }">
-          <v-chip v-if="item.corpus_id" size="small" color="green" variant="tonal">{{ item.corpus_id }}</v-chip>
-          <span v-else class="text-grey">-</span>
-        </template>
-        <template #item.created_at="{ item }">
-          {{ formatDate(item.created_at) }}
-        </template>
-        <template #no-data>
-          <div class="text-center pa-8 text-grey">
-            <v-icon size="48" class="mb-2">mdi-file-document-outline</v-icon>
-            <div>暂无论文，点击右上角添加</div>
+    <!-- Table -->
+    <div class="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-100 bg-gray-50/60">
+            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider">标题</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-40">作者</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-28">arXiv ID</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-24">日期</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          <tr v-for="paper in store.papers" :key="paper.id" @click="router.push(`/papers/${paper.id}`)" class="hover:bg-indigo-50/40 cursor-pointer transition-colors">
+            <td class="px-4 py-3">
+              <div class="font-medium text-gray-900 line-clamp-1">{{ paper.title }}</div>
+            </td>
+            <td class="px-4 py-3 text-gray-500">{{ formatAuthors(paper.authors) }}</td>
+            <td class="px-4 py-3">
+              <span v-if="paper.arxiv_id" class="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/10">{{ paper.arxiv_id }}</span>
+              <span v-else class="text-gray-300">-</span>
+            </td>
+            <td class="px-4 py-3 text-gray-400 text-xs">{{ new Date(paper.created_at).toLocaleDateString() }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="store.papers.length === 0 && !store.loading" class="flex flex-col items-center justify-center py-16 text-gray-400">
+        <FileText class="h-10 w-10 mb-3 stroke-1" />
+        <p class="text-sm">暂无论文</p>
+      </div>
+      <div v-if="store.loading" class="flex items-center justify-center py-12">
+        <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div v-if="store.pagination.total_pages > 1" class="flex items-center justify-center gap-2 mt-4">
+      <button :disabled="store.pagination.page <= 1" @click="goToPage(store.pagination.page - 1)" class="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 transition">
+        <ChevronLeft class="h-4 w-4" />
+      </button>
+      <span class="text-xs text-gray-500 tabular-nums">{{ store.pagination.page }} / {{ store.pagination.total_pages }}</span>
+      <button :disabled="store.pagination.page >= store.pagination.total_pages" @click="goToPage(store.pagination.page + 1)" class="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 transition">
+        <ChevronRight class="h-4 w-4" />
+      </button>
+    </div>
+
+    <!-- Add Dialog -->
+    <Teleport to="body">
+      <div v-if="showAdd" class="fixed inset-0 z-50 flex items-center justify-center">
+        <div class="fixed inset-0 bg-black/40 backdrop-blur-sm" @click="showAdd = false"></div>
+        <div class="relative w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-semibold text-gray-900">添加论文</h2>
+            <button @click="showAdd = false" class="text-gray-400 hover:text-gray-600"><X class="h-5 w-5" /></button>
           </div>
-        </template>
-      </v-data-table-server>
-    </v-card>
-
-    <!-- Add Paper Dialog -->
-    <v-dialog v-model="showAddDialog" max-width="520">
-      <v-card>
-        <v-card-title>添加论文</v-card-title>
-        <v-card-text>
-          <v-tabs v-model="addTab" class="mb-4">
-            <v-tab value="arxiv">arXiv ID</v-tab>
-            <v-tab value="corpus">Corpus ID</v-tab>
-            <v-tab value="manual">手动输入</v-tab>
-          </v-tabs>
-
-          <v-window v-model="addTab">
-            <v-window-item value="arxiv">
-              <v-text-field
-                v-model="addForm.arxiv_id"
-                label="arXiv ID"
-                placeholder="例: 1706.03762"
-                variant="outlined"
-                density="compact"
-              />
-            </v-window-item>
-            <v-window-item value="corpus">
-              <v-text-field
-                v-model="addForm.corpus_id"
-                label="Corpus ID"
-                placeholder="例: 123456789"
-                variant="outlined"
-                density="compact"
-              />
-            </v-window-item>
-            <v-window-item value="manual">
-              <v-text-field
-                v-model="addForm.title"
-                label="标题"
-                variant="outlined"
-                density="compact"
-                class="mb-2"
-              />
-              <v-text-field
-                v-model="addForm.authors"
-                label="作者 (逗号分隔)"
-                variant="outlined"
-                density="compact"
-                class="mb-2"
-              />
-              <v-textarea
-                v-model="addForm.content"
-                label="内容"
-                variant="outlined"
-                density="compact"
-                rows="4"
-              />
-            </v-window-item>
-          </v-window>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showAddDialog = false">取消</v-btn>
-          <v-btn color="primary" :loading="adding" @click="addPaper">添加</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+          <div class="flex gap-1 rounded-lg bg-gray-100 p-1 mb-5">
+            <button v-for="t in (['arxiv', 'corpus', 'manual'] as const)" :key="t" @click="addTab = t" :class="['flex-1 rounded-md py-1.5 text-xs font-medium transition-all', addTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700']">
+              {{ t === 'arxiv' ? 'arXiv ID' : t === 'corpus' ? 'Corpus ID' : '手动输入' }}
+            </button>
+          </div>
+          <div v-if="addTab === 'arxiv'">
+            <input v-model="addForm.arxiv_id" placeholder="例: 1706.03762" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
+          </div>
+          <div v-else-if="addTab === 'corpus'">
+            <input v-model="addForm.corpus_id" placeholder="例: 123456789" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
+          </div>
+          <div v-else class="space-y-3">
+            <input v-model="addForm.title" placeholder="标题" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
+            <input v-model="addForm.authors" placeholder="作者 (逗号分隔)" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
+            <textarea v-model="addForm.content" placeholder="论文内容..." rows="4" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 resize-none"></textarea>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button @click="showAdd = false" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">取消</button>
+            <button @click="addPaper" :disabled="adding" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
+              {{ adding ? '添加中...' : '添加' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
-
-<style scoped>
-.cursor-pointer :deep(tbody tr) {
-  cursor: pointer;
-}
-</style>

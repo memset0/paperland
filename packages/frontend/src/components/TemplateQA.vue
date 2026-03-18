@@ -1,99 +1,60 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useQAStore } from '@/stores/qa'
+import { Play, RefreshCw, CheckCircle2, Circle } from 'lucide-vue-next'
 
 const props = defineProps<{ paperId: number }>()
 const store = useQAStore()
 
-const hasUngenerated = computed(() => {
-  return store.templates.some((t) => {
-    const entry = store.qaData.template[t.name]
-    return !entry || entry.results.length === 0
-  })
-})
-
-function getLatestResult(templateName: string) {
-  const entry = store.qaData.template[templateName]
-  if (!entry || entry.results.length === 0) return null
-  return entry.results[0]
-}
-
-function getStatus(templateName: string): 'done' | 'idle' {
-  return getLatestResult(templateName) ? 'done' : 'idle'
-}
+const hasUngenerated = computed(() => store.templates.some(t => { const e = store.qaData.template[t.name]; return !e || e.results.length === 0 }))
+function getLatest(name: string) { const e = store.qaData.template[name]; return e?.results?.[0] || null }
+function isDone(name: string) { return !!getLatest(name) }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
-
-async function generateAll() {
-  await store.triggerAllTemplates(props.paperId)
-  startPolling()
-}
-
-async function regenerate(templateName: string) {
-  await store.regenerateTemplate(props.paperId, templateName)
-  startPolling()
-}
-
+async function generateAll() { await store.triggerAllTemplates(props.paperId); startPolling() }
+async function regenerate(name: string) { await store.regenerateTemplate(props.paperId, name); startPolling() }
 function startPolling() {
   if (pollTimer) return
   pollTimer = setInterval(async () => {
     await store.fetchQA(props.paperId)
-    const allDone = store.templates.every((t) => {
-      const entry = store.qaData.template[t.name]
-      return entry && entry.results.length > 0
-    })
-    if (allDone && pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
+    if (store.templates.every(t => isDone(t.name)) && pollTimer) { clearInterval(pollTimer); pollTimer = null }
   }, 3000)
 }
 </script>
 
 <template>
-  <v-card variant="outlined" class="mb-4">
-    <v-card-title class="d-flex align-center">
-      <v-icon class="mr-2">mdi-file-document-check</v-icon>
-      模板提问
-      <v-spacer />
-      <v-btn v-if="hasUngenerated" color="primary" size="small" prepend-icon="mdi-play-circle" :loading="store.submitting" @click="generateAll">
-        一键生成所有
-      </v-btn>
-    </v-card-title>
-    <v-card-text>
-      <div v-if="store.templates.length === 0" class="text-grey text-center pa-4">
-        暂无模板（在 templates/ 目录中添加 .md 文件）
-      </div>
-      <v-expansion-panels v-else variant="accordion">
-        <v-expansion-panel v-for="tmpl in store.templates" :key="tmpl.name">
-          <v-expansion-panel-title>
-            <div class="d-flex align-center" style="width: 100%">
-              <v-icon :color="getStatus(tmpl.name) === 'done' ? 'success' : 'grey'" size="small" class="mr-2">
-                {{ getStatus(tmpl.name) === 'done' ? 'mdi-check-circle' : 'mdi-circle-outline' }}
-              </v-icon>
-              <span class="font-weight-medium text-capitalize">{{ tmpl.name }}</span>
-              <v-spacer />
-              <v-chip v-if="getLatestResult(tmpl.name)" size="x-small" color="info" variant="tonal" class="mr-2">
-                {{ getLatestResult(tmpl.name)!.model_name }}
-              </v-chip>
+  <div class="rounded-xl border border-gray-200 bg-white">
+    <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+      <h3 class="text-sm font-semibold text-gray-900">模板提问</h3>
+      <button v-if="hasUngenerated" @click="generateAll" :disabled="store.submitting"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
+        <Play class="h-3 w-3" /> 一键生成
+      </button>
+    </div>
+    <div v-if="!store.templates.length" class="px-5 py-8 text-center text-sm text-gray-400">暂无模板</div>
+    <div v-else class="divide-y divide-gray-50">
+      <details v-for="tmpl in store.templates" :key="tmpl.name" class="group">
+        <summary class="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors list-none [&::-webkit-details-marker]:hidden">
+          <CheckCircle2 v-if="isDone(tmpl.name)" class="h-4 w-4 text-emerald-500 shrink-0" />
+          <Circle v-else class="h-4 w-4 text-gray-300 shrink-0" />
+          <span class="text-sm font-medium text-gray-700 capitalize flex-1">{{ tmpl.name }}</span>
+          <span v-if="getLatest(tmpl.name)" class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">{{ getLatest(tmpl.name)!.model_name }}</span>
+        </summary>
+        <div class="px-5 pb-4 pt-1">
+          <div v-if="getLatest(tmpl.name)">
+            <p class="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{{ getLatest(tmpl.name)!.answer }}</p>
+            <div class="flex items-center justify-between mt-3">
+              <span class="text-[10px] text-gray-400">{{ new Date(getLatest(tmpl.name)!.completed_at).toLocaleString() }}</span>
+              <button @click="regenerate(tmpl.name)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 transition">
+                <RefreshCw class="h-3 w-3" /> 重新生成
+              </button>
             </div>
-          </v-expansion-panel-title>
-          <v-expansion-panel-text>
-            <div v-if="getLatestResult(tmpl.name)">
-              <p class="text-body-2" style="white-space: pre-wrap; line-height: 1.7;">{{ getLatestResult(tmpl.name)!.answer }}</p>
-              <div class="d-flex align-center mt-3">
-                <v-chip size="x-small" variant="tonal">{{ new Date(getLatestResult(tmpl.name)!.completed_at).toLocaleString() }}</v-chip>
-                <v-spacer />
-                <v-btn size="small" variant="tonal" prepend-icon="mdi-refresh" @click="regenerate(tmpl.name)">重新生成</v-btn>
-              </div>
-            </div>
-            <div v-else class="text-grey text-center pa-4">
-              未生成
-              <v-btn size="small" variant="tonal" class="ml-2" @click="regenerate(tmpl.name)">生成</v-btn>
-            </div>
-          </v-expansion-panel-text>
-        </v-expansion-panel>
-      </v-expansion-panels>
-    </v-card-text>
-  </v-card>
+          </div>
+          <div v-else class="text-sm text-gray-400 text-center py-3">
+            <button @click="regenerate(tmpl.name)" class="text-indigo-600 hover:text-indigo-700 font-medium">生成</button>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
 </template>
