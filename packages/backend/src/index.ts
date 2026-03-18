@@ -9,6 +9,7 @@ import { paperRoutes } from './api/papers.js'
 import { serviceRoutes } from './api/services.js'
 import { startBackupScheduler } from './db/backup.js'
 import { serviceRunner } from './services/service_runner.js'
+import { arxivService } from './services/arxiv_service.js'
 
 async function main() {
   // Load config
@@ -22,6 +23,7 @@ async function main() {
 
   // Initialize service runner
   serviceRunner.initialize()
+  serviceRunner.register(arxivService)
 
   // Create Fastify instance
   const app = Fastify({ logger: true })
