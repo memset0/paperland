@@ -7,6 +7,9 @@ import { tokenAuth } from './auth/token_auth.js'
 import { settingsRoutes } from './api/settings.js'
 import { paperRoutes } from './api/papers.js'
 import { serviceRoutes } from './api/services.js'
+import { qaRoutes } from './api/qa.js'
+import { externalPaperRoutes } from './external-api/papers.js'
+import { externalTagRoutes } from './external-api/tags.js'
 import { startBackupScheduler } from './db/backup.js'
 import { serviceRunner } from './services/service_runner.js'
 import { arxivService } from './services/arxiv_service.js'
@@ -60,6 +63,11 @@ async function main() {
   await app.register(settingsRoutes)
   await app.register(paperRoutes)
   await app.register(serviceRoutes)
+  await app.register(qaRoutes)
+
+  // Register external API routes
+  await app.register(externalPaperRoutes)
+  await app.register(externalTagRoutes)
 
   // Start server
   const port = 3000
