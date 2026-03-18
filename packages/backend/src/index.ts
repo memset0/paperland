@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
-import { existsSync, createReadStream } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { loadConfig } from './config.js'
 import { initDatabase } from './db/index.js'
@@ -68,9 +68,10 @@ async function main() {
       reply.code(404).send({ error: 'File not found' })
       return
     }
+    const buffer = readFileSync(filePath)
     reply.header('Content-Type', 'application/pdf')
     reply.header('Cache-Control', 'public, max-age=86400')
-    return reply.send(Bun.file(filePath))
+    return reply.send(buffer)
   })
 
   // Register routes
