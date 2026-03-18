@@ -35,14 +35,21 @@ const serviceSchema = z.object({
 
 const modelSchema = z.object({
   name: z.string(),
-  type: z.enum(['openai_api', 'claude_cli', 'codex_cli']),
+  type: z.enum(['openai_api', 'claude_cli', 'codex_cli', 'codex']),
   endpoint: z.string().optional(),
   api_key_env: z.string().optional(),
+  shell: z.string().optional(),       // For codex type: full shell command prefix, e.g. 'codex exec --skip-git-repo-check --model "gpt-5.4"'
+  timeout: z.number().optional(),     // Timeout in seconds, default 120
 })
 
 const modelsSchema = z.object({
   default: z.string(),
   available: z.array(modelSchema).min(1),
+})
+
+const qaTemplateSchema = z.object({
+  name: z.string(),
+  prompt: z.string(),
 })
 
 const configSchema = z.object({
@@ -51,6 +58,8 @@ const configSchema = z.object({
   services: z.record(z.string(), serviceSchema).default({}),
   models: modelsSchema,
   content_priority: z.array(z.string()).default(['user_input', 'alphaxiv', 'pdf_parsed']),
+  system_prompt: z.string(),
+  qa: z.array(qaTemplateSchema).min(1),
 })
 
 let _config: AppConfig | null = null

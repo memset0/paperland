@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
+import { getSystemPrompt } from './template_loader.js'
 
 function resolveContent(paper: any): string | null {
   const config = getConfig()
@@ -43,22 +44,85 @@ async function callOpenAI(prompt: string, modelConfig: any): Promise<string> {
   return data.choices?.[0]?.message?.content || ''
 }
 
+async function callCodex(prompt: string, modelConfig: any): Promise<string> {
+  const shell = modelConfig.shell
+  if (!shell) throw new Error('Codex model missing "shell" config (e.g. \'codex exec --skip-git-repo-check --model "gpt-5.4"\')')
+
+  const timeoutMs = (modelConfig.timeout || 120) * 1000
+
+  // Use shell command with prompt as quoted argument
+  const fullCmd = `${shell} ${shellQuote(prompt)}`
+
+  const proc = Bun.spawn(['bash', '-c', fullCmd], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: process.env,  // Explicitly inherit all env vars (critical for multi-codex setups)
+  })
+
+  // Race between process completion and timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      proc.kill()
+      reject(new Error(`Codex CLI timed out after ${modelConfig.timeout || 120}s`))
+    }, timeoutMs)
+  })
+
+  try {
+    const [output, exitCode] = await Promise.race([
+      Promise.all([new Response(proc.stdout).text(), proc.exited]),
+      timeoutPromise.then(() => { throw new Error('timeout') }),
+    ]) as [string, number]
+
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text()
+      throw new Error(`Codex CLI failed (exit ${exitCode}): ${stderr.slice(0, 500)}`)
+    }
+
+    return output.trim()
+  } catch (err) {
+    proc.kill()
+    throw err
+  }
+}
+
 async function callCLI(prompt: string, modelConfig: any): Promise<string> {
+  // Claude CLI: use -p flag for single prompt
   const cmd = modelConfig.type === 'claude_cli' ? 'claude' : 'codex'
+  const timeoutMs = (modelConfig.timeout || 120) * 1000
+
   const proc = Bun.spawn([cmd, '-p', prompt], {
     stdout: 'pipe',
     stderr: 'pipe',
+    env: process.env,
   })
 
-  const output = await new Response(proc.stdout).text()
-  const exitCode = await proc.exited
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      proc.kill()
+      reject(new Error(`${cmd} CLI timed out after ${modelConfig.timeout || 120}s`))
+    }, timeoutMs)
+  })
 
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text()
-    throw new Error(`${cmd} CLI failed: ${stderr}`)
+  try {
+    const [output, exitCode] = await Promise.race([
+      Promise.all([new Response(proc.stdout).text(), proc.exited]),
+      timeoutPromise.then(() => { throw new Error('timeout') }),
+    ]) as [string, number]
+
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text()
+      throw new Error(`${cmd} CLI failed (exit ${exitCode}): ${stderr.slice(0, 500)}`)
+    }
+
+    return output.trim()
+  } catch (err) {
+    proc.kill()
+    throw err
   }
+}
 
-  return output.trim()
+function shellQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'"
 }
 
 export async function askQuestion(
@@ -73,9 +137,8 @@ export async function askQuestion(
   const content = resolveContent(paper)
   if (!content) throw new Error('No content available for this paper. Please ensure PDF has been parsed or content has been provided.')
 
-  const fullPrompt = prompt.includes('{{content}}')
-    ? prompt.replace('{{content}}', content)
-    : `${prompt}\n\n论文内容：\n${content}`
+  const systemPrompt = getSystemPrompt()
+  const fullPrompt = systemPrompt.replace('{PAPER}', content).replace('{PROMPT}', prompt)
 
   const config = getConfig()
   const modelConfig = config.models.available.find((m) => m.name === modelName)

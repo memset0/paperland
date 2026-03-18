@@ -90,9 +90,9 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       }
 
       triggered.push(tmpl.name)
-      askQuestion(paperId, tmpl.content, defaultModel).then((res) => {
+      askQuestion(paperId, tmpl.prompt, defaultModel).then((res) => {
         db.insert(schema.qaResults).values({
-          qa_entry_id: entryId, prompt: tmpl.content, answer: res.answer,
+          qa_entry_id: entryId, prompt: tmpl.prompt, answer: res.answer,
           model_name: res.model_name, completed_at: new Date().toISOString(),
         }).run()
       }).catch((err) => { console.error(`Template QA failed for ${tmpl.name}:`, err.message) })
@@ -122,9 +122,9 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       entry = db.insert(schema.qaEntries).values({ paper_id: paperId, type: 'template', template_name: templateName }).returning().get()
     }
 
-    askQuestion(paperId, tmpl.content, config.models.default).then((res) => {
+    askQuestion(paperId, tmpl.prompt, config.models.default).then((res) => {
       db.insert(schema.qaResults).values({
-        qa_entry_id: entry!.id, prompt: tmpl!.content, answer: res.answer,
+        qa_entry_id: entry!.id, prompt: tmpl!.prompt, answer: res.answer,
         model_name: res.model_name, completed_at: new Date().toISOString(),
       }).run()
     }).catch((err) => { console.error(`Template regenerate failed:`, err.message) })
@@ -176,7 +176,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     if (entry.type === 'template' && entry.template_name) {
       const tmpl = loadTemplate(entry.template_name)
       if (!tmpl) { reply.code(404).send({ error: { code: 'TEMPLATE_NOT_FOUND', message: 'Template not found' } }); return }
-      prompt = tmpl.content
+      prompt = tmpl.prompt
     } else {
       const lastResult = db.select().from(schema.qaResults).where(eq(schema.qaResults.qa_entry_id, entryId)).orderBy(desc(schema.qaResults.completed_at)).get()
       if (!lastResult) { reply.code(422).send({ error: { code: 'NO_PROMPT', message: 'No previous result' } }); return }

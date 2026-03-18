@@ -22,11 +22,6 @@
 ```
 paperland/
 ├── config.yml                      # 全站统一配置
-├── templates/                      # Q&A prompt 模板
-│   ├── abstract.md
-│   ├── method.md
-│   └── experiment.md
-│
 ├── packages/
 │   ├── frontend/                   # Vue 3 + Vite
 │   │   ├── src/

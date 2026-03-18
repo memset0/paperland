@@ -103,12 +103,19 @@ export interface ModelsConfig {
   available: ModelConfig[]
 }
 
+export interface QATemplate {
+  name: string
+  prompt: string
+}
+
 export interface AppConfig {
   database: DatabaseConfig
   auth: AuthConfig
   services: Record<string, ServiceConfig>
   models: ModelsConfig
   content_priority: string[]
+  system_prompt: string
+  qa: QATemplate[]
 }
 
 // API response types

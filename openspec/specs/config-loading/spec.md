@@ -57,3 +57,10 @@ The config SHALL support a `content_priority` array of strings defining the prio
 - **WHEN** config.yml contains `content_priority: [user_input, alphaxiv, pdf_parsed]`
 - **THEN** the system SHALL use user_input first, then alphaxiv, then pdf_parsed when selecting text context for Q&A
 
+### Requirement: Config schema validation
+The config Zod schema and `AppConfig` TypeScript interface SHALL be extended to include `system_prompt` (string) and `qa` (array of `{name: string, prompt: string}`) fields. Both are required.
+
+#### Scenario: AppConfig type includes template fields
+- **WHEN** code accesses `getConfig().system_prompt` or `getConfig().qa`
+- **THEN** TypeScript SHALL recognize these as valid typed fields (`string` and `Array<{name: string, prompt: string}>` respectively)
+

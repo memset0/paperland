@@ -74,7 +74,7 @@ Each service has `max_concurrency` and `rate_limit_interval` config. Services ar
 - **Zod validation** — config loaded and validated at startup via `packages/backend/src/config.ts`
 - **Q&A context priority** — `content_priority` in config.yml determines which text source to use (user_input > alphaxiv > pdf_parsed)
 - **Paper basic fields** (title, abstract, authors) — not managed by service dependency graph; any fetch service fills them if empty
-- **Templates** — Q&A prompt templates are `.md` files in `templates/` directory, managed via filesystem only
+- **Templates** — Q&A prompt templates are defined in `config.yml` via `system_prompt` (paper+question assembly template using `{PAPER}` and `{PROMPT}` placeholders) and `qa` (ordered list of template questions with `name` and `prompt`)
 
 ## Testing Caution
 

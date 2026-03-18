@@ -36,3 +36,20 @@ content_priority:
   - user_input
   - alphaxiv
   - pdf_parsed
+
+system_prompt: |
+  请根据以下论文内容回答问题。
+
+  论文内容：
+  {PAPER}
+
+  问题：
+  {PROMPT}
+
+qa:
+  - name: abstract
+    prompt: "用中文总结这篇论文的核心内容和主要贡献（200-300字）。"
+  - name: method
+    prompt: "用中文详细描述这篇论文提出的方法和技术方案（200-400字）。"
+  - name: experiment
+    prompt: "用中文总结这篇论文的实验设计、数据集和实验结果（200-400字）。"

@@ -152,9 +152,9 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
               entryId = entry.id
             }
             try {
-              const res = await askQuestion(paper.id, tmpl.content, config.models.default)
+              const res = await askQuestion(paper.id, tmpl.prompt, config.models.default)
               db.insert(schema.qaResults).values({
-                qa_entry_id: entryId, prompt: tmpl.content, answer: res.answer,
+                qa_entry_id: entryId, prompt: tmpl.prompt, answer: res.answer,
                 model_name: res.model_name, completed_at: new Date().toISOString(),
               }).run()
             } catch (err: any) { console.error(`Auto template QA failed for ${tmpl.name}:`, err.message) }
