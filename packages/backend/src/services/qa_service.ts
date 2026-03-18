@@ -147,7 +147,10 @@ export async function askQuestion(
   let answer: string
   if (modelConfig.type === 'openai_api') {
     answer = await callOpenAI(fullPrompt, modelConfig)
+  } else if (modelConfig.type === 'codex') {
+    answer = await callCodex(fullPrompt, modelConfig)
   } else {
+    // claude_cli or codex_cli (legacy)
     answer = await callCLI(fullPrompt, modelConfig)
   }
 

@@ -31,6 +31,10 @@ models:
       type: openai_api
       endpoint: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
+    - name: codex
+      type: codex
+      shell: 'codex exec --skip-git-repo-check --model "gpt-4.1"'
+      timeout: 180
 
 content_priority:
   - user_input
