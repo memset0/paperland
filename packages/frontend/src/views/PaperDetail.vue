@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 
 const route = useRoute()
+const router = useRouter()
 const store = usePapersStore()
 
 onMounted(() => {
@@ -13,45 +14,76 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="paper-detail" v-if="store.currentPaper">
-    <h1>{{ store.currentPaper.title }}</h1>
-    <div class="meta">
-      <span v-if="store.currentPaper.arxiv_id">arXiv: {{ store.currentPaper.arxiv_id }}</span>
-      <span v-if="store.currentPaper.corpus_id">Corpus: {{ store.currentPaper.corpus_id }}</span>
-      <span>添加于 {{ new Date(store.currentPaper.created_at).toLocaleDateString() }}</span>
-    </div>
-    <div class="authors" v-if="store.currentPaper.authors?.length">
-      <strong>作者:</strong> {{ Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors.join(', ') : store.currentPaper.authors }}
-    </div>
-    <div class="abstract" v-if="store.currentPaper.abstract">
-      <h3>摘要</h3>
-      <p>{{ store.currentPaper.abstract }}</p>
-    </div>
+  <div>
+    <v-btn variant="text" prepend-icon="mdi-arrow-left" class="mb-4" @click="router.push('/')">
+      返回列表
+    </v-btn>
+
+    <v-skeleton-loader v-if="store.loading" type="article" />
+
+    <v-card v-else-if="store.currentPaper">
+      <v-card-title class="text-h5 pa-6 pb-2">
+        {{ store.currentPaper.title }}
+      </v-card-title>
+
+      <v-card-text class="pa-6 pt-2">
+        <div class="d-flex flex-wrap ga-2 mb-4">
+          <v-chip v-if="store.currentPaper.arxiv_id" color="blue" variant="tonal" prepend-icon="mdi-link-variant">
+            arXiv: {{ store.currentPaper.arxiv_id }}
+          </v-chip>
+          <v-chip v-if="store.currentPaper.corpus_id" color="green" variant="tonal" prepend-icon="mdi-link-variant">
+            Corpus: {{ store.currentPaper.corpus_id }}
+          </v-chip>
+          <v-chip variant="tonal" prepend-icon="mdi-calendar">
+            {{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
+          </v-chip>
+        </div>
+
+        <div v-if="store.currentPaper.authors?.length" class="mb-4">
+          <div class="text-subtitle-2 text-grey mb-1">作者</div>
+          <div>
+            <v-chip
+              v-for="author in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])"
+              :key="author"
+              size="small"
+              class="mr-1 mb-1"
+            >
+              {{ author }}
+            </v-chip>
+          </div>
+        </div>
+
+        <div v-if="(store.currentPaper as any).tags?.length" class="mb-4">
+          <div class="text-subtitle-2 text-grey mb-1">标签</div>
+          <v-chip
+            v-for="tag in (store.currentPaper as any).tags"
+            :key="tag"
+            size="small"
+            color="purple"
+            variant="tonal"
+            class="mr-1"
+          >
+            {{ tag }}
+          </v-chip>
+        </div>
+
+        <v-divider class="my-4" />
+
+        <div v-if="store.currentPaper.abstract">
+          <div class="text-subtitle-1 font-weight-bold mb-2">摘要</div>
+          <p class="text-body-1" style="line-height: 1.7;">{{ store.currentPaper.abstract }}</p>
+        </div>
+
+        <div v-if="store.currentPaper.pdf_path" class="mt-4">
+          <v-chip color="orange" variant="tonal" prepend-icon="mdi-file-pdf-box">
+            PDF: {{ store.currentPaper.pdf_path }}
+          </v-chip>
+        </div>
+      </v-card-text>
+    </v-card>
+
+    <v-alert v-else type="warning" class="mt-4">
+      论文未找到
+    </v-alert>
   </div>
-  <div v-else class="loading">加载中...</div>
 </template>
-
-<style scoped>
-.paper-detail {
-  background: #fff;
-  border-radius: 8px;
-  padding: 24px;
-}
-
-h1 { font-size: 22px; margin-bottom: 12px; }
-
-.meta {
-  display: flex;
-  gap: 16px;
-  color: #666;
-  font-size: 13px;
-  margin-bottom: 16px;
-}
-
-.authors { margin-bottom: 16px; font-size: 14px; }
-
-.abstract h3 { margin-bottom: 8px; }
-.abstract p { line-height: 1.6; color: #444; }
-
-.loading { text-align: center; padding: 40px; color: #999; }
-</style>
