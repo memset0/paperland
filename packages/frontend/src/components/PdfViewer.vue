@@ -17,8 +17,12 @@ async function renderPdf(path: string) {
     const pdfjsLib = await import('pdfjs-dist')
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 
+    // Fetch PDF with credentials, then pass data to pdfjs
     const url = `/api/files/${encodeURIComponent(path)}`
-    const pdf = await pdfjsLib.getDocument(url).promise
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`Failed to fetch PDF: ${response.status}`)
+    const data = new Uint8Array(await response.arrayBuffer())
+    const pdf = await pdfjsLib.getDocument({ data }).promise
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
