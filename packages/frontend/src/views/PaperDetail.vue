@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, computed, ref } from 'vue'
+import { onMounted, onUnmounted, computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, FileText } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, FileDown } from 'lucide-vue-next'
 import PdfViewer from '@/components/PdfViewer.vue'
 import TemplateQA from '@/components/TemplateQA.vue'
 import FreeQA from '@/components/FreeQA.vue'
@@ -14,27 +14,42 @@ const store = usePapersStore()
 const qaStore = useQAStore()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
 
+// Responsive: only show split view on wide screens
+const isWide = ref(window.innerWidth >= 900)
+function onResize() { isWide.value = window.innerWidth >= 900 }
+
 // Draggable split
-const leftWidth = ref(45) // percent
+const leftWidth = ref(45)
 const dragging = ref(false)
 
 function startDrag() { dragging.value = true }
 function onDrag(e: MouseEvent) {
   if (!dragging.value) return
-  const container = document.getElementById('split-container')
-  if (!container) return
-  const rect = container.getBoundingClientRect()
-  const pct = ((e.clientX - rect.left) / rect.width) * 100
-  leftWidth.value = Math.max(20, Math.min(80, pct))
+  const el = document.getElementById('split-container')
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  leftWidth.value = Math.max(20, Math.min(80, ((e.clientX - rect.left) / rect.width) * 100))
 }
 function stopDrag() { dragging.value = false }
 
+const arxivPdfUrl = computed(() => {
+  const id = store.currentPaper?.arxiv_id
+  return id ? `https://arxiv.org/pdf/${id}.pdf` : null
+})
+
 onMounted(async () => {
+  window.addEventListener('resize', onResize)
   document.addEventListener('mousemove', onDrag)
   document.addEventListener('mouseup', stopDrag)
   await store.fetchPaper(paperId.value)
   await qaStore.fetchTemplates()
   await qaStore.fetchQA(paperId.value)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', onResize)
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
 })
 </script>
 
@@ -50,27 +65,27 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Split view -->
-    <div id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging }">
-      <!-- Left: PDF -->
+    <!-- Wide screen: split view -->
+    <div v-if="isWide" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging }">
+      <!-- Left: PDF (iframe) -->
       <div :style="{ width: leftWidth + '%' }" class="shrink-0 overflow-hidden">
         <PdfViewer :pdf-path="store.currentPaper?.pdf_path || null" />
       </div>
 
       <!-- Divider -->
-      <div @mousedown.prevent="startDrag" class="w-1 shrink-0 cursor-col-resize bg-gray-200 hover:bg-indigo-400 active:bg-indigo-500 transition-colors"></div>
+      <div @mousedown.prevent="startDrag" class="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-indigo-400 active:bg-indigo-500 transition-colors relative group">
+        <div class="absolute inset-y-0 -left-1 -right-1"></div>
+      </div>
 
       <!-- Right: Info + QA -->
       <div class="flex-1 overflow-y-auto">
         <div v-if="store.loading" class="flex items-center justify-center h-full">
           <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
         </div>
-
         <div v-else-if="store.currentPaper" class="p-5 space-y-5">
-          <!-- Paper info card -->
+          <!-- Paper info -->
           <div class="rounded-xl border border-gray-200 bg-white p-5">
             <h2 class="text-lg font-semibold text-gray-900 leading-snug mb-3">{{ store.currentPaper.title }}</h2>
-
             <div class="flex flex-wrap gap-1.5 mb-4">
               <span v-if="store.currentPaper.arxiv_id" class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/10">
                 <ExternalLink class="h-3 w-3" /> arXiv: {{ store.currentPaper.arxiv_id }}
@@ -82,42 +97,76 @@ onMounted(async () => {
                 <Calendar class="h-3 w-3" /> {{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
               </span>
             </div>
-
-            <!-- Authors -->
             <div v-if="store.currentPaper.authors?.length" class="mb-4">
-              <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-                <Users class="h-3 w-3" /> 作者
-              </div>
+              <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2"><Users class="h-3 w-3" /> 作者</div>
               <div class="flex flex-wrap gap-1">
-                <span v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a"
-                  class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{{ a }}</span>
+                <span v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{{ a }}</span>
               </div>
             </div>
-
-            <!-- Tags -->
             <div v-if="(store.currentPaper as any).tags?.length" class="mb-4">
-              <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-                <Tag class="h-3 w-3" /> 标签
-              </div>
+              <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2"><Tag class="h-3 w-3" /> 标签</div>
               <div class="flex flex-wrap gap-1">
-                <span v-for="t in (store.currentPaper as any).tags" :key="t"
-                  class="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/10">{{ t }}</span>
+                <span v-for="t in (store.currentPaper as any).tags" :key="t" class="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/10">{{ t }}</span>
               </div>
             </div>
-
-            <!-- Abstract -->
             <div v-if="store.currentPaper.abstract">
               <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">摘要</div>
               <p class="text-sm text-gray-600 leading-relaxed">{{ store.currentPaper.abstract }}</p>
             </div>
           </div>
-
-          <!-- Template QA -->
           <TemplateQA :paper-id="paperId" />
-
-          <!-- Free QA -->
           <FreeQA :paper-id="paperId" />
         </div>
+      </div>
+    </div>
+
+    <!-- Narrow screen: single column -->
+    <div v-else class="flex-1 overflow-y-auto">
+      <div v-if="store.loading" class="flex items-center justify-center py-20">
+        <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
+      </div>
+      <div v-else-if="store.currentPaper" class="p-5 space-y-5 max-w-3xl mx-auto">
+        <!-- PDF link for narrow screens -->
+        <a v-if="arxivPdfUrl" :href="arxivPdfUrl" target="_blank" rel="noopener noreferrer"
+          class="flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-700 hover:bg-orange-100 transition-colors">
+          <FileDown class="h-4 w-4" />
+          在 arXiv 查看 PDF
+          <ExternalLink class="h-3 w-3 ml-auto" />
+        </a>
+
+        <!-- Paper info -->
+        <div class="rounded-xl border border-gray-200 bg-white p-5">
+          <h2 class="text-lg font-semibold text-gray-900 leading-snug mb-3">{{ store.currentPaper.title }}</h2>
+          <div class="flex flex-wrap gap-1.5 mb-4">
+            <span v-if="store.currentPaper.arxiv_id" class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/10">
+              <ExternalLink class="h-3 w-3" /> arXiv: {{ store.currentPaper.arxiv_id }}
+            </span>
+            <span v-if="store.currentPaper.corpus_id" class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
+              Corpus: {{ store.currentPaper.corpus_id }}
+            </span>
+            <span class="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-0.5 text-xs text-gray-500 ring-1 ring-inset ring-gray-200">
+              <Calendar class="h-3 w-3" /> {{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
+            </span>
+          </div>
+          <div v-if="store.currentPaper.authors?.length" class="mb-4">
+            <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2"><Users class="h-3 w-3" /> 作者</div>
+            <div class="flex flex-wrap gap-1">
+              <span v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{{ a }}</span>
+            </div>
+          </div>
+          <div v-if="(store.currentPaper as any).tags?.length" class="mb-4">
+            <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2"><Tag class="h-3 w-3" /> 标签</div>
+            <div class="flex flex-wrap gap-1">
+              <span v-for="t in (store.currentPaper as any).tags" :key="t" class="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/10">{{ t }}</span>
+            </div>
+          </div>
+          <div v-if="store.currentPaper.abstract">
+            <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">摘要</div>
+            <p class="text-sm text-gray-600 leading-relaxed">{{ store.currentPaper.abstract }}</p>
+          </div>
+        </div>
+        <TemplateQA :paper-id="paperId" />
+        <FreeQA :paper-id="paperId" />
       </div>
     </div>
   </div>

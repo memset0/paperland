@@ -14,7 +14,6 @@
     "vue-router": "^4.3.0",
     "pinia": "^2.1.0",
     "lucide-vue-next": "*",
-    "pdfjs-dist": "^4.0.0",
     "clsx": "*",
     "tailwind-merge": "*"
   },
