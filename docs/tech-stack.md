@@ -172,8 +172,9 @@ database:
   path: ./data/paperland.db         # SQLite 时使用
   # url: postgresql://...           # PostgreSQL 时使用
 
-# 认证
+# 认证 (enabled: false 可完全关闭 Basic Auth)
 auth:
+  enabled: true                       # true | false — 关闭后 /api/* 无需认证
   users:
     - username: "admin"
       password: "your-password-here"

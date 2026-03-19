@@ -2,7 +2,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
-import { loadConfig } from './config.js'
+import { loadConfig, getConfig } from './config.js'
 import { initDatabase } from './db/index.js'
 import { basicAuth } from './auth/basic_auth.js'
 import { tokenAuth } from './auth/token_auth.js'
@@ -10,6 +10,7 @@ import { settingsRoutes } from './api/settings.js'
 import { paperRoutes } from './api/papers.js'
 import { serviceRoutes } from './api/services.js'
 import { qaRoutes } from './api/qa.js'
+import { highlightsRoutes } from './api/highlights.js'
 import { externalPaperRoutes } from './external-api/papers.js'
 import { externalTagRoutes } from './external-api/tags.js'
 import { startBackupScheduler } from './db/backup.js'
@@ -23,7 +24,11 @@ import { papersCoolService } from './services/papers_cool_service.js'
 
 async function main() {
   // Load config
-  loadConfig()
+  const config = loadConfig()
+
+  if (!config.auth.enabled) {
+    console.warn('WARNING: Auth is disabled — all API routes are publicly accessible')
+  }
 
   // Initialize database
   initDatabase()
@@ -75,9 +80,11 @@ async function main() {
       return
     }
 
-    // Internal API uses basic auth
+    // Internal API uses basic auth (if enabled)
     if (request.url.startsWith('/api/')) {
-      await basicAuth(request, reply)
+      if (getConfig().auth.enabled) {
+        await basicAuth(request, reply)
+      }
       return
     }
   })
@@ -100,6 +107,7 @@ async function main() {
   await app.register(paperRoutes)
   await app.register(serviceRoutes)
   await app.register(qaRoutes)
+  await app.register(highlightsRoutes)
 
   // Register external API routes
   await app.register(externalPaperRoutes)

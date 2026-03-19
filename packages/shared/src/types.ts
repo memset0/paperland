@@ -86,6 +86,7 @@ export interface AuthUser {
 }
 
 export interface AuthConfig {
+  enabled: boolean
   users: AuthUser[]
 }
 
@@ -123,6 +124,21 @@ export interface AppConfig {
   content_priority: string[]
   system_prompt: string
   qa: QATemplate[]
+}
+
+// Highlight
+export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink'
+
+export interface Highlight {
+  id: number
+  pathname: string
+  content_hash: string
+  start_offset: number
+  end_offset: number
+  text: string
+  color: HighlightColor
+  note: string | null
+  created_at: string
 }
 
 // API response types

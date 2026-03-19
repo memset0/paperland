@@ -23,8 +23,12 @@ const authUserSchema = z.object({
 })
 
 const authSchema = z.object({
-  users: z.array(authUserSchema).min(1),
-})
+  enabled: z.boolean().default(true),
+  users: z.array(authUserSchema).default([]),
+}).refine(
+  (data) => !data.enabled || data.users.length >= 1,
+  { message: 'auth.users must have at least 1 entry when auth is enabled', path: ['users'] }
+)
 
 const serviceSchema = z.object({
   max_concurrency: z.number().int().positive().default(2),
