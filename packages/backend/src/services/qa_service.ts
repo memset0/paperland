@@ -50,12 +50,13 @@ async function callCodex(prompt: string, modelConfig: any): Promise<string> {
 
   const timeoutMs = (modelConfig.timeout || 120) * 1000
 
-  // Use shell command with prompt as quoted argument
-  const fullCmd = `${shell} ${shellQuote(prompt)}`
+  // Pass prompt via stdin with '-' argument to avoid E2BIG for long content
+  const fullCmd = `${shell} -`
 
   const proc = Bun.spawn(['bash', '-c', fullCmd], {
     stdout: 'pipe',
     stderr: 'pipe',
+    stdin: new TextEncoder().encode(prompt),
     env: process.env,  // Explicitly inherit all env vars (critical for multi-codex setups)
   })
 
@@ -90,9 +91,10 @@ async function callCLI(prompt: string, modelConfig: any): Promise<string> {
   const cmd = modelConfig.type === 'claude_cli' ? 'claude' : 'codex'
   const timeoutMs = (modelConfig.timeout || 120) * 1000
 
-  const proc = Bun.spawn([cmd, '-p', prompt], {
+  const proc = Bun.spawn([cmd, '-p', '-'], {
     stdout: 'pipe',
     stderr: 'pipe',
+    stdin: new TextEncoder().encode(prompt),
     env: process.env,
   })
 

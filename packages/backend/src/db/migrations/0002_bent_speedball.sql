@@ -1,0 +1,1 @@
+ALTER TABLE `qa_results` ADD `execution_id` integer;

@@ -2,30 +2,32 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api } from '@/api/client'
 
-interface QAResult {
+export interface QAResult {
   id: number
   qa_entry_id: number
   prompt: string
   answer: string
   model_name: string
   completed_at: string
+  execution_id: number | null
 }
 
-interface TemplateEntry {
+export interface TemplateEntry {
   entry_id: number
   status: string
   error: string | null
   results: QAResult[]
 }
 
-interface FreeEntry {
+export interface FreeEntry {
   entry_id: number
   status: string
   error: string | null
+  prompt: string | null
   results: QAResult[]
 }
 
-interface QAData {
+export interface QAData {
   template: Record<string, TemplateEntry>
   free: FreeEntry[]
 }
@@ -35,8 +37,9 @@ export const useQAStore = defineStore('qa', () => {
   const templates = ref<Array<{ name: string; prompt: string }>>([])
   const loading = ref(false)
   const submitting = ref(false)
-  const selectedModels = ref<string[]>([])
   const polling = ref(false)
+  const selectedModels = ref<string[]>([])
+  const currentPaperId = ref<number | null>(null)
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
   async function fetchTemplates() {
@@ -44,27 +47,56 @@ export const useQAStore = defineStore('qa', () => {
     templates.value = res.data
   }
 
-  async function fetchQA(paperId: number) {
-    loading.value = true
+  async function fetchQA(paperId: number, showLoading = false) {
+    if (showLoading) loading.value = true
     try {
-      qaData.value = await api.get<QAData>(`/api/papers/${paperId}/qa`)
+      const data = await api.get<QAData>(`/api/papers/${paperId}/qa`)
+      // Only update if still viewing the same paper
+      if (currentPaperId.value === paperId) {
+        qaData.value = data
+      }
     } finally {
-      loading.value = false
+      if (showLoading) loading.value = false
     }
+  }
+
+  /** Call this when switching papers — resets state and sets the active paper */
+  function switchPaper(paperId: number) {
+    stopPolling()
+    currentPaperId.value = paperId
+    qaData.value = { template: {}, free: [] }
   }
 
   async function triggerAllTemplates(paperId: number) {
     submitting.value = true
     try {
-      await api.post(`/api/papers/${paperId}/qa/template`)
+      const res = await api.post<{ triggered: string[] }>(`/api/papers/${paperId}/qa/template`)
+      // Immediately set placeholders so UI shows spinning state
+      if (currentPaperId.value === paperId) {
+        for (const name of res.triggered) {
+          qaData.value.template[name] = {
+            entry_id: 0,
+            status: 'running',
+            error: null,
+            results: [],
+          }
+        }
+      }
+      await fetchQA(paperId)
       startPolling(paperId)
     } finally {
       submitting.value = false
     }
   }
 
-  async function regenerateTemplate(paperId: number, templateName: string) {
-    await api.post(`/api/papers/${paperId}/qa/template/${templateName}/regenerate`)
+  async function regenerateTemplate(paperId: number, templateName: string, model?: string) {
+    // Immediately show running state
+    if (currentPaperId.value === paperId && qaData.value.template[templateName]) {
+      qaData.value.template[templateName].status = 'running'
+      qaData.value.template[templateName].error = null
+    }
+    await api.post(`/api/papers/${paperId}/qa/template/${templateName}/regenerate`, model ? { model } : undefined)
+    await fetchQA(paperId)
     startPolling(paperId)
   }
 
@@ -72,6 +104,16 @@ export const useQAStore = defineStore('qa', () => {
     submitting.value = true
     try {
       const res = await api.post<{ entry_id: number }>(`/api/papers/${paperId}/qa/free`, { question, models })
+      // Immediately add placeholder so UI shows spinning state
+      if (currentPaperId.value === paperId) {
+        qaData.value.free.unshift({
+          entry_id: res.entry_id,
+          status: 'running',
+          error: null,
+          prompt: question,
+          results: [],
+        })
+      }
       startPolling(paperId)
       return res
     } finally {
@@ -80,8 +122,22 @@ export const useQAStore = defineStore('qa', () => {
   }
 
   async function regenerateEntry(entryId: number, paperId: number, models?: string[]) {
+    // Immediately show running state
+    if (currentPaperId.value === paperId) {
+      const freeEntry = qaData.value.free.find(e => e.entry_id === entryId)
+      if (freeEntry) { freeEntry.status = 'running'; freeEntry.error = null }
+      for (const [, entry] of Object.entries(qaData.value.template)) {
+        if (entry.entry_id === entryId) { entry.status = 'running'; entry.error = null; break }
+      }
+    }
     await api.post(`/api/qa/${entryId}/regenerate`, { models })
+    await fetchQA(paperId)
     startPolling(paperId)
+  }
+
+  async function deleteResult(resultId: number, paperId: number) {
+    await api.delete(`/api/qa/results/${resultId}`)
+    await fetchQA(paperId)
   }
 
   function hasInProgress(): boolean {
@@ -95,9 +151,18 @@ export const useQAStore = defineStore('qa', () => {
   }
 
   function startPolling(paperId: number) {
+    // If polling for a different paper, stop old polling first
+    if (pollTimer && currentPaperId.value !== paperId) {
+      stopPolling()
+    }
     if (pollTimer) return
     polling.value = true
     pollTimer = setInterval(async () => {
+      // Stop if user switched to a different paper
+      if (currentPaperId.value !== paperId) {
+        stopPolling()
+        return
+      }
       await fetchQA(paperId)
       if (!hasInProgress() && pollTimer) {
         clearInterval(pollTimer)
@@ -116,8 +181,9 @@ export const useQAStore = defineStore('qa', () => {
   }
 
   return {
-    qaData, templates, loading, submitting, polling, selectedModels,
-    fetchTemplates, fetchQA, triggerAllTemplates, regenerateTemplate,
-    submitFreeQuestion, regenerateEntry, startPolling, stopPolling,
+    qaData, templates, loading, submitting, polling, selectedModels, currentPaperId,
+    fetchTemplates, fetchQA, switchPaper, triggerAllTemplates, regenerateTemplate,
+    submitFreeQuestion, regenerateEntry, deleteResult,
+    startPolling, stopPolling, hasInProgress,
   }
 })

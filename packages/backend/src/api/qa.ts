@@ -4,6 +4,7 @@ import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { loadTemplates, loadTemplate } from '../services/template_loader.js'
 import { askQuestion, resolveContent } from '../services/qa_service.js'
+import { serviceRunner } from '../services/service_runner.js'
 
 function runQA(entryId: number, paperId: number, prompt: string, modelName: string) {
   const db = getDatabase()
@@ -12,27 +13,37 @@ function runQA(entryId: number, paperId: number, prompt: string, modelName: stri
     .where(eq(schema.qaEntries.id, entryId))
     .run()
 
-  askQuestion(paperId, prompt, modelName)
-    .then((res) => {
+  // executePureService runs the fn in a fire-and-forget IIFE,
+  // so we must handle qa_entries status updates inside executeFn itself.
+  serviceRunner.executePureService('qa', paperId, async () => {
+    try {
+      const res = await askQuestion(paperId, prompt, modelName)
+      const latestExec = db.select().from(schema.serviceExecutions)
+        .where(and(eq(schema.serviceExecutions.service_name, 'qa'), eq(schema.serviceExecutions.paper_id, paperId)))
+        .orderBy(desc(schema.serviceExecutions.created_at))
+        .get()
+
       db.insert(schema.qaResults).values({
         qa_entry_id: entryId,
         prompt,
         answer: res.answer,
         model_name: res.model_name,
         completed_at: new Date().toISOString(),
+        execution_id: latestExec?.id || null,
       }).run()
       db.update(schema.qaEntries)
         .set({ status: 'done', error: null })
         .where(eq(schema.qaEntries.id, entryId))
         .run()
-    })
-    .catch((err) => {
+    } catch (err: any) {
       console.error(`QA failed (entry ${entryId}):`, err.message)
       db.update(schema.qaEntries)
         .set({ status: 'failed', error: err.message })
         .where(eq(schema.qaEntries.id, entryId))
         .run()
-    })
+      throw err // re-throw so executePureService also marks service_executions as failed
+    }
+  })
 }
 
 export async function qaRoutes(app: FastifyInstance): Promise<void> {
@@ -81,6 +92,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
           entry_id: entry.id,
           status: entry.status,
           error: entry.error,
+          prompt: entry.results[0]?.prompt || null,
           results: entry.results,
         })
       }
@@ -117,6 +129,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
         .get()
 
       if (existing) {
+        // Skip if already has results or is currently running/pending
+        if (existing.status === 'pending' || existing.status === 'running') continue
         const results = db.select().from(schema.qaResults).where(eq(schema.qaResults.qa_entry_id, existing.id)).all()
         if (results.length > 0) continue
       }
@@ -139,11 +153,12 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Regenerate a specific template
-  app.post<{ Params: { id: string; name: string } }>('/api/papers/:id/qa/template/:name/regenerate', async (request, reply) => {
+  app.post<{ Params: { id: string; name: string }; Body: { model?: string } }>('/api/papers/:id/qa/template/:name/regenerate', async (request, reply) => {
     const db = getDatabase()
     const paperId = parseInt(request.params.id, 10)
     const templateName = request.params.name
     const config = getConfig()
+    const modelName = (request.body as any)?.model || config.models.default
 
     const paper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
     if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
@@ -161,7 +176,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       }).returning().get()
     }
 
-    runQA(entry.id, paperId, tmpl.prompt, config.models.default)
+    runQA(entry.id, paperId, tmpl.prompt, modelName)
     return { message: `Regenerating ${templateName}` }
   })
 
@@ -218,5 +233,17 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return { message: `Regenerating with ${modelNames.length} model(s)` }
+  })
+
+  // Delete a specific QA result
+  app.delete<{ Params: { resultId: string } }>('/api/qa/results/:resultId', async (request, reply) => {
+    const db = getDatabase()
+    const resultId = parseInt(request.params.resultId, 10)
+
+    const result = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, resultId)).get()
+    if (!result) { reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } }); return }
+
+    db.delete(schema.qaResults).where(eq(schema.qaResults.id, resultId)).run()
+    return { message: 'Result deleted' }
   })
 }

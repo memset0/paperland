@@ -50,6 +50,57 @@ class ServiceRunner {
     })
   }
 
+  async executePureService(
+    serviceName: string,
+    paperId: number | null,
+    executeFn: () => Promise<any>
+  ): Promise<{ executionId: number }> {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+
+    // Create execution record (paper_id can be 0 for non-paper-bound)
+    const execution = db.insert(schema.serviceExecutions).values({
+      service_name: serviceName,
+      paper_id: paperId || 0,
+      status: 'pending',
+      progress: 0,
+      created_at: now,
+    }).returning().get()
+
+    const sem = this.semaphores.get(serviceName)
+    const rl = this.rateLimiters.get(serviceName)
+
+    // Run async — don't block the caller
+    ;(async () => {
+      try {
+        if (sem) await sem.acquire()
+
+        db.update(schema.serviceExecutions)
+          .set({ status: 'running' })
+          .where(eq(schema.serviceExecutions.id, execution.id))
+          .run()
+
+        if (rl) await rl.waitIfNeeded()
+
+        await executeFn()
+
+        db.update(schema.serviceExecutions)
+          .set({ status: 'done', progress: 100, finished_at: new Date().toISOString(), result: 'OK' })
+          .where(eq(schema.serviceExecutions.id, execution.id))
+          .run()
+      } catch (err: any) {
+        db.update(schema.serviceExecutions)
+          .set({ status: 'failed', finished_at: new Date().toISOString(), error: err.message || String(err) })
+          .where(eq(schema.serviceExecutions.id, execution.id))
+          .run()
+      } finally {
+        if (sem) sem.release()
+      }
+    })()
+
+    return { executionId: execution.id }
+  }
+
   async triggerForPaper(paperId: number): Promise<void> {
     const db = getDatabase()
     const paper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()

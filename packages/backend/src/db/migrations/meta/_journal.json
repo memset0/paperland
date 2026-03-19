@@ -15,6 +15,13 @@
       "when": 1773868004974,
       "tag": "0001_daily_scream",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1773869854178,
+      "tag": "0002_bent_speedball",
+      "breakpoints": true
     }
   ]
 }

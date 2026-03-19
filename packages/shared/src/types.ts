@@ -42,6 +42,7 @@ export interface QAResult {
   answer: string
   model_name: string
   completed_at: string
+  execution_id: number | null
 }
 
 // Service

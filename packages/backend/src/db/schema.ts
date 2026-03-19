@@ -41,6 +41,7 @@ export const qaResults = sqliteTable('qa_results', {
   answer: text('answer').notNull(),
   model_name: text('model_name').notNull(),
   completed_at: text('completed_at').notNull(),
+  execution_id: integer('execution_id'),
 })
 
 export const serviceExecutions = sqliteTable('service_executions', {
