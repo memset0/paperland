@@ -218,6 +218,36 @@ content_priority:
 
 ---
 
+## 二（附）、Markdown 渲染
+
+### 渲染组件
+
+`MarkdownContent.vue` 是全站统一的 Markdown 渲染组件，基于 `marked` + `marked-katex-extension` + `KaTeX`。
+
+### 数学公式支持
+
+支持四种 LaTeX 定界符：
+
+| 语法 | 类型 | 示例 |
+|------|------|------|
+| `$...$` | 行内公式 | `$E=mc^2$` |
+| `$$...$$` | 行间公式 | `$$\int_0^1 f(x)dx$$` |
+| `\(...\)` | 行内公式 | `\(\alpha + \beta\)` |
+| `\[...\]` | 行间公式 | `\[\sum_{i=1}^n x_i\]` |
+
+- 渲染引擎：KaTeX（同步渲染，轻量快速）
+- 不支持的 LaTeX 命令降级为原始文本显示（`throwOnError: false`）
+- 代码块内的数学定界符不会被渲染
+
+### 样式
+
+- 组件自带完整的 scoped CSS 样式（标题、列表、代码块、表格、引用等）
+- 不依赖 `@tailwindcss/typography`，手动覆盖 Tailwind Preflight 的 reset（如 `list-style-type`）
+- KaTeX 样式通过 `katex/dist/katex.min.css` 导入
+- 行间公式居中显示，超宽公式支持水平滚动
+
+---
+
 ## 三、服务管理
 
 ### 3.1 服务分类
