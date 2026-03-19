@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs'
-import { resolve } from 'path'
+import { readFileSync, existsSync } from 'fs'
+import { resolve, dirname } from 'path'
 import yaml from 'js-yaml'
 import { z } from 'zod'
 import type { AppConfig } from '@paperland/shared'
@@ -64,8 +64,21 @@ const configSchema = z.object({
 
 let _config: AppConfig | null = null
 
+/** Traverse upward from cwd looking for config.yml */
+function findConfigFile(): string {
+  let dir = process.cwd()
+  while (true) {
+    const candidate = resolve(dir, 'config.yml')
+    if (existsSync(candidate)) return candidate
+    const parent = dirname(dir)
+    if (parent === dir) break // reached filesystem root
+    dir = parent
+  }
+  return resolve(process.cwd(), 'config.yml') // fall through to error handling below
+}
+
 export function loadConfig(configPath?: string): AppConfig {
-  const filePath = configPath || resolve(process.cwd(), 'config.yml')
+  const filePath = configPath || findConfigFile()
 
   let rawContent: string
   try {
