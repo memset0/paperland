@@ -1,0 +1,8 @@
+pref-title = Paperland Settings
+pref-host = Host URL
+pref-auth-section = Page Authentication (Basic Auth)
+pref-username = Username
+pref-password = Password
+pref-api-section = API Token (External API)
+pref-token = Bearer Token
+pref-test-btn = Test Connection

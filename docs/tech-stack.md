@@ -75,10 +75,19 @@ paperland/
 │   │   ├── tsconfig.json
 │   │   └── package.json
 │   │
-│   └── shared/                     # 共享类型定义
-│       ├── src/
-│       │   └── types.ts            # Paper, QAEntry, QAResult 等类型
-│       ├── tsconfig.json
+│   ├── shared/                     # 共享类型定义
+│   │   ├── src/
+│   │   │   └── types.ts            # Paper, QAEntry, QAResult 等类型
+│   │   ├── tsconfig.json
+│   │   └── package.json
+│   │
+│   └── zotero-plugin/              # Zotero 7 侧边栏插件
+│       ├── addon/
+│       │   ├── manifest.json       # 插件元数据
+│       │   ├── bootstrap.js        # 入口 + 全部逻辑
+│       │   ├── prefs.js            # 默认偏好设置
+│       │   └── content/            # 偏好设置 UI + 图标
+│       ├── scripts/build.sh        # 构建 .xpi
 │       └── package.json
 │
 ├── scripts/

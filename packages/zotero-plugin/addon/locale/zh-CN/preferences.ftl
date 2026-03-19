@@ -1,0 +1,8 @@
+pref-title = Paperland 设置
+pref-host = 服务器地址
+pref-auth-section = 页面认证 (Basic Auth)
+pref-username = 用户名
+pref-password = 密码
+pref-api-section = API 令牌 (External API)
+pref-token = Bearer Token
+pref-test-btn = 测试连接

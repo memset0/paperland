@@ -1,0 +1,29 @@
+{
+  "name": "@paperland/zotero-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Zotero 7/8 plugin — view Paperland paper details in the sidebar",
+  "author": "Paperland",
+  "homepage": "https://github.com/paperland/paperland",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paperland/paperland.git"
+  },
+  "config": {
+    "addonName": "Paperland for Zotero",
+    "addonID": "paperland@paperland.dev",
+    "addonRef": "paperland",
+    "addonInstance": "Paperland",
+    "prefsPrefix": "extensions.zotero.paperland"
+  },
+  "scripts": {
+    "build": "zotero-plugin build",
+    "start": "zotero-plugin serve"
+  },
+  "devDependencies": {
+    "jiti": "^2.6.1",
+    "zotero-plugin-scaffold": "^0.8.2",
+    "zotero-types": "^3.0.0"
+  }
+}

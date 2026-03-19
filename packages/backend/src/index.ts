@@ -69,6 +69,9 @@ async function main() {
   // Health check (no auth)
   app.get('/api/health', async () => ({ status: 'ok' }))
 
+  // External API health check (requires token auth — validates both connectivity and token)
+  app.get('/external-api/v1/health', async () => ({ status: 'ok' }))
+
   // Apply auth hooks
   app.addHook('onRequest', async (request, reply) => {
     // Skip health check

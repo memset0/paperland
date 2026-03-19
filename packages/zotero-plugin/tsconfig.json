@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ESNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "outDir": ".scaffold/build",
+    "rootDir": "."
+  },
+  "include": ["src", "typings"],
+  "exclude": [".scaffold", "addon"]
+}

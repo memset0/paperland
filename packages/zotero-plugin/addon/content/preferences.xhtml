@@ -1,0 +1,41 @@
+<linkset>
+  <html:link rel="localization" href="__addonRef__-preferences.ftl" xmlns:html="http://www.w3.org/1999/xhtml" />
+</linkset>
+
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is" xmlns:html="http://www.w3.org/1999/xhtml" style="padding: 12px;">
+  <groupbox onload="Zotero.__addonInstance__.hooks.onPrefsLoad(document)">
+    <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
+
+    <hbox align="center" style="margin: 4px 0;">
+      <label data-l10n-id="pref-host" style="width: 120px;" />
+      <html:input type="url" id="pref-host" preference="host" style="flex: 1;" placeholder="https://paperland.example.com" />
+    </hbox>
+
+    <separator />
+
+    <label><html:h3 data-l10n-id="pref-auth-section"></html:h3></label>
+    <hbox align="center" style="margin: 4px 0;">
+      <label data-l10n-id="pref-username" style="width: 120px;" />
+      <html:input type="text" id="pref-username" preference="username" style="flex: 1;" />
+    </hbox>
+    <hbox align="center" style="margin: 4px 0;">
+      <label data-l10n-id="pref-password" style="width: 120px;" />
+      <html:input type="password" id="pref-password" preference="password" style="flex: 1;" />
+    </hbox>
+
+    <separator />
+
+    <label><html:h3 data-l10n-id="pref-api-section"></html:h3></label>
+    <hbox align="center" style="margin: 4px 0;">
+      <label data-l10n-id="pref-token" style="width: 120px;" />
+      <html:input type="password" id="pref-token" preference="api_token" style="flex: 1;" placeholder="sk-..." />
+    </hbox>
+
+    <separator />
+
+    <hbox align="center" style="margin: 8px 0;">
+      <html:button id="pref-test-btn" data-l10n-id="pref-test-btn" style="padding: 4px 16px; cursor: pointer;" />
+      <html:span id="pref-test-result" style="margin-left: 12px; font-size: 13px;"></html:span>
+    </hbox>
+  </groupbox>
+</vbox>
