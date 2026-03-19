@@ -7,12 +7,15 @@ import { ArrowLeft, ExternalLink, Calendar, Users, Tag, FileDown, ChevronsUpDown
 import PdfViewer from '@/components/PdfViewer.vue'
 import QAList from '@/components/QAList.vue'
 import QAInput from '@/components/QAInput.vue'
+import QAPanelNav from '@/components/QAPanelNav.vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
+import { useHighlightStore } from '@/stores/highlights'
 
 const route = useRoute()
 const router = useRouter()
 const store = usePapersStore()
 const qaStore = useQAStore()
+const highlightStore = useHighlightStore()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
 
 // Responsive: only show split view on wide screens
@@ -43,6 +46,7 @@ onMounted(async () => {
   document.addEventListener('mousemove', onDrag)
   document.addEventListener('mouseup', stopDrag)
   await store.fetchPaper(paperId.value)
+  highlightStore.loadForPathname(route.path)
   await qaStore.fetchTemplates()
   qaStore.switchPaper(paperId.value)
   await qaStore.fetchQA(paperId.value, true)
@@ -86,6 +90,21 @@ function setAllKimiOpen(open: boolean) {
   if (!container) return
   container.querySelectorAll<HTMLDetailsElement>('details').forEach(el => { el.open = open })
 }
+
+// QA panel navigation
+const wideScrollRef = ref<HTMLElement | null>(null)
+const narrowScrollRef = ref<HTMLElement | null>(null)
+
+const qaNavEntries = computed(() => {
+  const entries: Array<{ key: string; title: string }> = []
+  for (const entry of qaStore.qaData.free) {
+    entries.push({ key: 'free-' + entry.entry_id, title: entry.prompt || '自由提问' })
+  }
+  for (const tmpl of qaStore.templates) {
+    entries.push({ key: 'tmpl-' + tmpl.name, title: tmpl.prompt })
+  }
+  return entries
+})
 </script>
 
 <template>
@@ -116,7 +135,7 @@ function setAllKimiOpen(open: boolean) {
       </div>
 
       <!-- Right: Info + QA + floating input -->
-      <div class="flex-1 overflow-y-auto relative">
+      <div ref="wideScrollRef" class="flex-1 overflow-y-auto relative">
         <div v-if="store.loading" class="flex items-center justify-center h-full">
           <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
         </div>
@@ -189,11 +208,12 @@ function setAllKimiOpen(open: boolean) {
           </div>
           <QAList :paper-id="paperId" />
         </div>
+        <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="wideScrollRef" :paper-id="paperId" />
       </div>
     </div>
 
     <!-- Narrow screen: single column -->
-    <div v-else class="flex-1 overflow-y-auto relative">
+    <div v-else ref="narrowScrollRef" class="flex-1 overflow-y-auto relative">
       <div v-if="store.loading" class="flex items-center justify-center py-20">
         <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
       </div>
@@ -274,6 +294,7 @@ function setAllKimiOpen(open: boolean) {
         </div>
         <QAList :paper-id="paperId" />
       </div>
+      <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="narrowScrollRef" :paper-id="paperId" />
       <!-- Floating input (sticky at bottom of page) -->
       <QAInput v-if="store.currentPaper" :paper-id="paperId" />
     </div>
