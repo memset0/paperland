@@ -6,7 +6,11 @@ database:
     dir: ./data/backups
     retention_days: 30
 
+allowed_hosts: []
+  # - .dev.mem.ac
+
 auth:
+  enabled: true
   users:
     - username: admin
       password: changeme
