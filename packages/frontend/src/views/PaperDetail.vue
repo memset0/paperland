@@ -3,8 +3,8 @@ import { onMounted, onUnmounted, computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, FileDown, ChevronsUpDown, ChevronsDownUp } from 'lucide-vue-next'
-import PdfViewer from '@/components/PdfViewer.vue'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp } from 'lucide-vue-next'
+import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
 import QAList from '@/components/QAList.vue'
 import QAInput from '@/components/QAInput.vue'
 import QAPanelNav from '@/components/QAPanelNav.vue'
@@ -35,11 +35,6 @@ function onDrag(e: MouseEvent) {
   leftWidth.value = Math.max(20, Math.min(80, ((e.clientX - rect.left) / rect.width) * 100))
 }
 function stopDrag() { dragging.value = false }
-
-const arxivPdfUrl = computed(() => {
-  const id = store.currentPaper?.arxiv_id
-  return id ? `https://arxiv.org/pdf/${id}.pdf` : null
-})
 
 onMounted(async () => {
   window.addEventListener('resize', onResize)
@@ -121,9 +116,9 @@ const qaNavEntries = computed(() => {
 
     <!-- Wide screen: split view -->
     <div v-if="isWide" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging }">
-      <!-- Left: PDF + floating input overlay -->
+      <!-- Left: Viewer panel + floating input overlay -->
       <div :style="{ width: leftWidth + '%' }" class="shrink-0 overflow-hidden relative">
-        <PdfViewer :pdf-path="store.currentPaper?.pdf_path || null" />
+        <PaperViewerPanel :pdf-path="store.currentPaper?.pdf_path || null" :arxiv-id="store.currentPaper?.arxiv_id || null" />
         <div v-if="store.currentPaper" class="absolute bottom-0 left-0 right-0 z-10">
           <QAInput :paper-id="paperId" :sticky="false" />
         </div>
@@ -218,14 +213,6 @@ const qaNavEntries = computed(() => {
         <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
       </div>
       <div v-else-if="store.currentPaper" class="p-5 space-y-5 max-w-3xl mx-auto pb-40">
-        <!-- PDF link for narrow screens -->
-        <a v-if="arxivPdfUrl" :href="arxivPdfUrl" target="_blank" rel="noopener noreferrer"
-          class="flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-700 hover:bg-orange-100 transition-colors">
-          <FileDown class="h-4 w-4" />
-          在 arXiv 查看 PDF
-          <ExternalLink class="h-3 w-3 ml-auto" />
-        </a>
-
         <!-- Paper info -->
         <div class="rounded-xl border border-gray-200 bg-white p-5">
           <h2 class="text-lg font-semibold text-gray-900 leading-snug mb-3">{{ store.currentPaper.title }}</h2>
