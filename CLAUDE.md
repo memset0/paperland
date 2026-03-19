@@ -17,10 +17,10 @@ This project follows the **OpenSpec** workflow. All changes must go through:
 # Install dependencies
 bun install
 
-# Run both backend + frontend
-bun run dev
+# Run both backend + frontend (MUST run from project root)
+bun run packages/backend/src/index.ts & bun run --filter '@paperland/frontend' dev
 
-# Run backend only (port 3000, localhost only)
+# Run backend only (port 3000, localhost only, MUST run from project root)
 bun run packages/backend/src/index.ts
 
 # Run frontend only (port 5173, 0.0.0.0, proxies API to backend)
@@ -75,6 +75,16 @@ Each service has `max_concurrency` and `rate_limit_interval` config. Services ar
 - **Q&A context priority** — `content_priority` in config.yml determines which text source to use (user_input > pdf_parsed)
 - **Paper basic fields** (title, abstract, authors) — not managed by service dependency graph; any fetch service fills them if empty
 - **Templates** — Q&A prompt templates are defined in `config.yml` via `system_prompt` (paper+question assembly template using `{PAPER}` and `{PROMPT}` placeholders) and `qa` (ordered list of template questions with `name` and `prompt`)
+
+## Critical: Backend Must Run from Project Root
+
+**NEVER** start the backend from `packages/backend/` or via `--filter '@paperland/backend'`. The database path in `config.yml` (`./data/paperland.db`) is resolved relative to CWD. If the backend runs from `packages/backend/`, it creates an empty database at `packages/backend/data/paperland.db` instead of using the real one at `data/paperland.db`.
+
+- **Correct**: `bun run packages/backend/src/index.ts` (from project root)
+- **Wrong**: `bun run --filter '@paperland/backend' dev` (CWD becomes `packages/backend/`)
+- **Wrong**: `cd packages/backend && bun run src/index.ts`
+
+**Commit safety check**: If `packages/backend/data/` appears in `git status`, something went wrong — this directory should never exist. Do NOT commit it. Investigate which process created it.
 
 ## Testing Caution
 

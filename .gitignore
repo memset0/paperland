@@ -5,6 +5,7 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 data/backups/*.db
+packages/backend/data/
 *.log
 .env
 config.yml
