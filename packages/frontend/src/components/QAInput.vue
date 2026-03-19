@@ -13,10 +13,15 @@ onMounted(async () => {
   try {
     const res = await api.get<{ models: { available: Array<{ name: string }> } }>('/api/config/models')
     availableModels.value = res.models.available
-    if (!store.selectedModels.length && availableModels.value.length) store.selectedModels = [availableModels.value[0].name]
   } catch {
     availableModels.value = [{ name: 'gpt-4o' }]
-    if (!store.selectedModels.length) store.selectedModels = ['gpt-4o']
+  }
+  const names = availableModels.value.map(m => m.name)
+  const valid = store.selectedModels.filter(m => names.includes(m))
+  if (valid.length) {
+    store.selectedModels = valid
+  } else if (names.length) {
+    store.selectedModels = [names[0]]
   }
 })
 
@@ -28,9 +33,9 @@ async function submit() {
 </script>
 
 <template>
-  <div :class="[props.sticky ? 'sticky bottom-0' : '', 'z-10 pt-3 pb-3 px-3']"
+  <div :class="[props.sticky ? 'fixed bottom-0 left-0 right-0 md:sticky md:left-auto md:right-auto' : '', 'z-10 pt-3 pb-3 px-3 md:px-5 md:pt-4 md:pb-4']"
     :style="{ background: props.sticky ? undefined : 'linear-gradient(to top, rgba(255,255,255,0.95) 60%, rgba(255,255,255,0))' }">
-    <div class="rounded-2xl border border-gray-200 bg-white/95 backdrop-blur-sm shadow-lg p-3">
+    <div class="rounded-2xl border border-gray-200 bg-white/95 backdrop-blur-sm shadow-lg md:shadow-2xl p-3 md:p-4">
       <!-- Model chips -->
       <div class="flex items-center gap-1.5 flex-wrap mb-2">
         <span class="text-[10px] text-gray-400 uppercase tracking-wider mr-0.5">模型</span>

@@ -1,6 +1,19 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { api } from '@/api/client'
+
+const STORAGE_KEY = 'paperland_selected_models'
+
+function loadCachedModels(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch { /* localStorage unavailable */ }
+  return []
+}
 
 export interface QAResult {
   id: number
@@ -38,9 +51,13 @@ export const useQAStore = defineStore('qa', () => {
   const loading = ref(false)
   const submitting = ref(false)
   const polling = ref(false)
-  const selectedModels = ref<string[]>([])
+  const selectedModels = ref<string[]>(loadCachedModels())
   const currentPaperId = ref<number | null>(null)
   let pollTimer: ReturnType<typeof setInterval> | null = null
+
+  watch(selectedModels, (val) => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(val)) } catch { /* localStorage unavailable */ }
+  }, { deep: true })
 
   async function fetchTemplates() {
     const res = await api.get<{ data: Array<{ name: string; prompt: string }> }>('/api/templates')
