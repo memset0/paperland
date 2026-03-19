@@ -56,6 +56,18 @@ export const serviceExecutions = sqliteTable('service_executions', {
   error: text('error'),
 })
 
+export const highlights = sqliteTable('highlights', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  pathname: text('pathname').notNull(),
+  content_hash: text('content_hash').notNull(),
+  start_offset: integer('start_offset').notNull(),
+  end_offset: integer('end_offset').notNull(),
+  text: text('text').notNull(),
+  color: text('color').notNull(), // 'yellow' | 'green' | 'blue' | 'pink'
+  note: text('note'),
+  created_at: text('created_at').notNull(),
+})
+
 export const apiTokens = sqliteTable('api_tokens', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   token: text('token').notNull().unique(),

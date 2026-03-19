@@ -1,17 +1,25 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
+import { useHighlightStore } from '@/stores/highlights'
 import { MessageSquare, Search } from 'lucide-vue-next'
 import QAList from '@/components/QAList.vue'
 import QAInput from '@/components/QAInput.vue'
 
+const route = useRoute()
 const papersStore = usePapersStore()
 const qaStore = useQAStore()
+const highlightStore = useHighlightStore()
 const selectedPaperId = ref<number | null>(null)
 const paperSearch = ref('')
 
-onMounted(async () => { await papersStore.fetchPapers(1, ''); await qaStore.fetchTemplates() })
+onMounted(async () => {
+  highlightStore.loadForPathname(route.path)
+  await papersStore.fetchPapers(1, '')
+  await qaStore.fetchTemplates()
+})
 onUnmounted(() => { qaStore.stopPolling() })
 
 watch(selectedPaperId, async (id) => {

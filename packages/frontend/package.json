@@ -16,12 +16,14 @@
     "marked": "^17.0.4",
     "marked-katex-extension": "^5.1.7",
     "pinia": "^2.1.0",
+    "spark-md5": "^3.0.2",
     "tailwind-merge": "*",
     "vue": "^3.4.0",
     "vue-router": "^4.3.0"
   },
   "devDependencies": {
     "@types/katex": "^0.16.8",
+    "@types/spark-md5": "^3.0.5",
     "@vitejs/plugin-vue": "^5.0.0",
     "autoprefixer": "*",
     "postcss": "*",

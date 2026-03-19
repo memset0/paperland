@@ -8,7 +8,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     response = await fetch(`${BASE_URL}${url}`, {
       ...options,
       headers: {
-        'Content-Type': 'application/json',
+        ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
         ...options?.headers,
       },
     })
@@ -34,4 +34,28 @@ export const api = {
   put: <T>(url: string, body?: unknown) =>
     request<T>(url, { method: 'PUT', body: JSON.stringify(body ?? {}) }),
   delete: <T>(url: string) => request<T>(url, { method: 'DELETE' }),
+}
+
+// Highlight API
+import type { Highlight, HighlightColor } from '@paperland/shared'
+
+export const highlightApi = {
+  fetch: (pathname: string) =>
+    api.get<{ data: Highlight[] }>(`/api/highlights?pathname=${encodeURIComponent(pathname)}`),
+
+  create: (data: {
+    pathname: string
+    content_hash: string
+    start_offset: number
+    end_offset: number
+    text: string
+    color: HighlightColor
+    note?: string | null
+  }) => api.post<{ data: Highlight }>('/api/highlights', data),
+
+  update: (id: number, data: { color?: HighlightColor; note?: string | null }) =>
+    api.put<{ data: Highlight }>(`/api/highlights/${id}`, data),
+
+  remove: (id: number) =>
+    api.delete<{ success: boolean }>(`/api/highlights/${id}`),
 }
