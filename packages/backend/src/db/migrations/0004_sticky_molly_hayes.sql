@@ -1,0 +1,1 @@
+ALTER TABLE `qa_entries` ADD `created_at` text DEFAULT '' NOT NULL;

@@ -34,6 +34,14 @@ export function initDatabase(): ReturnType<typeof drizzle> {
     }
   }
 
+  // Backfill qa_entries.created_at for rows that still have the default empty string
+  _sqlite.exec(`
+    UPDATE qa_entries SET created_at = COALESCE(
+      (SELECT MIN(completed_at) FROM qa_results WHERE qa_results.qa_entry_id = qa_entries.id),
+      datetime('now')
+    ) WHERE created_at = ''
+  `)
+
   return _db
 }
 

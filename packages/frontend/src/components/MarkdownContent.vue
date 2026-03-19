@@ -8,7 +8,7 @@ import { useHighlightStore } from '@/stores/highlights'
 import { applyHighlights, clearHighlights, getSelectionOffsets } from '@/composables/useHighlight'
 import type { HighlightColor } from '@paperland/shared'
 
-const props = defineProps<{ content: string }>()
+const props = defineProps<{ content: string; highlightPathname?: string }>()
 
 const highlightStore = useHighlightStore()
 const containerRef = ref<HTMLElement | null>(null)
@@ -152,6 +152,7 @@ async function createHighlight(color: HighlightColor) {
     text: pendingSelection.value.text,
     color,
     note: showNoteInput.value && noteText.value.trim() ? noteText.value.trim() : null,
+    ...(props.highlightPathname ? { pathname: props.highlightPathname } : {}),
   })
 
   window.getSelection()?.removeAllRanges()

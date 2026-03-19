@@ -33,6 +33,18 @@ export interface QAEntry {
   template_name: string | null
   status: QAEntryStatus
   error: string | null
+  created_at: string
+}
+
+export interface QAFeedEntry {
+  entry_id: number
+  paper_id: number
+  paper_title: string
+  status: string
+  error: string | null
+  prompt: string | null
+  created_at: string
+  results: QAResult[]
 }
 
 export interface QAResult {

@@ -32,6 +32,7 @@ export const qaEntries = sqliteTable('qa_entries', {
   template_name: text('template_name'),
   status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'done' | 'failed'
   error: text('error'),
+  created_at: text('created_at').notNull().default(''),
 })
 
 export const qaResults = sqliteTable('qa_results', {

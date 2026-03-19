@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { api } from '@/api/client'
+import type { QAFeedEntry } from '@paperland/shared'
 
 const STORAGE_KEY = 'paperland_selected_models'
 
@@ -197,10 +198,48 @@ export const useQAStore = defineStore('qa', () => {
     }
   }
 
+  // --- Feed state (for /qa page) ---
+  const feedEntries = ref<QAFeedEntry[]>([])
+  const feedLoading = ref(false)
+  let feedPollTimer: ReturnType<typeof setInterval> | null = null
+
+  async function fetchFeed(showLoading = false) {
+    if (showLoading) feedLoading.value = true
+    try {
+      const res = await api.get<{ data: QAFeedEntry[] }>('/api/qa/free')
+      feedEntries.value = res.data
+    } finally {
+      if (showLoading) feedLoading.value = false
+    }
+  }
+
+  function feedHasInProgress(): boolean {
+    return feedEntries.value.some(e => e.status === 'pending' || e.status === 'running')
+  }
+
+  function startFeedPolling() {
+    if (feedPollTimer) return
+    feedPollTimer = setInterval(async () => {
+      await fetchFeed()
+      if (!feedHasInProgress() && feedPollTimer) {
+        clearInterval(feedPollTimer)
+        feedPollTimer = null
+      }
+    }, 3000)
+  }
+
+  function stopFeedPolling() {
+    if (feedPollTimer) {
+      clearInterval(feedPollTimer)
+      feedPollTimer = null
+    }
+  }
+
   return {
     qaData, templates, loading, submitting, polling, selectedModels, currentPaperId,
     fetchTemplates, fetchQA, switchPaper, triggerAllTemplates, regenerateTemplate,
     submitFreeQuestion, regenerateEntry, deleteResult,
     startPolling, stopPolling, hasInProgress,
+    feedEntries, feedLoading, fetchFeed, startFeedPolling, stopFeedPolling, feedHasInProgress,
   }
 })

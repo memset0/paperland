@@ -8,6 +8,7 @@ const props = defineProps<{
   results: QAResult[]
   entryKey: string
   paperId: number
+  highlightPathname?: string
 }>()
 
 const emit = defineEmits<{
@@ -80,7 +81,7 @@ function copyAnswer(resultId: number, text: string) {
     </div>
     <template v-for="(r, idx) in sortedResults()" :key="r.id">
       <div v-if="activeTabIdx === idx">
-        <MarkdownContent :content="r.answer" class="text-sm text-gray-600" />
+        <MarkdownContent :content="r.answer" :highlight-pathname="highlightPathname" class="text-sm text-gray-600" />
         <div class="flex items-center gap-1 mt-3 pt-2 border-t border-gray-50">
           <button @click="pinResult(r.model_name)" :title="getPinnedModel() === r.model_name ? '取消置顶' : '置顶'"
             :class="['rounded-md px-1.5 py-1 text-xs transition', getPinnedModel() === r.model_name ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400 hover:text-gray-600']">
@@ -102,7 +103,7 @@ function copyAnswer(resultId: number, text: string) {
 
   <!-- Single result -->
   <div v-else-if="results.length === 1">
-    <MarkdownContent :content="results[0].answer" class="text-sm text-gray-600" />
+    <MarkdownContent :content="results[0].answer" :highlight-pathname="highlightPathname" class="text-sm text-gray-600" />
     <div class="flex items-center justify-between mt-3 pt-2 border-t border-gray-50">
       <div class="flex items-center gap-2">
         <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500">{{ results[0].model_name }}</span>

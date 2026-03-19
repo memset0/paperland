@@ -37,7 +37,7 @@ export const useHighlightStore = defineStore('highlights', () => {
     }
   }
 
-  /** Create a new highlight */
+  /** Create a new highlight. If pathname is provided, use it instead of currentPathname. */
   async function create(data: {
     content_hash: string
     start_offset: number
@@ -45,11 +45,14 @@ export const useHighlightStore = defineStore('highlights', () => {
     text: string
     color: HighlightColor
     note?: string | null
+    pathname?: string
   }) {
-    if (!currentPathname.value) return null
+    const targetPathname = data.pathname || currentPathname.value
+    if (!targetPathname) return null
+    const { pathname: _, ...rest } = data
     const res = await highlightApi.create({
-      ...data,
-      pathname: currentPathname.value,
+      ...rest,
+      pathname: targetPathname,
     })
     highlights.value.push(res.data)
     return res.data

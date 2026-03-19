@@ -148,7 +148,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
             }
             let entryId: number
             if (existing) { entryId = existing.id } else {
-              const entry = db.insert(schema.qaEntries).values({ paper_id: paper.id, type: 'template', template_name: tmpl.name }).returning().get()
+              const entry = db.insert(schema.qaEntries).values({ paper_id: paper.id, type: 'template', template_name: tmpl.name, created_at: new Date().toISOString() }).returning().get()
               entryId = entry.id
             }
             try {

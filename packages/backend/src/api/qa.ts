@@ -58,6 +58,41 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     return { models: { default: config.models.default, available: config.models.available } }
   })
 
+  // List all free QA entries across all papers (for /qa feed page)
+  app.get('/api/qa/free', async () => {
+    const db = getDatabase()
+
+    const entries = db.select().from(schema.qaEntries)
+      .where(eq(schema.qaEntries.type, 'free'))
+      .orderBy(desc(schema.qaEntries.created_at))
+      .all()
+
+    const data = []
+    for (const entry of entries) {
+      const paper = db.select({ title: schema.papers.title }).from(schema.papers)
+        .where(eq(schema.papers.id, entry.paper_id))
+        .get()
+
+      const results = db.select().from(schema.qaResults)
+        .where(eq(schema.qaResults.qa_entry_id, entry.id))
+        .orderBy(desc(schema.qaResults.completed_at))
+        .all()
+
+      data.push({
+        entry_id: entry.id,
+        paper_id: entry.paper_id,
+        paper_title: paper?.title || 'Unknown',
+        status: entry.status,
+        error: entry.error,
+        prompt: results[0]?.prompt || null,
+        created_at: entry.created_at,
+        results,
+      })
+    }
+
+    return { data }
+  })
+
   // List QA entries for a paper
   app.get<{ Params: { id: string } }>('/api/papers/:id/qa', async (request) => {
     const db = getDatabase()
@@ -140,7 +175,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
         entryId = existing.id
       } else {
         const entry = db.insert(schema.qaEntries).values({
-          paper_id: paperId, type: 'template', template_name: tmpl.name, status: 'pending',
+          paper_id: paperId, type: 'template', template_name: tmpl.name, status: 'pending', created_at: new Date().toISOString(),
         }).returning().get()
         entryId = entry.id
       }
@@ -172,7 +207,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
 
     if (!entry) {
       entry = db.insert(schema.qaEntries).values({
-        paper_id: paperId, type: 'template', template_name: templateName, status: 'pending',
+        paper_id: paperId, type: 'template', template_name: templateName, status: 'pending', created_at: new Date().toISOString(),
       }).returning().get()
     }
 
@@ -195,7 +230,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     const modelNames = models && models.length > 0 ? models : [config.models.default]
 
     const entry = db.insert(schema.qaEntries).values({
-      paper_id: paperId, type: 'free', status: 'pending',
+      paper_id: paperId, type: 'free', status: 'pending', created_at: new Date().toISOString(),
     }).returning().get()
 
     for (const modelName of modelNames) {
