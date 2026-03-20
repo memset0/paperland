@@ -62,7 +62,8 @@ Base URL: `/external-api/v1`
   "authors": ["Author A", "Author B"],
   "tags": ["tag1", "tag2"],
   "created": true,           // true=新建, false=绑定到已有
-  "created_at": "2026-03-18T10:00:00Z"
+  "created_at": "2026-03-18T10:00:00Z",
+  "updated_at": "2026-03-18T10:00:00Z"
 }
 ```
 
@@ -81,7 +82,8 @@ Base URL: `/external-api/v1`
   "authors": ["Author A", "Author B"],
   "tags": ["tag1", "tag2"],
   "abstract": "...",
-  "created_at": "2026-03-18T10:00:00Z"
+  "created_at": "2026-03-18T10:00:00Z",
+  "updated_at": "2026-03-18T10:00:00Z"
 }
 ```
 
@@ -146,7 +148,8 @@ Base URL: `/external-api/v1`
     "pdf_path": "/data/pdfs/2401.12345.pdf",
     "metadata": {},
     "tags": ["transformer", "attention"],
-    "created_at": "2026-03-18T10:00:00Z"
+    "created_at": "2026-03-18T10:00:00Z",
+    "updated_at": "2026-03-18T12:30:00Z"
   },
   "qa": {
     "template": {

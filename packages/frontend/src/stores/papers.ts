@@ -8,12 +8,16 @@ export const usePapersStore = defineStore('papers', () => {
   const currentPaper = ref<Paper | null>(null)
   const pagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 0 })
   const loading = ref(false)
+  const sortBy = ref<'created_at' | 'updated_at'>((localStorage.getItem('paperland_sort_by') as 'created_at' | 'updated_at') || 'updated_at')
+  const sortOrder = ref<'asc' | 'desc'>((localStorage.getItem('paperland_sort_order') as 'asc' | 'desc') || 'desc')
 
   async function fetchPapers(page = 1, search = '') {
     loading.value = true
     try {
       const params = new URLSearchParams({ page: String(page), page_size: '20' })
       if (search) params.set('search', search)
+      params.set('sort_by', sortBy.value)
+      params.set('sort_order', sortOrder.value)
       const res = await api.get<PaginatedResponse<Paper>>(`/api/papers?${params}`)
       papers.value = res.data
       pagination.value = res.pagination
@@ -35,5 +39,5 @@ export const usePapersStore = defineStore('papers', () => {
     return await api.post<Paper & { created: boolean }>('/api/papers', data)
   }
 
-  return { papers, currentPaper, pagination, loading, fetchPapers, fetchPaper, createPaper }
+  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, fetchPapers, fetchPaper, createPaper }
 })

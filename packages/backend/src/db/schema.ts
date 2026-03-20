@@ -11,6 +11,7 @@ export const papers = sqliteTable('papers', {
   pdf_path: text('pdf_path'),
   metadata: text('metadata'), // JSON
   created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
 })
 
 export const tags = sqliteTable('tags', {

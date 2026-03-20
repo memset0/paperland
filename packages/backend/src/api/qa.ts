@@ -5,6 +5,7 @@ import { getConfig } from '../config.js'
 import { loadTemplates, loadTemplate } from '../services/template_loader.js'
 import { askQuestion, resolveContent } from '../services/qa_service.js'
 import { serviceRunner } from '../services/service_runner.js'
+import { touchPaperUpdatedAt } from '../db/utils.js'
 
 function runQA(entryId: number, paperId: number, prompt: string, modelName: string) {
   const db = getDatabase()
@@ -184,6 +185,10 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       runQA(entryId, paperId, tmpl.prompt, defaultModel)
     }
 
+    if (triggered.length > 0) {
+      touchPaperUpdatedAt(db, paperId)
+    }
+
     return { triggered, message: `Triggered ${triggered.length} template questions` }
   })
 
@@ -211,6 +216,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       }).returning().get()
     }
 
+    touchPaperUpdatedAt(db, paperId)
     runQA(entry.id, paperId, tmpl.prompt, modelName)
     return { message: `Regenerating ${templateName}` }
   })
@@ -232,6 +238,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     const entry = db.insert(schema.qaEntries).values({
       paper_id: paperId, type: 'free', status: 'pending', created_at: new Date().toISOString(),
     }).returning().get()
+
+    touchPaperUpdatedAt(db, paperId)
 
     for (const modelName of modelNames) {
       runQA(entry.id, paperId, question, modelName)
@@ -262,6 +270,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       if (!lastResult) { reply.code(422).send({ error: { code: 'NO_PROMPT', message: 'No previous result' } }); return }
       prompt = lastResult.prompt
     }
+
+    touchPaperUpdatedAt(db, entry.paper_id)
 
     for (const modelName of modelNames) {
       runQA(entryId, entry.paper_id, prompt, modelName)

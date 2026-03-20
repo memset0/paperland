@@ -1,18 +1,22 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, like, or, desc } from 'drizzle-orm'
+import { eq, like, or, desc, asc } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { withDedup, getDedupKey } from '../services/paper_dedup.js'
 import { serviceRunner } from '../services/service_runner.js'
 
 export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // List papers with pagination and search
-  app.get<{ Querystring: { page?: string; page_size?: string; search?: string } }>(
+  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string } }>(
     '/api/papers',
     async (request) => {
       const db = getDatabase()
       const page = parseInt(request.query.page || '1', 10)
       const pageSize = parseInt(request.query.page_size || '20', 10)
       const search = request.query.search
+
+      const allowedSortBy = ['created_at', 'updated_at'] as const
+      const sortBy = allowedSortBy.includes(request.query.sort_by as any) ? (request.query.sort_by as 'created_at' | 'updated_at') : 'created_at'
+      const sortOrder = request.query.sort_order === 'asc' ? 'asc' : 'desc'
 
       let query = db.select().from(schema.papers)
 
@@ -25,7 +29,8 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         ) as typeof query
       }
 
-      const allResults = query.orderBy(desc(schema.papers.created_at)).all()
+      const sortColumn = schema.papers[sortBy]
+      const allResults = query.orderBy(sortOrder === 'desc' ? desc(sortColumn) : asc(sortColumn)).all()
       const total = allResults.length
       const data = allResults.slice((page - 1) * pageSize, page * pageSize)
 
@@ -119,6 +124,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
           authors: JSON.stringify(authors || []),
           contents,
           created_at: now,
+          updated_at: now,
         }).returning().get()
 
         // Handle tags

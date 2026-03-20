@@ -10,6 +10,7 @@ export interface Paper {
   pdf_path: string | null
   metadata: Record<string, unknown> | null
   created_at: string
+  updated_at: string
 }
 
 // Tag

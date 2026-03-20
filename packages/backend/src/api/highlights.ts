@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
+import { touchPaperUpdatedAt, parsePaperIdFromPathname } from '../db/utils.js'
 
 export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/highlights?pathname=/papers/42
@@ -50,6 +51,9 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
       created_at: new Date().toISOString(),
     }).returning().get()
 
+    const paperId = parsePaperIdFromPathname(pathname)
+    if (paperId) touchPaperUpdatedAt(db, paperId)
+
     return reply.code(201).send({ data: result })
   })
 
@@ -86,6 +90,9 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
 
       db.update(schema.highlights).set(updates).where(eq(schema.highlights.id, id)).run()
 
+      const paperId = parsePaperIdFromPathname(existing.pathname)
+      if (paperId) touchPaperUpdatedAt(db, paperId)
+
       const updated = db.select().from(schema.highlights)
         .where(eq(schema.highlights.id, id))
         .get()
@@ -106,7 +113,9 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: { message: 'Highlight not found' } })
     }
 
+    const paperId = parsePaperIdFromPathname(existing.pathname)
     db.delete(schema.highlights).where(eq(schema.highlights.id, id)).run()
+    if (paperId) touchPaperUpdatedAt(db, paperId)
     return { success: true }
   })
 }

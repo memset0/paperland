@@ -58,7 +58,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         const now = new Date().toISOString()
         const paper = db.insert(schema.papers).values({
           arxiv_id: arxiv_id || null, corpus_id: corpus_id || null,
-          title: title || 'Untitled', authors: JSON.stringify(authors || []), created_at: now,
+          title: title || 'Untitled', authors: JSON.stringify(authors || []), created_at: now, updated_at: now,
         }).returning().get()
 
         if (tagNames && tagNames.length > 0) {
@@ -119,7 +119,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         const now = new Date().toISOString()
         paper = db.insert(schema.papers).values({
           arxiv_id: arxiv_id || null, corpus_id: corpus_id || null,
-          title: 'Untitled', authors: '[]', created_at: now,
+          title: 'Untitled', authors: '[]', created_at: now, updated_at: now,
         }).returning().get()
 
         // Wait for services to complete
@@ -217,7 +217,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
           const now = new Date().toISOString()
           const paper = db.insert(schema.papers).values({
             arxiv_id: def.arxiv_id || null, corpus_id: def.corpus_id || null,
-            title: 'Untitled', authors: '[]', created_at: now,
+            title: 'Untitled', authors: '[]', created_at: now, updated_at: now,
           }).returning().get()
 
           if (def.tags) {

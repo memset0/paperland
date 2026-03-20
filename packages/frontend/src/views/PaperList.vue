@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
-import { Plus, Search, X, FileText, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Plus, Search, X, FileText, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-vue-next'
 
 const store = usePapersStore()
 const router = useRouter()
@@ -14,8 +14,19 @@ const adding = ref(false)
 
 onMounted(() => store.fetchPapers())
 
+const showSortMenu = ref(false)
+
 function onSearch() { store.fetchPapers(1, search.value) }
 function goToPage(p: number) { store.fetchPapers(p, search.value) }
+
+function setSort(field: 'created_at' | 'updated_at') {
+  store.sortBy = field
+  store.sortOrder = 'desc'
+  localStorage.setItem('paperland_sort_by', field)
+  localStorage.setItem('paperland_sort_order', 'desc')
+  showSortMenu.value = false
+  store.fetchPapers(1, search.value)
+}
 
 function formatAuthors(a: string[]) {
   if (!Array.isArray(a) || !a.length) return '-'
@@ -50,10 +61,21 @@ async function addPaper() {
       </button>
     </div>
 
-    <!-- Search -->
-    <div class="relative mb-4">
-      <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-      <input v-model="search" @keyup.enter="onSearch" placeholder="搜索论文标题、摘要..." class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm placeholder:text-gray-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition" />
+    <!-- Search + Sort -->
+    <div class="flex gap-2 mb-4">
+      <div class="relative flex-1">
+        <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input v-model="search" @keyup.enter="onSearch" placeholder="搜索论文标题、摘要..." class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm placeholder:text-gray-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition" />
+      </div>
+      <div class="relative">
+        <button @click="showSortMenu = !showSortMenu" class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition whitespace-nowrap">
+          <ArrowUpDown class="h-4 w-4" />{{ store.sortBy === 'updated_at' ? '最近修改' : '添加时间' }}
+        </button>
+        <div v-if="showSortMenu" class="absolute right-0 top-full mt-1 z-10 w-32 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+          <button @click="setSort('created_at')" :class="['w-full px-3 py-1.5 text-left text-sm transition', store.sortBy === 'created_at' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50']">添加时间</button>
+          <button @click="setSort('updated_at')" :class="['w-full px-3 py-1.5 text-left text-sm transition', store.sortBy === 'updated_at' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50']">最近修改</button>
+        </div>
+      </div>
     </div>
 
     <!-- Table -->
@@ -64,7 +86,8 @@ async function addPaper() {
             <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider">标题</th>
             <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-40">作者</th>
             <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-28">arXiv ID</th>
-            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-24">日期</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-24">添加日期</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-24">最近修改</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-50">
@@ -72,12 +95,13 @@ async function addPaper() {
             <td class="px-4 py-3">
               <div class="font-medium text-gray-900 line-clamp-1">{{ paper.title }}</div>
             </td>
-            <td class="px-4 py-3 text-gray-500">{{ formatAuthors(paper.authors) }}</td>
+            <td class="px-4 py-3 text-gray-500 truncate max-w-[10rem]">{{ formatAuthors(paper.authors) }}</td>
             <td class="px-4 py-3">
               <span v-if="paper.arxiv_id" class="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/10">{{ paper.arxiv_id }}</span>
               <span v-else class="text-gray-300">-</span>
             </td>
             <td class="px-4 py-3 text-gray-400 text-xs">{{ new Date(paper.created_at).toLocaleDateString() }}</td>
+            <td class="px-4 py-3 text-gray-400 text-xs">{{ new Date(paper.updated_at).toLocaleDateString() }}</td>
           </tr>
         </tbody>
       </table>
