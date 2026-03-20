@@ -3,7 +3,7 @@ import { onMounted, onUnmounted, computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next'
 import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
 import QAList from '@/components/QAList.vue'
 import QAInput from '@/components/QAInput.vue'
@@ -25,21 +25,40 @@ function onResize() { isWide.value = window.innerWidth >= 900 }
 // Draggable split
 const leftWidth = ref(45)
 const dragging = ref(false)
+const collapsed = ref(false)
+const savedWidth = ref(45)
 
-function startDrag() { dragging.value = true }
-function onDrag(e: MouseEvent) {
+function onPointerDown(e: PointerEvent) {
+  if (collapsed.value) return
+  dragging.value = true
+  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+}
+function onPointerMove(e: PointerEvent) {
   if (!dragging.value) return
   const el = document.getElementById('split-container')
   if (!el) return
   const rect = el.getBoundingClientRect()
   leftWidth.value = Math.max(20, Math.min(80, ((e.clientX - rect.left) / rect.width) * 100))
 }
-function stopDrag() { dragging.value = false }
+function onPointerUp(e: PointerEvent) {
+  if (!dragging.value) return
+  dragging.value = false
+  ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+}
+
+function toggleCollapse() {
+  if (collapsed.value) {
+    collapsed.value = false
+    leftWidth.value = savedWidth.value
+  } else {
+    savedWidth.value = leftWidth.value
+    collapsed.value = true
+    leftWidth.value = 0
+  }
+}
 
 onMounted(async () => {
   window.addEventListener('resize', onResize)
-  document.addEventListener('mousemove', onDrag)
-  document.addEventListener('mouseup', stopDrag)
   await store.fetchPaper(paperId.value)
   highlightStore.loadForPathname(route.path)
   await qaStore.fetchTemplates()
@@ -49,8 +68,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
-  document.removeEventListener('mousemove', onDrag)
-  document.removeEventListener('mouseup', stopDrag)
   qaStore.stopPolling()
 })
 
@@ -117,7 +134,11 @@ const qaNavEntries = computed(() => {
     <!-- Wide screen: split view -->
     <div v-if="isWide" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging }">
       <!-- Left: Viewer panel + floating input overlay -->
-      <div :style="{ width: leftWidth + '%' }" class="shrink-0 overflow-hidden relative">
+      <div
+        :style="{ width: collapsed ? '0%' : leftWidth + '%' }"
+        class="shrink-0 overflow-hidden relative"
+        :class="{ 'transition-[width] duration-300 ease-in-out': !dragging }"
+      >
         <PaperViewerPanel :pdf-path="store.currentPaper?.pdf_path || null" :arxiv-id="store.currentPaper?.arxiv_id || null" />
         <div v-if="store.currentPaper" class="absolute bottom-0 left-0 right-0 z-10">
           <QAInput :paper-id="paperId" :sticky="false" />
@@ -125,8 +146,29 @@ const qaNavEntries = computed(() => {
       </div>
 
       <!-- Divider -->
-      <div @mousedown.prevent="startDrag" class="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-indigo-400 active:bg-indigo-500 transition-colors relative group">
-        <div class="absolute inset-y-0 -left-1 -right-1"></div>
+      <div
+        @pointerdown.prevent="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        class="shrink-0 relative flex items-center justify-center touch-none group"
+        :class="[
+          collapsed ? 'cursor-default' : 'cursor-col-resize',
+          dragging ? 'bg-indigo-500' : 'bg-gray-300 hover:bg-indigo-400',
+          'transition-colors'
+        ]"
+        :style="{ width: '2px' }"
+      >
+        <!-- Invisible hit area for easier grabbing -->
+        <div class="absolute inset-y-0 -left-[5px] -right-[5px]"></div>
+        <!-- Collapse/expand toggle button -->
+        <button
+          @pointerdown.stop
+          @click.stop="toggleCollapse"
+          class="absolute z-10 flex items-center justify-center w-6 h-6 rounded-full bg-white border border-gray-200 shadow text-gray-400 hover:text-indigo-600 hover:border-indigo-300 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
+        >
+          <PanelLeftOpen v-if="collapsed" class="h-3.5 w-3.5" />
+          <PanelLeftClose v-else class="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <!-- Right: Info + QA + floating input -->
