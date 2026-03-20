@@ -1,7 +1,7 @@
 # paper-modified-time Specification
 
 ## Purpose
-Paper updated_at tracking — automatically updates the paper's modification timestamp when QA or highlight operations are performed.
+Tracks paper last-modified time via `updated_at` column, auto-updated on user-initiated QA, highlight, and content operations.
 
 ## Requirements
 

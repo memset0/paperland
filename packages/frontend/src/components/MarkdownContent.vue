@@ -13,6 +13,9 @@ const props = defineProps<{ content: string; highlightPathname?: string }>()
 const highlightStore = useHighlightStore()
 const containerRef = ref<HTMLElement | null>(null)
 
+// Touch device detection (same approach as QAPanelNav.vue)
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+
 // Toolbar state
 const showToolbar = ref(false)
 const toolbarPos = ref({ x: 0, y: 0 })
@@ -75,60 +78,77 @@ watch(myHighlights, () => {
   renderAndHighlight()
 }, { deep: true })
 
-onMounted(() => {
-  renderAndHighlight()
-  document.addEventListener('mousedown', onDocumentMouseDown)
-})
+// ---- Selection & Toolbar (selectionchange-based) ----
 
-onBeforeUnmount(() => {
-  document.removeEventListener('mousedown', onDocumentMouseDown)
-})
+let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
-// ---- Selection & Toolbar ----
+function onSelectionChange() {
+  // Debounce: shorter for desktop, longer for mobile (touch selection is slower)
+  const delay = isTouchDevice ? 300 : 50
 
-function onMouseUp(e: MouseEvent) {
-  // Don't show toolbar if clicking on toolbar or menu
-  if ((e.target as Element)?.closest('.hl-toolbar, .hl-menu, .hl-tooltip')) return
+  if (selectionDebounceTimer) clearTimeout(selectionDebounceTimer)
+  selectionDebounceTimer = setTimeout(() => {
+    handleSelectionSettled()
+  }, delay)
+}
 
+function handleSelectionSettled() {
   const el = containerRef.value
   if (!el) return
 
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    // Selection cleared — hide toolbar if showing
+    if (showToolbar.value) {
+      showToolbar.value = false
+      pendingSelection.value = null
+    }
+    return
+  }
+
+  // Check if selection is within our container
+  const range = selection.getRangeAt(0)
+  if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return
+
+  // Don't show toolbar if selection is inside toolbar/menu elements
+  const anchorEl = range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? range.startContainer as Element
+    : range.startContainer.parentElement
+  if (anchorEl?.closest('.hl-toolbar, .hl-menu, .hl-tooltip')) return
+
   if (!props.content) {
-    // Empty content guard
     alert('内容为空，无法创建高亮。请检查组件是否正确接收了内容数据。')
     return
   }
 
-  // Small delay to let selection settle
-  setTimeout(() => {
-    const offsets = getSelectionOffsets(el)
-    if (!offsets) {
-      showToolbar.value = false
-      return
-    }
+  const offsets = getSelectionOffsets(el)
+  if (!offsets) {
+    showToolbar.value = false
+    return
+  }
 
-    pendingSelection.value = offsets
+  pendingSelection.value = offsets
 
-    // Position toolbar below selection
-    const selection = window.getSelection()
-    const containerRect = el.getBoundingClientRect()
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0)
-      const rangeRect = range.getBoundingClientRect()
-      toolbarPos.value = {
-        x: rangeRect.left + rangeRect.width / 2 - containerRect.left,
-        y: rangeRect.bottom - containerRect.top + 6,
-      }
-    } else {
-      toolbarPos.value = {
-        x: e.clientX - containerRect.left,
-        y: e.clientY - containerRect.top + 6,
-      }
-    }
-    showToolbar.value = true
-    showNoteInput.value = false
-    noteText.value = ''
-  }, 10)
+  // Position toolbar below selection with viewport clamping
+  const containerRect = el.getBoundingClientRect()
+  const rangeRect = range.getBoundingClientRect()
+
+  let x = rangeRect.left + rangeRect.width / 2 - containerRect.left
+  const y = rangeRect.bottom - containerRect.top + 6
+
+  // Clamp x so toolbar doesn't overflow container edges
+  // Toolbar is ~140px wide (centered via translateX(-50%)), so half-width ~70px
+  const toolbarHalfWidth = 70
+  const minX = toolbarHalfWidth
+  const maxX = containerRect.width - toolbarHalfWidth
+  if (maxX > minX) {
+    x = Math.max(minX, Math.min(maxX, x))
+  }
+
+  toolbarPos.value = { x, y }
+  showToolbar.value = true
+  showNoteInput.value = false
+  noteText.value = ''
 }
 
 async function createHighlight(color: HighlightColor) {
@@ -148,9 +168,12 @@ async function createHighlight(color: HighlightColor) {
   closeAllPopups()
 }
 
-// ---- Hover Tooltip ----
+// ---- Hover Tooltip (desktop only) ----
 
 function onMarkMouseEnter(e: MouseEvent) {
+  // Skip hover tooltip on touch devices — they use tap → menu instead
+  if (isTouchDevice) return
+
   const mark = (e.target as Element)?.closest('mark[data-highlight-id]')
   if (!mark || !mark.getAttribute('data-highlight-note')) return
 
@@ -167,6 +190,8 @@ function onMarkMouseEnter(e: MouseEvent) {
 }
 
 function onMarkMouseLeave(e: MouseEvent) {
+  if (isTouchDevice) return
+
   const related = e.relatedTarget as Element | null
   if (related?.closest('.hl-tooltip')) return
   showTooltip.value = false
@@ -174,9 +199,15 @@ function onMarkMouseLeave(e: MouseEvent) {
 
 // ---- Click Menu ----
 
-function onMarkClick(e: MouseEvent) {
+function onMarkClick(e: MouseEvent | Event) {
   const mark = (e.target as Element)?.closest('mark[data-highlight-id]') as HTMLElement | null
   if (!mark) return
+
+  // On touch devices, don't open menu if there's an active text selection (let toolbar handle it)
+  if (isTouchDevice) {
+    const selection = window.getSelection()
+    if (selection && !selection.isCollapsed) return
+  }
 
   e.preventDefault()
   e.stopPropagation()
@@ -189,10 +220,19 @@ function onMarkClick(e: MouseEvent) {
   const markRect = mark.getBoundingClientRect()
 
   menuHighlightId.value = id
-  menuPos.value = {
-    x: markRect.left - containerRect.left + markRect.width / 2,
-    y: markRect.bottom - containerRect.top + 4,
+
+  // Position menu with viewport clamping
+  let x = markRect.left - containerRect.left + markRect.width / 2
+  const y = markRect.bottom - containerRect.top + 4
+
+  const menuHalfWidth = 80
+  const minX = menuHalfWidth
+  const maxX = containerRect.width - menuHalfWidth
+  if (maxX > minX) {
+    x = Math.max(minX, Math.min(maxX, x))
   }
+
+  menuPos.value = { x, y }
   menuEditNote.value = false
   menuNoteText.value = hl.note || ''
   showMenu.value = true
@@ -226,7 +266,7 @@ async function menuDelete() {
 const showToast = ref(false)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
-function onKatexClick(e: MouseEvent) {
+function onKatexClick(e: MouseEvent | Event) {
   const target = e.target as Element
   // Find the closest .katex element (covers both inline and display math)
   const katexEl = target.closest('.katex')
@@ -257,7 +297,8 @@ function closeAllPopups() {
   pendingSelection.value = null
 }
 
-function onDocumentMouseDown(e: MouseEvent) {
+/** Dismiss popups on outside click/tap — idempotent, safe for both mousedown & touchstart */
+function onDocumentDismiss(e: MouseEvent | TouchEvent) {
   const target = e.target as Element
   if (target?.closest('.hl-toolbar, .hl-menu, .hl-tooltip')) return
   if (target?.closest('mark[data-highlight-id]')) return
@@ -266,13 +307,30 @@ function onDocumentMouseDown(e: MouseEvent) {
 
 const COLORS: HighlightColor[] = ['yellow', 'green', 'blue', 'pink']
 const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '绿', blue: '蓝', pink: '粉' }
+
+// ---- Lifecycle ----
+
+onMounted(() => {
+  renderAndHighlight()
+  // Selection detection via selectionchange (works on both desktop and mobile)
+  document.addEventListener('selectionchange', onSelectionChange)
+  // Popup dismissal — both mouse and touch
+  document.addEventListener('mousedown', onDocumentDismiss)
+  document.addEventListener('touchstart', onDocumentDismiss, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('selectionchange', onSelectionChange)
+  document.removeEventListener('mousedown', onDocumentDismiss)
+  document.removeEventListener('touchstart', onDocumentDismiss)
+  if (selectionDebounceTimer) clearTimeout(selectionDebounceTimer)
+})
 </script>
 
 <template>
   <div class="markdown-content max-w-none relative" style="position: relative;">
     <div
       ref="containerRef"
-      @mouseup="onMouseUp"
       @mouseover="onMarkMouseEnter"
       @mouseout="onMarkMouseLeave"
       @click="onMarkClick($event); onKatexClick($event)"
@@ -305,7 +363,7 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '�
       </div>
     </div>
 
-    <!-- Hover Tooltip -->
+    <!-- Hover Tooltip (desktop only, touch devices use tap → menu) -->
     <div
       v-if="showTooltip"
       class="hl-tooltip"
@@ -408,7 +466,7 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '�
   display: flex; align-items: center; gap: 4px;
   background: white; border: 1px solid #e5e7eb; border-radius: 8px;
   padding: 4px 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  flex-wrap: wrap;
+  flex-wrap: wrap; user-select: none; -webkit-user-select: none;
 }
 .hl-toolbar-colors { display: flex; gap: 4px; }
 .hl-color-btn {
@@ -451,7 +509,7 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '�
   position: absolute; z-index: 50; transform: translateX(-50%);
   background: white; border: 1px solid #e5e7eb; border-radius: 8px;
   padding: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  min-width: 160px;
+  min-width: 160px; user-select: none; -webkit-user-select: none;
 }
 .hl-menu-colors { display: flex; gap: 4px; margin-bottom: 6px; justify-content: center; }
 .hl-menu-actions { display: flex; gap: 4px; }
