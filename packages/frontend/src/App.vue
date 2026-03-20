@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, ChevronLeft, ChevronRight, BookOpen, Menu, X } from 'lucide-vue-next'
+import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, X, Github } from 'lucide-vue-next'
 import GlobalAlert from '@/components/GlobalAlert.vue'
 
 const route = useRoute()
 const router = useRouter()
-const collapsed = ref(false)
 const isMobile = ref(window.innerWidth < 768)
 const drawerOpen = ref(false)
 
@@ -36,26 +35,27 @@ function navigateMobile(path: string) {
   <div class="flex h-screen overflow-hidden bg-gray-50/50">
     <GlobalAlert />
 
-    <!-- ========== DESKTOP: Sidebar ========== -->
-    <aside v-if="!isMobile" :class="['flex flex-col border-r border-gray-200 bg-white transition-all duration-200 shrink-0', collapsed ? 'w-[52px]' : 'w-52']">
-      <div class="flex h-14 items-center gap-2.5 border-b border-gray-100 px-3.5">
-        <BookOpen class="h-5 w-5 shrink-0 text-indigo-600" />
-        <span v-if="!collapsed" class="font-bold text-[15px] tracking-tight text-gray-900">Paperland</span>
+    <!-- ========== DESKTOP: Icon sidebar ========== -->
+    <aside v-if="!isMobile" class="flex w-[52px] flex-col border-r border-gray-200 bg-white shrink-0">
+      <div class="flex h-12 items-center justify-center border-b border-gray-200">
+        <BookOpen class="h-5 w-5 text-indigo-600" />
       </div>
-      <nav class="flex-1 space-y-0.5 p-2 pt-3">
+      <nav class="flex-1 flex flex-col items-center gap-1 pt-3">
         <RouterLink
           v-for="item in navItems" :key="item.path" :to="item.path"
-          :class="['flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium transition-all duration-150',
-            isActive(item.path) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700']"
+          :class="['group relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors duration-150',
+            isActive(item.path) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600']"
         >
-          <component :is="item.icon" :class="['h-[15px] w-[15px] shrink-0', isActive(item.path) ? 'text-indigo-600' : '']" :stroke-width="isActive(item.path) ? 2.2 : 1.8" />
-          <span v-if="!collapsed">{{ item.label }}</span>
+          <component :is="item.icon" :class="['h-[16px] w-[16px]', isActive(item.path) ? 'text-indigo-600' : '']" :stroke-width="isActive(item.path) ? 2.2 : 1.8" />
+          <span class="pointer-events-none absolute left-full ml-2 z-[100] hidden whitespace-nowrap rounded-md bg-gray-800 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg group-hover:block">{{ item.label }}</span>
         </RouterLink>
       </nav>
-      <button @click="collapsed = !collapsed" class="flex h-9 items-center justify-center border-t border-gray-100 text-gray-300 hover:text-gray-500 transition-colors">
-        <ChevronLeft v-if="!collapsed" class="h-3.5 w-3.5" />
-        <ChevronRight v-else class="h-3.5 w-3.5" />
-      </button>
+      <div class="flex items-center justify-center pb-3">
+        <a href="https://github.com/mem-research/paperland" target="_blank" rel="noopener noreferrer" class="group relative flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors duration-150 hover:bg-gray-100 hover:text-gray-600">
+          <Github class="h-[16px] w-[16px]" :stroke-width="1.8" />
+          <span class="pointer-events-none absolute left-full ml-2 z-[100] hidden whitespace-nowrap rounded-md bg-gray-800 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg group-hover:block">GitHub</span>
+        </a>
+      </div>
     </aside>
 
     <!-- ========== MOBILE: Top navbar + Drawer ========== -->

@@ -105,7 +105,7 @@ const qaNavEntries = computed(() => {
 <template>
   <div class="h-screen flex flex-col overflow-hidden">
     <!-- Header -->
-    <div class="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-2.5 shrink-0">
+    <div class="flex h-12 items-center gap-3 border-b border-gray-200 bg-white px-4 shrink-0">
       <button @click="router.push('/')" class="rounded-md p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
         <ArrowLeft class="h-4 w-4" />
       </button>
