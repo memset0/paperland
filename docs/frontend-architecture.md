@@ -235,7 +235,7 @@ content_priority:
 
 ### 渲染组件
 
-`MarkdownContent.vue` 是全站统一的 Markdown 渲染组件，基于 `marked` + `marked-katex-extension` + `KaTeX`。
+`MarkdownContent.vue` 是全站统一的 Markdown 渲染组件，基于 `markdown-it` + `@traptitech/markdown-it-katex` + `KaTeX`。
 
 ### 数学公式支持
 

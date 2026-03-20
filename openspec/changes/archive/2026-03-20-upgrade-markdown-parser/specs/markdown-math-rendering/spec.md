@@ -1,3 +1,5 @@
+## MODIFIED Requirements
+
 ### Requirement: Inline math rendering with dollar signs
 The system SHALL render text enclosed in single dollar signs (`$...$`) as inline math formulas using KaTeX, via the `markdown-it` KaTeX plugin (`@traptitech/markdown-it-katex`).
 
@@ -56,21 +58,6 @@ The system SHALL render invalid or unsupported LaTeX commands as raw source text
 - **WHEN** markdown content contains `$\unsupportedcommand{x}$`
 - **THEN** the raw text SHALL be displayed (not an error message or blank output)
 
-### Requirement: List bullet points are visible
-The system SHALL render unordered list items with visible bullet markers (disc) and ordered list items with visible numeric markers (decimal).
-
-#### Scenario: Unordered list bullets
-- **WHEN** markdown content contains a `- item` or `* item` list
-- **THEN** each list item SHALL display with a disc bullet marker
-
-#### Scenario: Ordered list numbers
-- **WHEN** markdown content contains a `1. item` list
-- **THEN** each list item SHALL display with a decimal number marker
-
-#### Scenario: Nested list indentation
-- **WHEN** markdown content contains nested lists
-- **THEN** nested items SHALL be indented and display appropriate sub-list markers
-
 ### Requirement: KaTeX CSS is loaded
 The system SHALL include the KaTeX stylesheet so that math formulas render with correct fonts and spacing.
 
@@ -92,6 +79,8 @@ The system SHALL treat each KaTeX-rendered element (`.katex`, `.katex-display`) 
 #### Scenario: Text offset calculation skips KaTeX internals
 - **WHEN** computing rendered text offsets for a highlight
 - **THEN** each KaTeX element SHALL contribute its `textContent` length as a single offset span, without traversing into its internal DOM nodes
+
+## ADDED Requirements
 
 ### Requirement: Click math formula to copy LaTeX source
 The system SHALL copy the LaTeX source code of a math formula to the clipboard when the user clicks on it, and display a toast notification confirming the copy.
@@ -117,3 +106,9 @@ The system SHALL copy the LaTeX source code of a math formula to the clipboard w
 #### Scenario: Math formula hover hint
 - **WHEN** the user hovers over a math formula
 - **THEN** the formula SHALL display a subtle background color and pointer cursor to indicate it is clickable
+
+## REMOVED Requirements
+
+### Requirement: Manual delimiter normalization
+**Reason**: The `normalizeDelimiters()` function that converted `\(...\)` to `$...$` and `\[...\]` to `$$...$$` via regex is no longer needed. The `markdown-it` KaTeX plugin handles all four delimiter styles natively during tokenization, which is more reliable and correctly handles edge cases (delimiters in code blocks, nested structures).
+**Migration**: Remove the `normalizeDelimiters()` function from `MarkdownContent.vue`. No other code references it.

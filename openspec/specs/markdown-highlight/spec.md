@@ -64,7 +64,7 @@ The system SHALL display a floating toolbar when text is selected within a Markd
 - **THEN** the toolbar SHALL include an option to add a text note before confirming the highlight
 
 ### Requirement: Highlight rendering via DOM text node traversal
-The system SHALL render highlights by traversing DOM text nodes after markdown rendering and wrapping matched offset ranges with `<mark>` elements.
+The system SHALL render highlights by traversing DOM text nodes after markdown rendering and wrapping matched offset ranges with `<mark>` elements. The highlight system SHALL remain parser-agnostic — it operates on the rendered DOM tree, not the markdown parser's AST, and SHALL work correctly with any markdown renderer that produces valid HTML with KaTeX elements carrying `.katex` / `.katex-display` CSS classes.
 
 #### Scenario: Single paragraph highlight
 - **WHEN** a highlight with start_offset=10, end_offset=25 exists
@@ -77,6 +77,10 @@ The system SHALL render highlights by traversing DOM text nodes after markdown r
 #### Scenario: Offset verification
 - **WHEN** the text at the stored offset does not match the stored `text` field
 - **THEN** the system SHALL silently skip rendering that highlight (graceful degradation)
+
+#### Scenario: Parser change does not break highlights
+- **WHEN** the markdown parser is changed from `marked` to `markdown-it`
+- **THEN** existing highlights SHALL continue to render correctly because the highlight system matches on rendered `textContent` offsets, not on HTML structure
 
 ### Requirement: Highlight interaction — hover tooltip
 The system SHALL display a tooltip with the highlight's note content when the user hovers over a highlighted text.

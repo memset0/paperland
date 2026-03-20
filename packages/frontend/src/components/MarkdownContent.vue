@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue'
-import { marked } from 'marked'
-import markedKatex from 'marked-katex-extension'
+import MarkdownIt from 'markdown-it'
+import mk from '@traptitech/markdown-it-katex'
 import SparkMD5 from 'spark-md5'
 import 'katex/dist/katex.min.css'
 import { useHighlightStore } from '@/stores/highlights'
@@ -32,20 +32,9 @@ const menuHighlightId = ref<number | null>(null)
 const menuEditNote = ref(false)
 const menuNoteText = ref('')
 
-// Configure marked once
-marked.use(markedKatex({ throwOnError: false, nonStandard: true }))
-marked.setOptions({ breaks: true, gfm: true })
-
-function normalizeDelimiters(text: string): string {
-  const placeholders: string[] = []
-  let protected_ = text
-    .replace(/```[\s\S]*?```/g, (m) => { placeholders.push(m); return `\x00CODE${placeholders.length - 1}\x00` })
-    .replace(/`[^`]+`/g, (m) => { placeholders.push(m); return `\x00CODE${placeholders.length - 1}\x00` })
-  protected_ = protected_.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$')
-  protected_ = protected_.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$')
-  protected_ = protected_.replace(/\x00CODE(\d+)\x00/g, (_, i) => placeholders[Number(i)])
-  return protected_
-}
+// Configure markdown-it once
+const md = new MarkdownIt({ breaks: true, linkify: true, html: false })
+md.use(mk, { throwOnError: false })
 
 /** Compute content hash: MD5 of content with all whitespace removed */
 const contentHash = computed(() => {
@@ -66,7 +55,7 @@ function renderAndHighlight() {
   if (!el) return
 
   // Render markdown to HTML
-  el.innerHTML = marked.parse(normalizeDelimiters(props.content)) as string
+  el.innerHTML = md.render(props.content)
 
   // Apply highlights after DOM update
   nextTick(() => {
@@ -232,6 +221,33 @@ async function menuDelete() {
   showMenu.value = false
 }
 
+// ---- KaTeX Copy ----
+
+const showToast = ref(false)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function onKatexClick(e: MouseEvent) {
+  const target = e.target as Element
+  // Find the closest .katex element (covers both inline and display math)
+  const katexEl = target.closest('.katex')
+  if (!katexEl) return
+
+  // Don't copy if user is selecting text (highlight flow)
+  const selection = window.getSelection()
+  if (selection && !selection.isCollapsed) return
+
+  // Extract LaTeX source from the <annotation> element KaTeX generates
+  const annotation = katexEl.querySelector('annotation[encoding="application/x-tex"]')
+  if (!annotation?.textContent) return
+
+  const latex = annotation.textContent
+  navigator.clipboard.writeText(latex).then(() => {
+    if (toastTimer) clearTimeout(toastTimer)
+    showToast.value = true
+    toastTimer = setTimeout(() => { showToast.value = false }, 2000)
+  })
+}
+
 // ---- Helpers ----
 
 function closeAllPopups() {
@@ -259,7 +275,7 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '�
       @mouseup="onMouseUp"
       @mouseover="onMarkMouseEnter"
       @mouseout="onMarkMouseLeave"
-      @click="onMarkClick"
+      @click="onMarkClick($event); onKatexClick($event)"
     />
 
     <!-- Selection Toolbar -->
@@ -327,6 +343,15 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '�
         <button @click.stop="menuSaveNote" class="hl-menu-btn">保存</button>
       </div>
     </div>
+
+    <!-- Toast -->
+    <Teleport to="body">
+      <Transition name="toast-fade">
+        <div v-if="showToast" class="katex-copy-toast">
+          LaTeX 已复制到剪贴板
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -367,6 +392,9 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '�
   text-align: center; margin: 0.5em 0; overflow-x: auto; overflow-y: hidden;
 }
 .markdown-content :deep(.katex-display > .katex) { text-align: center; }
+/* KaTeX click-to-copy cursor & hover */
+.markdown-content :deep(.katex) { cursor: pointer; border-radius: 6px; transition: background-color 0.15s; padding: 1px 3px; }
+.markdown-content :deep(.katex:hover) { background-color: rgba(99, 102, 241, 0.08); }
 
 /* --- Highlight colors --- */
 .markdown-content :deep(.hl-yellow) { background-color: rgba(250, 204, 21, 0.35); border-radius: 2px; cursor: pointer; }
@@ -440,4 +468,19 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '�
   border: 1px solid #d1d5db; border-radius: 4px; outline: none;
 }
 .hl-menu-note input:focus { border-color: #6366f1; }
+</style>
+
+<style>
+/* Toast — teleported to body, must be global */
+.katex-copy-toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: #1f2937; color: white; font-size: 14px;
+  padding: 8px 20px; border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 9999; pointer-events: none;
+}
+.toast-fade-enter-active { transition: opacity 0.2s, transform 0.2s; }
+.toast-fade-leave-active { transition: opacity 0.3s, transform 0.3s; }
+.toast-fade-enter-from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+.toast-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
 </style>
