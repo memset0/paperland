@@ -6,11 +6,12 @@ database:
     dir: ./data/backups
     retention_days: 30
 
-allowed_hosts:
-  - .dev.mem.ac
+# Optional: restrict allowed hosts (for CORS)
+# allowed_hosts:
+#   - localhost
 
 auth:
-  enabled: true
+  enabled: false
   users:
     - username: admin
       password: changeme
@@ -48,29 +49,22 @@ content_priority:
   - pdf_parsed
 
 system_prompt: |
-  【paperland】请根据下面的论文内容回答这个问题：{PROMPT}
+  Answer the following question based on the paper content: {PROMPT}
 
   ---
 
   {PAPER}
 
-
 qa:
   - name: research-question
-    prompt: "这篇论文试图解决什么问题？"
+    prompt: "What problem does this paper try to solve?"
   - name: related-works
-    prompt: "有哪些相关工作与前置知识？"
-  - name: insights
-    prompt: "作者有哪些重要的观察、灵感或发现，从而促使其提出了该研究问题或解决方法？"
+    prompt: "What are the related works and prerequisite knowledge?"
   - name: method
-    prompt: "论文如何解决所提出的研究问题？"
+    prompt: "How does the paper solve the proposed research problem?"
   - name: experiments
-    prompt: "论文做了哪些实验？是怎么通过这些实验进行问题分析或论证方法有效性的？"
+    prompt: "What experiments does the paper conduct? How do they validate the claims?"
   - name: conclusion
-    prompt: "作者所作出的结论是什么？"
-  - name: discussion
-    prompt: "作者还提出了哪些值得讨论的问题？针对每个一个问题，是怎么进行分析和实验的？"
-  - name: future-works
-    prompt: "有哪些可以进一步探索的点？"
+    prompt: "What are the main conclusions?"
   - name: summary
-    prompt: "帮我总结一下论文的主要内容，并在最后给出一句话总结"
+    prompt: "Summarize the main content of this paper and give a one-sentence takeaway."
