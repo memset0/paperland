@@ -39,5 +39,17 @@ export const usePapersStore = defineStore('papers', () => {
     return await api.post<Paper & { created: boolean }>('/api/papers', data)
   }
 
-  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, fetchPapers, fetchPaper, createPaper }
+  async function updatePaper(id: number, data: { title?: string; authors?: string[]; link?: string; content?: string }) {
+    const updated = await api.patch<Paper>(`/api/papers/${id}`, data)
+    if (currentPaper.value && currentPaper.value.id === id) {
+      Object.assign(currentPaper.value, updated)
+    }
+    return updated
+  }
+
+  async function deletePaper(id: number) {
+    return await api.delete<{ success: boolean; deleted_id: number }>(`/api/papers/${id}`)
+  }
+
+  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, fetchPapers, fetchPaper, createPaper, updatePaper, deletePaper }
 })

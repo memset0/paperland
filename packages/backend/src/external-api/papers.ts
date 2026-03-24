@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, desc } from 'drizzle-orm'
-import { getDatabase, schema } from '../db/index.js'
+import { eq, desc, like, inArray } from 'drizzle-orm'
+import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { withDedup, getDedupKey } from '../services/paper_dedup.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { resolveContent } from '../services/qa_service.js'
@@ -76,6 +76,71 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
       return dedupKey ? await withDedup(dedupKey, createFn) : await createFn()
     }
   )
+
+  // Update paper
+  app.patch<{ Params: { id: string }; Body: { title?: string; authors?: string[]; link?: string; content?: string } }>(
+    '/external-api/v1/papers/:id',
+    async (request, reply) => {
+      const db = getDatabase()
+      const id = parseInt(request.params.id, 10)
+      const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
+      if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
+
+      const { title, authors, link, content } = request.body || {}
+      const updates: Record<string, any> = {}
+
+      if (paper.arxiv_id && (title !== undefined || authors !== undefined)) {
+        reply.code(400).send({ error: { code: 'ARXIV_LOCKED', message: 'Cannot modify title or authors for arXiv papers' } })
+        return
+      }
+
+      if (title !== undefined) updates.title = title
+      if (authors !== undefined) updates.authors = JSON.stringify(Array.isArray(authors) ? authors : [authors])
+      if (link !== undefined) updates.link = link || null
+
+      if (content !== undefined) {
+        const existing = paper.contents ? (typeof paper.contents === 'string' ? JSON.parse(paper.contents) : paper.contents) : {}
+        existing.user_input = content === '' ? null : content
+        updates.contents = JSON.stringify(existing)
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return { ...parsePaper(paper), tags: getTags(db, paper.id) }
+      }
+
+      updates.updated_at = new Date().toISOString()
+      db.update(schema.papers).set(updates).where(eq(schema.papers.id, id)).run()
+
+      const updated = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
+      return { ...parsePaper(updated!), tags: getTags(db, id) }
+    }
+  )
+
+  // Delete paper with cascade
+  app.delete<{ Params: { id: string } }>('/external-api/v1/papers/:id', async (request, reply) => {
+    const db = getDatabase()
+    const id = parseInt(request.params.id, 10)
+    const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
+    if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
+
+    const sqlite = getSqliteDatabase()
+    const tx = sqlite.transaction(() => {
+      const entryIds = db.select({ id: schema.qaEntries.id }).from(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).all().map(e => e.id)
+      if (entryIds.length > 0) {
+        db.delete(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, entryIds)).run()
+      }
+      db.delete(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).run()
+      db.delete(schema.serviceExecutions).where(eq(schema.serviceExecutions.paper_id, id)).run()
+      db.delete(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).run()
+      if (paper.pdf_path) {
+        db.delete(schema.highlights).where(like(schema.highlights.pathname, `%${paper.pdf_path}%`)).run()
+      }
+      db.delete(schema.papers).where(eq(schema.papers.id, id)).run()
+    })
+    tx()
+
+    return { success: true, deleted_id: id }
+  })
 
   // Get paper by id
   app.get<{ Params: { id: string } }>('/external-api/v1/papers/:id', async (request, reply) => {

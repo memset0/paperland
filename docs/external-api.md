@@ -88,6 +88,42 @@ Base URL: `/external-api/v1`
 }
 ```
 
+#### PATCH /papers/:id
+
+更新论文信息。仅更新请求中提供的字段。
+
+**Request Body:**
+
+```json
+{
+  "title": "New Title",           // 可选，arXiv 论文不可修改
+  "authors": ["Author A"],        // 可选，arXiv 论文不可修改
+  "link": "https://example.com",  // 可选
+  "content": "论文内容文本"         // 可选，写入 contents.user_input
+}
+```
+
+- arXiv 论文（有 `arxiv_id`）尝试修改 `title` 或 `authors` 时返回 `400`
+- `content` 为空字符串时清除 `user_input`
+- 成功更新后 `updated_at` 自动刷新
+
+**Response:** 返回更新后的论文对象（同 GET /papers/:id 格式）。
+
+#### DELETE /papers/:id
+
+彻底删除论文及所有关联数据。在单个事务中级联删除：qa_results → qa_entries → service_executions → paper_tags → highlights → paper。
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "deleted_id": 42
+}
+```
+
+删除后 ID 不复用。论文不存在时返回 `404`。
+
 #### GET /papers?arxiv_id=xxx 或 GET /papers?corpus_id=xxx
 
 按外部 ID 查询论文。

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { Plus, Search, X, FileText, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-vue-next'
+import SourceTag from '@/components/SourceTag.vue'
 
 const store = usePapersStore()
 const router = useRouter()
@@ -26,19 +27,6 @@ function setSort(field: 'created_at' | 'updated_at') {
   localStorage.setItem('paperland_sort_order', 'desc')
   showSortMenu.value = false
   store.fetchPapers(1, search.value)
-}
-
-function getSourceInfo(paper: any) {
-  if (!paper.link) return null
-  try {
-    const url = new URL(paper.link)
-    if (url.hostname.includes('arxiv.org') && paper.arxiv_id) {
-      return { label: `arxiv:${paper.arxiv_id}`, color: 'red', url: paper.link }
-    }
-    return { label: url.hostname.replace(/^www\./, ''), color: 'gray', url: paper.link }
-  } catch {
-    return { label: paper.link, color: 'gray', url: paper.link }
-  }
 }
 
 function formatAuthors(a: string[]) {
@@ -110,11 +98,7 @@ async function addPaper() {
             </td>
             <td class="px-4 py-3 text-gray-500 truncate max-w-[10rem]">{{ formatAuthors(paper.authors) }}</td>
             <td class="px-4 py-3">
-              <a v-if="getSourceInfo(paper)" :href="getSourceInfo(paper)!.url" target="_blank" rel="noopener" @click.stop :class="[
-                'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset hover:opacity-80 transition-opacity',
-                getSourceInfo(paper)!.color === 'red' ? 'bg-red-50 text-red-700 ring-red-600/10' : 'bg-gray-50 text-gray-600 ring-gray-500/10'
-              ]">{{ getSourceInfo(paper)!.label }}</a>
-              <span v-else class="text-gray-300">-</span>
+              <SourceTag :link="paper.link" :arxiv-id="paper.arxiv_id" />
             </td>
             <td class="px-4 py-3 text-gray-400 text-xs">{{ new Date(paper.created_at).toLocaleDateString() }}</td>
             <td class="px-4 py-3 text-gray-400 text-xs">{{ new Date(paper.updated_at).toLocaleDateString() }}</td>
