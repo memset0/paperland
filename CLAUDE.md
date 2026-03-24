@@ -18,7 +18,10 @@ This project follows the **OpenSpec** workflow. All changes must go through:
 bun install
 
 # Run both backend + frontend (MUST run from project root)
-bun run packages/backend/src/index.ts & bun run --filter '@paperland/frontend' dev
+bun run dev
+
+# Equivalent to (but prefer `bun run dev`):
+# bun run packages/backend/src/index.ts & bun run --filter '@paperland/frontend' dev
 
 # Run backend only (port 3000, localhost only, MUST run from project root)
 bun run packages/backend/src/index.ts
