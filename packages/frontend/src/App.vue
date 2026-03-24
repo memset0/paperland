@@ -1,13 +1,21 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watchEffect } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, X, Github } from 'lucide-vue-next'
 import GlobalAlert from '@/components/GlobalAlert.vue'
+import { useEmbedMode } from '@/composables/useEmbedMode'
 
 const route = useRoute()
 const router = useRouter()
 const isMobile = ref(window.innerWidth < 768)
 const drawerOpen = ref(false)
+const { isEmbed, bgColor } = useEmbedMode()
+
+watchEffect(() => {
+  if (bgColor.value) {
+    document.documentElement.style.backgroundColor = bgColor.value
+  }
+})
 
 function onResize() { isMobile.value = window.innerWidth < 768 }
 onMounted(() => window.addEventListener('resize', onResize))
@@ -32,11 +40,11 @@ function navigateMobile(path: string) {
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden bg-gray-50/50">
+  <div class="flex h-screen overflow-hidden" :style="bgColor ? { backgroundColor: bgColor } : {}" :class="!bgColor ? 'bg-gray-50/50' : ''">
     <GlobalAlert />
 
     <!-- ========== DESKTOP: Icon sidebar ========== -->
-    <aside v-if="!isMobile" class="flex w-[52px] flex-col border-r border-gray-200 bg-white shrink-0">
+    <aside v-if="!isMobile && !isEmbed" class="flex w-[52px] flex-col border-r border-gray-200 bg-white shrink-0">
       <div class="flex h-12 items-center justify-center border-b border-gray-200">
         <BookOpen class="h-5 w-5 text-indigo-600" />
       </div>
@@ -59,7 +67,7 @@ function navigateMobile(path: string) {
     </aside>
 
     <!-- ========== MOBILE: Top navbar + Drawer ========== -->
-    <template v-if="isMobile">
+    <template v-if="isMobile && !isEmbed">
       <!-- Top navbar (fixed) -->
       <div class="fixed top-0 left-0 right-0 z-40 flex h-12 items-center gap-3 border-b border-gray-200 bg-white px-3">
         <button @click="drawerOpen = true" class="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition">
@@ -106,7 +114,7 @@ function navigateMobile(path: string) {
     </template>
 
     <!-- ========== Main content ========== -->
-    <main :class="['flex-1 overflow-y-auto', isMobile ? 'pt-12' : '']">
+    <main :class="['flex-1 overflow-y-auto', isMobile && !isEmbed ? 'pt-12' : '']">
       <RouterView />
     </main>
   </div>

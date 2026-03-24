@@ -3,7 +3,8 @@ import { onMounted, onUnmounted, computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw } from 'lucide-vue-next'
+import { useEmbedMode } from '@/composables/useEmbedMode'
 import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
 import QAList from '@/components/QAList.vue'
 import QAInput from '@/components/QAInput.vue'
@@ -16,7 +17,10 @@ const router = useRouter()
 const store = usePapersStore()
 const qaStore = useQAStore()
 const highlightStore = useHighlightStore()
+const { isEmbed } = useEmbedMode()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
+
+function reloadPage() { window.location.reload() }
 
 // Responsive: only show split view on wide screens
 const isWide = ref(window.innerWidth >= 900)
@@ -121,8 +125,17 @@ const qaNavEntries = computed(() => {
 
 <template>
   <div class="h-screen flex flex-col overflow-hidden">
-    <!-- Header -->
-    <div class="flex h-12 items-center gap-3 border-b border-gray-200 bg-white px-4 shrink-0">
+    <!-- Embed: compact header with title + refresh -->
+    <div v-if="isEmbed" class="flex h-6 items-center gap-1 border-b border-gray-200 px-2 shrink-0">
+      <div class="min-w-0 flex-1">
+        <h1 class="text-[11px] font-medium text-gray-500 truncate">{{ store.currentPaper?.title || '' }}</h1>
+      </div>
+      <button @click="reloadPage" class="shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition" title="刷新页面">
+        <RefreshCw class="h-3 w-3" />
+      </button>
+    </div>
+    <!-- Normal header -->
+    <div v-else class="flex h-12 items-center gap-3 border-b border-gray-200 bg-white px-4 shrink-0">
       <button @click="router.push('/')" class="rounded-md p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
         <ArrowLeft class="h-4 w-4" />
       </button>
@@ -254,10 +267,10 @@ const qaNavEntries = computed(() => {
       <div v-if="store.loading" class="flex items-center justify-center py-20">
         <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
       </div>
-      <div v-else-if="store.currentPaper" class="p-5 space-y-5 max-w-3xl mx-auto pb-40">
+      <div v-else-if="store.currentPaper" :class="isEmbed ? 'p-1.5 space-y-1.5' : 'p-5 space-y-5 max-w-3xl mx-auto pb-40'">
         <!-- Paper info -->
-        <div class="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 class="text-lg font-semibold text-gray-900 leading-snug mb-3">{{ store.currentPaper.title }}</h2>
+        <div :class="['rounded-xl border border-gray-200 bg-white', isEmbed ? 'p-3' : 'p-5']">
+          <h2 :class="[isEmbed ? 'text-sm mb-2' : 'text-lg mb-3', 'font-semibold text-gray-900 leading-snug']">{{ store.currentPaper.title }}</h2>
           <div class="flex flex-wrap gap-1.5 mb-4">
             <span v-if="store.currentPaper.arxiv_id" class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/10">
               <ExternalLink class="h-3 w-3" /> arXiv: {{ store.currentPaper.arxiv_id }}

@@ -97,8 +97,9 @@ export function registerPanel() {
           return;
         }
 
-        const pageUrl = buildPageUrl(result.id!);
-        log("Setting browser src=" + pageUrl);
+        const embedUrl = buildPageUrl(result.id!, true);
+        const cleanPageUrl = buildPageUrl(result.id!, false);
+        log("Setting browser src=" + embedUrl);
 
         // Update status with link
         status.innerHTML = "";
@@ -108,8 +109,8 @@ export function registerPanel() {
         link.addEventListener("click", (e) => {
           e.preventDefault();
           // Strip credentials from URL for external browser
-          const cleanUrl = (pageUrl || "").replace(/\/\/[^:]+:[^@]+@/, "//");
-          Zotero.launchURL(cleanUrl);
+          const externalUrl = (cleanPageUrl || "").replace(/\/\/[^:]+:[^@]+@/, "//");
+          Zotero.launchURL(externalUrl);
         });
         status.appendChild(link);
 
@@ -118,9 +119,9 @@ export function registerPanel() {
         info.style.color = "#888";
         status.appendChild(info);
 
-        // Set browser src
-        if (pageUrl) {
-          browser.src = pageUrl;
+        // Set browser src (with embed mode)
+        if (embedUrl) {
+          browser.src = embedUrl;
         }
       } catch (e: any) {
         log("Error in onAsyncRender: " + e.message);

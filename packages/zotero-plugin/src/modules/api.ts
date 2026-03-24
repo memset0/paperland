@@ -66,8 +66,9 @@ export async function resolvePaperId(arxivId: string): Promise<ResolveResult> {
 /**
  * Build the full URL to the Paperland paper detail page,
  * optionally embedding Basic Auth credentials.
+ * When embed is true, appends ?embed=1&bg=f2f2f2 for sidebar display.
  */
-export function buildPageUrl(paperId: number): string | null {
+export function buildPageUrl(paperId: number, embed = false): string | null {
   const host = getPref("host");
   if (!host) return null;
 
@@ -75,13 +76,20 @@ export function buildPageUrl(paperId: number): string | null {
   const username = getPref("username");
   const password = getPref("password");
 
+  let url: string;
   if (username && password) {
     // Embed Basic Auth in URL: https://user:pass@host/papers/id
     const parsed = new URL(baseUrl);
     parsed.username = username;
     parsed.password = password;
-    return `${parsed.origin}/papers/${paperId}`;
+    url = `${parsed.origin}/papers/${paperId}`;
+  } else {
+    url = `${baseUrl}/papers/${paperId}`;
   }
 
-  return `${baseUrl}/papers/${paperId}`;
+  if (embed) {
+    url += "?embed=1&bg=f2f2f2";
+  }
+
+  return url;
 }
