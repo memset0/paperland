@@ -9,6 +9,7 @@ export interface Paper {
   contents: Record<string, string | null> | null
   pdf_path: string | null
   metadata: Record<string, unknown> | null
+  link: string | null
   created_at: string
   updated_at: string
 }

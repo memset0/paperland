@@ -74,10 +74,10 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Create paper
-  app.post<{ Body: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; content?: string; tags?: string[] } }>(
+  app.post<{ Body: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; content?: string; link?: string; tags?: string[] } }>(
     '/api/papers',
     async (request, reply) => {
-      const { arxiv_id, corpus_id, title, authors, content, tags: tagNames } = request.body || {}
+      const { arxiv_id, corpus_id, title, authors, content, link, tags: tagNames } = request.body || {}
 
       if (!title && !arxiv_id && !corpus_id) {
         reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Must provide arxiv_id, corpus_id, or title' } })
@@ -123,6 +123,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
           title: title || 'Untitled',
           authors: JSON.stringify(authors || []),
           contents,
+          link: link || null,
           created_at: now,
           updated_at: now,
         }).returning().get()

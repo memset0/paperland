@@ -10,6 +10,7 @@ export const papers = sqliteTable('papers', {
   contents: text('contents'), // JSON: { user_input, pdf_parsed, ... }
   pdf_path: text('pdf_path'),
   metadata: text('metadata'), // JSON
+  link: text('link'),
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 })

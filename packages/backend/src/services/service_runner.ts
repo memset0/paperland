@@ -272,7 +272,7 @@ class ServiceRunner {
                 updates.authors = JSON.stringify(value)
               }
             }
-          } else if (key === 'arxiv_id' || key === 'corpus_id' || key === 'pdf_path') {
+          } else if (key === 'arxiv_id' || key === 'corpus_id' || key === 'pdf_path' || key === 'link') {
             updates[key] = value
           } else if (key.startsWith('contents.')) {
             // Update contents JSON

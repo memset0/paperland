@@ -43,6 +43,13 @@
       "when": 1773966470088,
       "tag": "0005_careless_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1774325022140,
+      "tag": "0006_burly_robbie_robertson",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,7 @@
 TBD - created by archiving change project-init. Update Purpose after archive.
 ## Requirements
 ### Requirement: Papers table
-The database SHALL have a `papers` table with columns: `id` (integer, primary key, autoincrement), `arxiv_id` (text, nullable, unique), `corpus_id` (text, nullable, unique), `title` (text, not null), `authors` (text, not null, JSON array), `abstract` (text, nullable), `contents` (text, nullable, JSON object), `pdf_path` (text, nullable), `metadata` (text, nullable, JSON), `created_at` (text, not null, ISO 8601), `updated_at` (text, not null, ISO 8601).
+The database SHALL have a `papers` table with columns: `id` (integer, primary key, autoincrement), `arxiv_id` (text, nullable, unique), `corpus_id` (text, nullable, unique), `title` (text, not null), `authors` (text, not null, JSON array), `abstract` (text, nullable), `contents` (text, nullable, JSON object), `pdf_path` (text, nullable), `metadata` (text, nullable, JSON), `link` (text, nullable), `created_at` (text, not null, ISO 8601), `updated_at` (text, not null, ISO 8601).
 
 #### Scenario: Create paper with arxiv_id
 - **WHEN** a paper is inserted with arxiv_id "2401.12345" and title "Test Paper"

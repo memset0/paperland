@@ -44,6 +44,7 @@ Base URL: `/external-api/v1`
   "corpus_id": "123456789",       // 可选
   "title": "Paper Title",         // 可选，手动创建时必填
   "authors": ["Author A", "Author B"],  // 可选
+  "link": "https://example.com/paper",  // 可选，论文来源链接
   "tags": ["tag1", "tag2"]        // 可选，同时同步标签
 }
 ```
@@ -301,6 +302,7 @@ Base URL: `/external-api/v1`
     },
     {
       "corpus_id": "987654321",
+      "link": "https://example.com/paper",
       "tags": ["tag2", "tag3"]
     }
   ]

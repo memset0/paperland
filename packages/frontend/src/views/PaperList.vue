@@ -9,7 +9,7 @@ const router = useRouter()
 const search = ref('')
 const showAdd = ref(false)
 const addTab = ref<'arxiv' | 'corpus' | 'manual'>('arxiv')
-const addForm = ref({ arxiv_id: '', corpus_id: '', title: '', authors: '', content: '' })
+const addForm = ref({ arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '' })
 const adding = ref(false)
 
 onMounted(() => store.fetchPapers())
@@ -28,6 +28,19 @@ function setSort(field: 'created_at' | 'updated_at') {
   store.fetchPapers(1, search.value)
 }
 
+function getSourceInfo(paper: any) {
+  if (!paper.link) return null
+  try {
+    const url = new URL(paper.link)
+    if (url.hostname.includes('arxiv.org') && paper.arxiv_id) {
+      return { label: `arxiv:${paper.arxiv_id}`, color: 'red', url: paper.link }
+    }
+    return { label: url.hostname.replace(/^www\./, ''), color: 'gray', url: paper.link }
+  } catch {
+    return { label: paper.link, color: 'gray', url: paper.link }
+  }
+}
+
 function formatAuthors(a: string[]) {
   if (!Array.isArray(a) || !a.length) return '-'
   return a.length <= 2 ? a.join(', ') : `${a[0]} et al.`
@@ -39,10 +52,10 @@ async function addPaper() {
     const data: any = {}
     if (addTab.value === 'arxiv') data.arxiv_id = addForm.value.arxiv_id
     else if (addTab.value === 'corpus') data.corpus_id = addForm.value.corpus_id
-    else { data.title = addForm.value.title; data.authors = addForm.value.authors.split(',').map(s => s.trim()).filter(Boolean); data.content = addForm.value.content }
+    else { data.title = addForm.value.title; data.authors = addForm.value.authors.split(',').map(s => s.trim()).filter(Boolean); data.content = addForm.value.content; if (addForm.value.link) data.link = addForm.value.link }
     const result = await store.createPaper(data)
     showAdd.value = false
-    addForm.value = { arxiv_id: '', corpus_id: '', title: '', authors: '', content: '' }
+    addForm.value = { arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '' }
     store.fetchPapers()
     if (result.id) router.push(`/papers/${result.id}`)
   } finally { adding.value = false }
@@ -85,7 +98,7 @@ async function addPaper() {
           <tr class="border-b border-gray-100 bg-gray-50/60">
             <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider">标题</th>
             <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-40">作者</th>
-            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-28">arXiv ID</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-32">来源</th>
             <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-24">添加日期</th>
             <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-24">最近修改</th>
           </tr>
@@ -97,7 +110,10 @@ async function addPaper() {
             </td>
             <td class="px-4 py-3 text-gray-500 truncate max-w-[10rem]">{{ formatAuthors(paper.authors) }}</td>
             <td class="px-4 py-3">
-              <span v-if="paper.arxiv_id" class="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/10">{{ paper.arxiv_id }}</span>
+              <a v-if="getSourceInfo(paper)" :href="getSourceInfo(paper)!.url" target="_blank" rel="noopener" @click.stop :class="[
+                'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset hover:opacity-80 transition-opacity',
+                getSourceInfo(paper)!.color === 'red' ? 'bg-red-50 text-red-700 ring-red-600/10' : 'bg-gray-50 text-gray-600 ring-gray-500/10'
+              ]">{{ getSourceInfo(paper)!.label }}</a>
               <span v-else class="text-gray-300">-</span>
             </td>
             <td class="px-4 py-3 text-gray-400 text-xs">{{ new Date(paper.created_at).toLocaleDateString() }}</td>
@@ -148,6 +164,7 @@ async function addPaper() {
           <div v-else class="space-y-3">
             <input v-model="addForm.title" placeholder="标题" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
             <input v-model="addForm.authors" placeholder="作者 (逗号分隔)" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
+            <input v-model="addForm.link" placeholder="来源链接 (可选, 例: https://example.com/paper)" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
             <textarea v-model="addForm.content" placeholder="论文内容..." rows="4" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 resize-none"></textarea>
           </div>
           <div class="flex justify-end gap-2 mt-5">

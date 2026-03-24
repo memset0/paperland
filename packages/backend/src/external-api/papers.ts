@@ -26,11 +26,11 @@ function getTags(db: any, paperId: number): string[] {
 
 export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
   // Create paper
-  app.post<{ Body: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; tags?: string[] } }>(
+  app.post<{ Body: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; link?: string; tags?: string[] } }>(
     '/external-api/v1/papers',
     async (request, reply) => {
       const db = getDatabase()
-      const { arxiv_id, corpus_id, title, authors, tags: tagNames } = request.body || {}
+      const { arxiv_id, corpus_id, title, authors, link, tags: tagNames } = request.body || {}
 
       if (!arxiv_id && !corpus_id && !title) {
         reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Must provide arxiv_id, corpus_id, or title' } })
@@ -58,7 +58,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         const now = new Date().toISOString()
         const paper = db.insert(schema.papers).values({
           arxiv_id: arxiv_id || null, corpus_id: corpus_id || null,
-          title: title || 'Untitled', authors: JSON.stringify(authors || []), created_at: now, updated_at: now,
+          title: title || 'Untitled', authors: JSON.stringify(authors || []), link: link || null, created_at: now, updated_at: now,
         }).returning().get()
 
         if (tagNames && tagNames.length > 0) {
@@ -196,7 +196,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
   )
 
   // Batch create papers
-  app.post<{ Body: { papers: Array<{ arxiv_id?: string; corpus_id?: string; tags?: string[] }> } }>(
+  app.post<{ Body: { papers: Array<{ arxiv_id?: string; corpus_id?: string; link?: string; tags?: string[] }> } }>(
     '/external-api/v1/papers/batch',
     async (request) => {
       const { papers: paperDefs } = request.body || { papers: [] }
@@ -217,7 +217,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
           const now = new Date().toISOString()
           const paper = db.insert(schema.papers).values({
             arxiv_id: def.arxiv_id || null, corpus_id: def.corpus_id || null,
-            title: 'Untitled', authors: '[]', created_at: now, updated_at: now,
+            title: 'Untitled', authors: '[]', link: def.link || null, created_at: now, updated_at: now,
           }).returning().get()
 
           if (def.tags) {

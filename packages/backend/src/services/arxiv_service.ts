@@ -77,13 +77,18 @@ export const arxivService: PaperBoundServiceDef = {
   name: 'arxiv_service',
   type: 'paper_bound',
   depends_on: ['arxiv_id'],
-  produces: ['pdf_path'],
+  produces: ['pdf_path', 'link'],
 
   async execute(paperId: number, paper: any): Promise<Record<string, any>> {
     const arxivId = paper.arxiv_id
     if (!arxivId) throw new Error('No arxiv_id on paper')
 
     const result: Record<string, any> = {}
+
+    // Set link if not already set
+    if (!paper.link) {
+      result.link = `https://arxiv.org/abs/${arxivId}`
+    }
 
     // Fetch metadata
     try {
