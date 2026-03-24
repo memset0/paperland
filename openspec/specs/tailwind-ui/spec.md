@@ -1,7 +1,7 @@
-# shadcn-tailwind-ui Specification
+# tailwind-ui Specification
 
 ## Purpose
-TBD - created by archiving change frontend-redesign. Update Purpose after archive.
+Frontend UI built with Tailwind CSS + Lucide icons + custom Vue components. Defines core UI structure including navigation, paper list, settings, and service dashboard.
 ## Requirements
 ### Requirement: Tailwind CSS integration
 The frontend SHALL use Tailwind CSS for all styling, replacing Vuetify.
