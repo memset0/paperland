@@ -1,0 +1,34 @@
+name: Build Zotero Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/zotero-plugin/**"
+      - ".github/workflows/build-zotero-plugin.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build Zotero plugin
+        working-directory: packages/zotero-plugin
+        run: bun run build
+
+      - name: Upload XPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zotero-plugin-xpi
+          path: packages/zotero-plugin/.scaffold/build/paperland-for-zotero.xpi
+          if-no-files-found: error
