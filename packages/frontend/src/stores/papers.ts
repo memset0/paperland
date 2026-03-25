@@ -11,11 +11,12 @@ export const usePapersStore = defineStore('papers', () => {
   const sortBy = ref<'created_at' | 'updated_at'>((localStorage.getItem('paperland_sort_by') as 'created_at' | 'updated_at') || 'updated_at')
   const sortOrder = ref<'asc' | 'desc'>((localStorage.getItem('paperland_sort_order') as 'asc' | 'desc') || 'desc')
 
-  async function fetchPapers(page = 1, search = '') {
+  async function fetchPapers(page = 1, search = '', tagIds?: number[]) {
     loading.value = true
     try {
       const params = new URLSearchParams({ page: String(page), page_size: '20' })
       if (search) params.set('search', search)
+      if (tagIds && tagIds.length > 0) params.set('tag_ids', tagIds.join(','))
       params.set('sort_by', sortBy.value)
       params.set('sort_order', sortOrder.value)
       const res = await api.get<PaginatedResponse<Paper>>(`/api/papers?${params}`)

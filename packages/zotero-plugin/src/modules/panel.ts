@@ -1,6 +1,6 @@
 import { config } from "../../package.json";
 import { extractArxivId } from "./arxiv";
-import { resolvePaperId, buildPageUrl } from "./api";
+import { resolvePaperId, buildPageUrl, syncTags } from "./api";
 import { getPref } from "./prefs";
 
 const SECTION_ID = "paperland-section";
@@ -118,6 +118,19 @@ export function registerPanel() {
         info.textContent = `arXiv:${arxivId} \u2192 Paper #${result.id}`;
         info.style.color = "#888";
         status.appendChild(info);
+
+        // Sync Zotero tags to Paperland (add-only, non-blocking)
+        const zoteroTags = item.getTags?.() || [];
+        const tagNames = zoteroTags.map((t: { tag: string }) => t.tag).filter(Boolean);
+        if (tagNames.length > 0) {
+          const tagResult = await syncTags(result.id!, tagNames);
+          if (tagResult.ok && tagResult.count! > 0) {
+            const tagInfo = (body.ownerDocument).createElement("span");
+            tagInfo.textContent = ` · 已同步 ${tagResult.count} 个标签`;
+            tagInfo.style.color = "#888";
+            status.appendChild(tagInfo);
+          }
+        }
 
         // Set browser src (with embed mode)
         if (embedUrl) {

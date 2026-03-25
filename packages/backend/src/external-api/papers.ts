@@ -7,6 +7,8 @@ import { resolveContent } from '../services/qa_service.js'
 import { loadTemplates } from '../services/template_loader.js'
 import { askQuestion } from '../services/qa_service.js'
 import { getConfig } from '../config.js'
+import { randomTagColor } from '../utils/tag-colors.js'
+import { syncPaperTagsJson } from '../utils/tags-json-sync.js'
 
 function parsePaper(raw: any) {
   return {
@@ -64,9 +66,10 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         if (tagNames && tagNames.length > 0) {
           for (const tagName of tagNames) {
             let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-            if (!tag) tag = db.insert(schema.tags).values({ name: tagName }).returning().get()
+            if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
             db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
           }
+          syncPaperTagsJson(paper.id)
         }
 
         serviceRunner.triggerForPaper(paper.id).catch(() => {})
@@ -288,9 +291,10 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
           if (def.tags) {
             for (const tagName of def.tags) {
               let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-              if (!tag) tag = db.insert(schema.tags).values({ name: tagName }).returning().get()
+              if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
               db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
             }
+            syncPaperTagsJson(paper.id)
           }
 
           serviceRunner.triggerForPaper(paper.id).catch(() => {})

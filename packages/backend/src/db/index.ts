@@ -42,6 +42,16 @@ export function initDatabase(): ReturnType<typeof drizzle> {
     ) WHERE created_at = ''
   `)
 
+  // Backfill papers.tags_json from paper_tags for existing data
+  _sqlite.exec(`
+    UPDATE papers SET tags_json = COALESCE(
+      (SELECT json_group_array(json_object('id', t.id, 'name', t.name))
+       FROM paper_tags pt JOIN tags t ON t.id = pt.tag_id
+       WHERE pt.paper_id = papers.id),
+      '[]'
+    ) WHERE tags_json IS NULL
+  `)
+
   return _db
 }
 

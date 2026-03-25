@@ -11,6 +11,7 @@ export const papers = sqliteTable('papers', {
   pdf_path: text('pdf_path'),
   metadata: text('metadata'), // JSON
   link: text('link'),
+  tags_json: text('tags_json'), // JSON: [{ id, name }]
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 })
@@ -18,6 +19,7 @@ export const papers = sqliteTable('papers', {
 export const tags = sqliteTable('tags', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull().unique(),
+  color: text('color').notNull().default(''),
 })
 
 export const paperTags = sqliteTable('paper_tags', {

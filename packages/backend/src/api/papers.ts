@@ -1,32 +1,60 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, like, or, desc, asc, inArray } from 'drizzle-orm'
+import { eq, like, or, desc, asc, inArray, sql, and } from 'drizzle-orm'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { withDedup, getDedupKey } from '../services/paper_dedup.js'
 import { serviceRunner } from '../services/service_runner.js'
+import { randomTagColor } from '../utils/tag-colors.js'
+import { syncPaperTagsJson } from '../utils/tags-json-sync.js'
 
 export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // List papers with pagination and search
-  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string } }>(
+  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string; tag_ids?: string } }>(
     '/api/papers',
     async (request) => {
       const db = getDatabase()
       const page = parseInt(request.query.page || '1', 10)
       const pageSize = parseInt(request.query.page_size || '20', 10)
       const search = request.query.search
+      const tagIdsParam = request.query.tag_ids
 
       const allowedSortBy = ['created_at', 'updated_at'] as const
       const sortBy = allowedSortBy.includes(request.query.sort_by as any) ? (request.query.sort_by as 'created_at' | 'updated_at') : 'created_at'
       const sortOrder = request.query.sort_order === 'asc' ? 'asc' : 'desc'
 
-      let query = db.select().from(schema.papers)
+      // If tag_ids filter, find paper IDs that have ALL specified tags
+      let tagFilteredPaperIds: number[] | null = null
+      if (tagIdsParam) {
+        const tagIds = tagIdsParam.split(',').map(Number).filter(n => !isNaN(n))
+        if (tagIds.length > 0) {
+          const rows = db.select({
+            paper_id: schema.paperTags.paper_id,
+            cnt: sql<number>`count(distinct ${schema.paperTags.tag_id})`.as('cnt'),
+          })
+            .from(schema.paperTags)
+            .where(inArray(schema.paperTags.tag_id, tagIds))
+            .groupBy(schema.paperTags.paper_id)
+            .all()
+          tagFilteredPaperIds = rows.filter(r => r.cnt === tagIds.length).map(r => r.paper_id)
+          if (tagFilteredPaperIds.length === 0) {
+            return { data: [], pagination: { page, page_size: pageSize, total: 0, total_pages: 0 } }
+          }
+        }
+      }
 
+      const conditions = []
       if (search) {
-        query = query.where(
-          or(
-            like(schema.papers.title, `%${search}%`),
-            like(schema.papers.abstract, `%${search}%`)
-          )
-        ) as typeof query
+        conditions.push(or(
+          like(schema.papers.title, `%${search}%`),
+          like(schema.papers.abstract, `%${search}%`)
+        )!)
+      }
+      if (tagFilteredPaperIds) {
+        conditions.push(inArray(schema.papers.id, tagFilteredPaperIds))
+      }
+
+      let query = db.select().from(schema.papers)
+      if (conditions.length > 0) {
+        query = query.where(conditions.length === 1 ? conditions[0] : and(...conditions)) as typeof query
       }
 
       const sortColumn = schema.papers[sortBy]
@@ -34,7 +62,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       const total = allResults.length
       const data = allResults.slice((page - 1) * pageSize, page * pageSize)
 
-      // Parse JSON fields
+      // Parse JSON fields + include tags
       const parsed = data.map(parsePaper)
 
       return {
@@ -60,7 +88,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       return
     }
 
-    // Get tags
+    // Get tags with full info (id, name, color)
     const paperTagRows = db.select().from(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).all()
     const tagIds = paperTagRows.map(pt => pt.tag_id)
     const tagList = tagIds.length > 0
@@ -69,7 +97,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       ...parsePaper(paper),
-      tags: tagList.map(t => t.name),
+      tags: tagList.map(t => ({ id: t.id, name: t.name, color: t.color })),
     }
   })
 
@@ -213,10 +241,11 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
           for (const tagName of tagNames) {
             let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
             if (!tag) {
-              tag = db.insert(schema.tags).values({ name: tagName }).returning().get()
+              tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
             }
             db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
           }
+          syncPaperTagsJson(paper.id)
         }
 
         // Trigger services in background (non-blocking)
@@ -234,6 +263,92 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       return await createFn()
     }
   )
+
+  // GET /api/papers/:id/tags — get paper's tags with color
+  app.get<{ Params: { id: string } }>('/api/papers/:id/tags', async (request, reply) => {
+    const db = getDatabase()
+    const id = parseInt(request.params.id, 10)
+    const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
+    if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${id} not found` } }); return }
+
+    const rows = db.select({ id: schema.tags.id, name: schema.tags.name, color: schema.tags.color })
+      .from(schema.paperTags)
+      .innerJoin(schema.tags, eq(schema.paperTags.tag_id, schema.tags.id))
+      .where(eq(schema.paperTags.paper_id, id))
+      .all()
+    return rows
+  })
+
+  // PUT /api/papers/:id/tags — replace all paper tags
+  app.put<{ Params: { id: string }; Body: { tags: string[] } }>(
+    '/api/papers/:id/tags',
+    async (request, reply) => {
+      const db = getDatabase()
+      const id = parseInt(request.params.id, 10)
+      const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
+      if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${id} not found` } }); return }
+
+      const { tags: tagNames } = request.body || {}
+
+      db.delete(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).run()
+
+      for (const tagName of (tagNames || [])) {
+        let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
+        if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
+        db.insert(schema.paperTags).values({ paper_id: id, tag_id: tag.id }).run()
+      }
+
+      syncPaperTagsJson(id)
+
+      const rows = db.select({ id: schema.tags.id, name: schema.tags.name, color: schema.tags.color })
+        .from(schema.paperTags)
+        .innerJoin(schema.tags, eq(schema.paperTags.tag_id, schema.tags.id))
+        .where(eq(schema.paperTags.paper_id, id))
+        .all()
+      return rows
+    }
+  )
+
+  // PATCH /api/papers/:id/tags — add/remove tags
+  app.patch<{ Params: { id: string }; Body: { add?: string[]; remove?: string[] } }>(
+    '/api/papers/:id/tags',
+    async (request, reply) => {
+      const db = getDatabase()
+      const id = parseInt(request.params.id, 10)
+      const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
+      if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${id} not found` } }); return }
+
+      const { add, remove } = request.body || {}
+
+      if (remove) {
+        for (const tagName of remove) {
+          const tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
+          if (tag) {
+            db.delete(schema.paperTags)
+              .where(and(eq(schema.paperTags.paper_id, id), eq(schema.paperTags.tag_id, tag.id)))
+              .run()
+          }
+        }
+      }
+
+      if (add) {
+        for (const tagName of add) {
+          let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
+          if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
+          try { db.insert(schema.paperTags).values({ paper_id: id, tag_id: tag.id }).run() } catch {}
+        }
+      }
+
+      syncPaperTagsJson(id)
+
+      const rows = db.select({ id: schema.tags.id, name: schema.tags.name, color: schema.tags.color })
+        .from(schema.paperTags)
+        .innerJoin(schema.tags, eq(schema.paperTags.tag_id, schema.tags.id))
+        .where(eq(schema.paperTags.paper_id, id))
+        .all()
+      return rows
+    }
+  )
 }
 
 function parsePaper(raw: any) {
@@ -242,5 +357,6 @@ function parsePaper(raw: any) {
     authors: typeof raw.authors === 'string' ? JSON.parse(raw.authors) : raw.authors,
     contents: raw.contents ? JSON.parse(raw.contents) : null,
     metadata: raw.metadata ? JSON.parse(raw.metadata) : null,
+    tags: raw.tags_json ? (typeof raw.tags_json === 'string' ? JSON.parse(raw.tags_json) : raw.tags_json) : [],
   }
 }

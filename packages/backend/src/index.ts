@@ -11,6 +11,7 @@ import { paperRoutes } from './api/papers.js'
 import { serviceRoutes } from './api/services.js'
 import { qaRoutes } from './api/qa.js'
 import { highlightsRoutes } from './api/highlights.js'
+import { tagRoutes } from './api/tags.js'
 import { externalPaperRoutes } from './external-api/papers.js'
 import { externalTagRoutes } from './external-api/tags.js'
 import { startBackupScheduler } from './db/backup.js'
@@ -111,6 +112,7 @@ async function main() {
   await app.register(serviceRoutes)
   await app.register(qaRoutes)
   await app.register(highlightsRoutes)
+  await app.register(tagRoutes)
 
   // Register external API routes
   await app.register(externalPaperRoutes)

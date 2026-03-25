@@ -25,12 +25,23 @@ Deletion of a paper SHALL be performed via application-level cascade within a si
 - **THEN** all associated records SHALL be deleted within the same transaction before the paper record is removed
 - **AND** the transaction SHALL either fully complete or fully roll back on error
 
-### Requirement: Tags table
-The database SHALL have a `tags` table with columns: `id` (integer, primary key, autoincrement), `name` (text, unique, not null).
+### Requirement: Tags table schema
+The `tags` table SHALL include id, name, and color columns.
 
-#### Scenario: Create tag
-- **WHEN** a tag "transformer" is inserted
-- **THEN** the tag SHALL be stored with an auto-generated id
+#### Scenario: Tag record structure
+- **WHEN** a tag exists in the database
+- **THEN** it has columns: `id` (integer, auto-increment PK), `name` (text, unique, not null), `color` (text, not null, default empty string)
+
+### Requirement: Papers table includes tags_json
+The `papers` table SHALL include a `tags_json` column for denormalized tag storage.
+
+#### Scenario: Papers tags_json column
+- **WHEN** a paper exists in the database
+- **THEN** it has a `tags_json` (text, nullable) column storing JSON array of `[{"id": number, "name": string}]`
+
+#### Scenario: Migration backfills tags_json
+- **WHEN** the migration runs on existing data
+- **THEN** existing papers have their tags_json populated from current paper_tags relationships
 
 ### Requirement: Paper_tags junction table
 The database SHALL have a `paper_tags` table with columns: `paper_id` (integer, foreign key to papers.id), `tag_id` (integer, foreign key to tags.id), with a composite primary key on (paper_id, tag_id).

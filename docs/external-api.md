@@ -276,6 +276,10 @@ Base URL: `/external-api/v1`
 
 ### 标签相关
 
+**标签自动创建**：通过 External API 操作标签时，如果标签名不存在，系统会自动创建该标签并分配一个随机颜色。
+
+**tags_json 同步**：所有标签操作完成后，系统会自动更新受影响论文的 `tags_json` 冗余字段以保持一致性。
+
 #### PUT /papers/:id/tags
 
 **覆盖**论文的所有标签（用于从 Zotero 全量同步）。
@@ -363,20 +367,29 @@ Base URL: `/external-api/v1`
 ### 同步流程
 
 ```
-Zotero 插件
+Zotero 插件侧边栏面板
     │
-    ├── 1. 遍历 Zotero 中选中的文章
-    │      提取 arxiv_id / DOI / corpus_id
+    ├── 1. 用户选中 Zotero 中的论文条目
+    │      提取 arxiv_id（从 archiveID / extra / url 字段）
     │
-    ├── 2. POST /external-api/v1/papers/batch
-    │      批量创建/绑定论文
+    ├── 2. GET /external-api/v1/papers/full?arxiv_id={id}&auto_create=true
+    │      查找/自动创建论文记录，获取 paper ID
     │
-    ├── 3. PUT /external-api/v1/papers/:id/tags
-    │      同步每篇论文的 Zotero 标签
+    ├── 3. PATCH /external-api/v1/papers/:id/tags { add: [...] }
+    │      自动同步 Zotero item 标签（item.getTags()）
+    │      增量添加模式：仅 add，不 remove，保留 Paperland 中手动添加的标签
+    │      自动创建不存在的标签并分配随机颜色
+    │      同步失败不阻塞面板显示
     │
-    └── 4. (未来) 内嵌 Webview 展示论文详情页
-           直接使用 Paperland 前端，无需额外 API
+    └── 4. 内嵌 Webview 展示论文详情页
+           使用 XUL browser 元素加载 Paperland 前端（embed 模式）
 ```
+
+**标签同步细节：**
+- 同步时机：每次侧边栏面板渲染时（用户选中论文时）自动触发
+- 同步范围：Zotero item 的所有标签（包括 type=0 手动标签和 type=1 自动标签）
+- 幂等性：重复同步同一论文的同一标签是 no-op，无副作用
+- 状态展示：面板状态行显示 "已同步 N 个标签"
 
 ### Zotero 中的文章 ID 映射
 

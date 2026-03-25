@@ -5,6 +5,10 @@ import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
 import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save } from 'lucide-vue-next'
 import SourceTag from '@/components/SourceTag.vue'
+import TagBadge from '@/components/TagBadge.vue'
+import TagSelector from '@/components/TagSelector.vue'
+import { useTagsStore } from '@/stores/tags'
+import { api } from '@/api/client'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
 import QAList from '@/components/QAList.vue'
@@ -18,6 +22,7 @@ const router = useRouter()
 const store = usePapersStore()
 const qaStore = useQAStore()
 const highlightStore = useHighlightStore()
+const tagsStore = useTagsStore()
 const { isEmbed } = useEmbedMode()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
 
@@ -65,12 +70,45 @@ function toggleCollapse() {
 
 onMounted(async () => {
   window.addEventListener('resize', onResize)
+  tagsStore.ensureLoaded()
   await store.fetchPaper(paperId.value)
   highlightStore.loadForPathname(route.path)
   await qaStore.fetchTemplates()
   qaStore.switchPaper(paperId.value)
   await qaStore.fetchQA(paperId.value, true)
 })
+
+function navigateToTagFilter(tagId: number) {
+  router.push({ path: '/', query: { tags: String(tagId) } })
+}
+
+// Tag editing
+const isEditingTags = ref(false)
+const editingTags = ref<string[]>([])
+const savingTags = ref(false)
+
+function startEditTags() {
+  const tags = (store.currentPaper as any)?.tags || []
+  editingTags.value = tags.map((t: any) => typeof t === 'string' ? t : t.name)
+  isEditingTags.value = true
+}
+
+function cancelEditTags() {
+  isEditingTags.value = false
+  editingTags.value = []
+}
+
+async function saveTags() {
+  savingTags.value = true
+  try {
+    await api.put(`/api/papers/${paperId.value}/tags`, { tags: editingTags.value })
+    await store.fetchPaper(paperId.value)
+    await tagsStore.refreshCache()
+    isEditingTags.value = false
+  } finally {
+    savingTags.value = false
+  }
+}
 
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
@@ -320,11 +358,26 @@ async function confirmDelete() {
                   <span v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{{ a }}</span>
                 </div>
               </div>
-              <div v-if="(store.currentPaper as any).tags?.length" class="mb-4">
-                <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2"><Tag class="h-3 w-3" /> 标签</div>
-                <div class="flex flex-wrap gap-1">
-                  <span v-for="t in (store.currentPaper as any).tags" :key="t" class="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/10">{{ t }}</span>
+              <div class="mb-4">
+                <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                  <Tag class="h-3 w-3" /> 标签
+                  <button v-if="!isEditingTags" @click="startEditTags" class="ml-auto rounded p-0.5 text-gray-300 hover:text-gray-500 transition"><Pencil class="h-3 w-3" /></button>
                 </div>
+                <template v-if="isEditingTags">
+                  <TagSelector v-model="editingTags" />
+                  <div class="flex gap-2 mt-2">
+                    <button @click="saveTags" :disabled="savingTags" class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
+                      {{ savingTags ? '保存中...' : '保存' }}
+                    </button>
+                    <button @click="cancelEditTags" class="rounded-md px-3 py-1 text-xs text-gray-500 hover:bg-gray-100 transition">取消</button>
+                  </div>
+                </template>
+                <template v-else>
+                  <div v-if="(store.currentPaper as any).tags?.length" class="flex flex-wrap gap-1">
+                    <TagBadge v-for="t in (store.currentPaper as any).tags" :key="t.id || t" :tag-id="t.id || 0" :tag-name="t.name || t" clickable @click="navigateToTagFilter(t.id)" />
+                  </div>
+                  <button v-else @click="startEditTags" class="text-xs text-gray-400 hover:text-indigo-500 transition">+ 添加标签</button>
+                </template>
               </div>
               <div v-if="store.currentPaper.abstract">
                 <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">摘要</div>
@@ -438,11 +491,26 @@ async function confirmDelete() {
                 <span v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{{ a }}</span>
               </div>
             </div>
-            <div v-if="(store.currentPaper as any).tags?.length" class="mb-4">
-              <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2"><Tag class="h-3 w-3" /> 标签</div>
-              <div class="flex flex-wrap gap-1">
-                <span v-for="t in (store.currentPaper as any).tags" :key="t" class="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/10">{{ t }}</span>
+            <div class="mb-4">
+              <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                <Tag class="h-3 w-3" /> 标签
+                <button v-if="!isEditingTags" @click="startEditTags" class="ml-auto rounded p-0.5 text-gray-300 hover:text-gray-500 transition"><Pencil class="h-3 w-3" /></button>
               </div>
+              <template v-if="isEditingTags">
+                <TagSelector v-model="editingTags" />
+                <div class="flex gap-2 mt-2">
+                  <button @click="saveTags" :disabled="savingTags" class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
+                    {{ savingTags ? '保存中...' : '保存' }}
+                  </button>
+                  <button @click="cancelEditTags" class="rounded-md px-3 py-1 text-xs text-gray-500 hover:bg-gray-100 transition">取消</button>
+                </div>
+              </template>
+              <template v-else>
+                <div v-if="(store.currentPaper as any).tags?.length" class="flex flex-wrap gap-1">
+                  <TagBadge v-for="t in (store.currentPaper as any).tags" :key="t.id || t" :tag-id="t.id || 0" :tag-name="t.name || t" clickable @click="navigateToTagFilter(t.id)" />
+                </div>
+                <button v-else @click="startEditTags" class="text-xs text-gray-400 hover:text-indigo-500 transition">+ 添加标签</button>
+              </template>
             </div>
             <div v-if="store.currentPaper.abstract">
               <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">摘要</div>

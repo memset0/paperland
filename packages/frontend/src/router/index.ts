@@ -17,6 +17,11 @@ const routes = [
     component: () => import('@/views/QAPage.vue'),
   },
   {
+    path: '/tags',
+    name: 'tags',
+    component: () => import('@/views/TagManagement.vue'),
+  },
+  {
     path: '/services',
     name: 'services',
     component: () => import('@/views/ServiceDashboard.vue'),

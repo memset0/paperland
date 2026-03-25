@@ -1,24 +1,71 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
-import { Plus, Search, X, FileText, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-vue-next'
+import { useTagsStore } from '@/stores/tags'
+import { Plus, Search, X, FileText, ChevronLeft, ChevronRight, ArrowUpDown, Tag } from 'lucide-vue-next'
 import SourceTag from '@/components/SourceTag.vue'
+import TagBadge from '@/components/TagBadge.vue'
+import TagSelector from '@/components/TagSelector.vue'
 
 const store = usePapersStore()
+const tagsStore = useTagsStore()
 const router = useRouter()
+const route = useRoute()
 const search = ref('')
 const showAdd = ref(false)
 const addTab = ref<'arxiv' | 'corpus' | 'manual'>('arxiv')
-const addForm = ref({ arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '' })
+const addForm = ref({ arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '', tags: [] as string[] })
 const adding = ref(false)
 
-onMounted(() => store.fetchPapers())
+// Tag filter state
+const selectedTagIds = ref<number[]>([])
+const showTagFilter = ref(false)
+
+onMounted(() => {
+  // Initialize tag filter from URL
+  const tagsParam = route.query.tags as string
+  if (tagsParam) {
+    selectedTagIds.value = tagsParam.split(',').map(Number).filter(n => !isNaN(n))
+  }
+  tagsStore.ensureLoaded()
+  fetchWithFilters()
+})
 
 const showSortMenu = ref(false)
 
-function onSearch() { store.fetchPapers(1, search.value) }
-function goToPage(p: number) { store.fetchPapers(p, search.value) }
+function fetchWithFilters(page = 1) {
+  store.fetchPapers(page, search.value, selectedTagIds.value.length > 0 ? selectedTagIds.value : undefined)
+}
+
+function onSearch() { fetchWithFilters(1) }
+function goToPage(p: number) { fetchWithFilters(p) }
+
+function toggleTagFilter(tagId: number) {
+  const idx = selectedTagIds.value.indexOf(tagId)
+  if (idx >= 0) {
+    selectedTagIds.value.splice(idx, 1)
+  } else {
+    selectedTagIds.value.push(tagId)
+  }
+  // Update URL query
+  const query = { ...route.query }
+  if (selectedTagIds.value.length > 0) {
+    query.tags = selectedTagIds.value.join(',')
+  } else {
+    delete query.tags
+  }
+  router.replace({ query })
+  fetchWithFilters(1)
+}
+
+function clearTagFilter() {
+  selectedTagIds.value = []
+  const query = { ...route.query }
+  delete query.tags
+  router.replace({ query })
+  fetchWithFilters(1)
+}
 
 function setSort(field: 'created_at' | 'updated_at') {
   store.sortBy = field
@@ -26,7 +73,7 @@ function setSort(field: 'created_at' | 'updated_at') {
   localStorage.setItem('paperland_sort_by', field)
   localStorage.setItem('paperland_sort_order', 'desc')
   showSortMenu.value = false
-  store.fetchPapers(1, search.value)
+  fetchWithFilters(1)
 }
 
 function formatAuthors(a: string[]) {
@@ -40,10 +87,17 @@ async function addPaper() {
     const data: any = {}
     if (addTab.value === 'arxiv') data.arxiv_id = addForm.value.arxiv_id
     else if (addTab.value === 'corpus') data.corpus_id = addForm.value.corpus_id
-    else { data.title = addForm.value.title; data.authors = addForm.value.authors.split(',').map(s => s.trim()).filter(Boolean); data.content = addForm.value.content; if (addForm.value.link) data.link = addForm.value.link }
+    else {
+      data.title = addForm.value.title
+      data.authors = addForm.value.authors.split(',').map(s => s.trim()).filter(Boolean)
+      data.content = addForm.value.content
+      if (addForm.value.link) data.link = addForm.value.link
+      if (addForm.value.tags.length > 0) data.tags = addForm.value.tags
+    }
     const result = await store.createPaper(data)
     showAdd.value = false
-    addForm.value = { arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '' }
+    addForm.value = { arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '', tags: [] }
+    tagsStore.refreshCache()
     store.fetchPapers()
     if (result.id) router.push(`/papers/${result.id}`)
   } finally { adding.value = false }
@@ -79,6 +133,33 @@ async function addPaper() {
       </div>
     </div>
 
+    <!-- Tag filter bar -->
+    <div class="mb-4">
+      <div class="flex items-center gap-2">
+        <button @click="showTagFilter = !showTagFilter" :class="['inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition', selectedTagIds.length > 0 ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50']">
+          <Tag class="h-3.5 w-3.5" />标签筛选
+          <span v-if="selectedTagIds.length" class="ml-1 rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-medium text-white leading-none">{{ selectedTagIds.length }}</span>
+        </button>
+        <button v-if="selectedTagIds.length > 0" @click="clearTagFilter" class="text-xs text-gray-400 hover:text-gray-600 transition">清除筛选</button>
+      </div>
+      <div v-if="showTagFilter" class="mt-2 flex flex-wrap gap-1.5">
+        <button
+          v-for="tag in tagsStore.tags" :key="tag.id"
+          @click="toggleTagFilter(tag.id)"
+          :class="['inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ring-1 ring-inset',
+            selectedTagIds.includes(tag.id) ? 'ring-2' : 'opacity-70 hover:opacity-100']"
+          :style="{
+            backgroundColor: (tag.color || '#6b7280') + (selectedTagIds.includes(tag.id) ? '25' : '12'),
+            color: tag.color || '#6b7280',
+            borderColor: (tag.color || '#6b7280') + '40',
+          }"
+        >
+          {{ tag.name }}
+          <span class="text-[10px] opacity-60">{{ tag.paper_count }}</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Table -->
     <div class="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
       <table class="w-full text-sm">
@@ -95,6 +176,9 @@ async function addPaper() {
           <tr v-for="paper in store.papers" :key="paper.id" @click="router.push(`/papers/${paper.id}`)" class="hover:bg-indigo-50/40 cursor-pointer transition-colors">
             <td class="px-4 py-3">
               <div class="font-medium text-gray-900 line-clamp-1">{{ paper.title }}</div>
+              <div v-if="(paper as any).tags?.length" class="flex flex-wrap gap-1 mt-1">
+                <TagBadge v-for="t in (paper as any).tags" :key="t.id" :tag-id="t.id" :tag-name="t.name" />
+              </div>
             </td>
             <td class="px-4 py-3 text-gray-500 truncate max-w-[10rem]">{{ formatAuthors(paper.authors) }}</td>
             <td class="px-4 py-3">
@@ -150,6 +234,7 @@ async function addPaper() {
             <input v-model="addForm.authors" placeholder="作者 (逗号分隔)" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
             <input v-model="addForm.link" placeholder="来源链接 (可选, 例: https://example.com/paper)" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
             <textarea v-model="addForm.content" placeholder="论文内容..." rows="4" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 resize-none"></textarea>
+            <TagSelector v-model="addForm.tags" />
           </div>
           <div class="flex justify-end gap-2 mt-5">
             <button @click="showAdd = false" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">取消</button>

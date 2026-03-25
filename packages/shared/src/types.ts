@@ -10,6 +10,7 @@ export interface Paper {
   pdf_path: string | null
   metadata: Record<string, unknown> | null
   link: string | null
+  tags_json: string | null
   created_at: string
   updated_at: string
 }
@@ -18,6 +19,7 @@ export interface Paper {
 export interface Tag {
   id: number
   name: string
+  color: string
 }
 
 export interface PaperTag {

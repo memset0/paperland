@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
+import { randomTagColor } from '../utils/tag-colors.js'
+import { syncPaperTagsJson } from '../utils/tags-json-sync.js'
 
 export async function externalTagRoutes(app: FastifyInstance): Promise<void> {
   // PUT — replace all tags for a paper
@@ -21,11 +23,12 @@ export async function externalTagRoutes(app: FastifyInstance): Promise<void> {
       const resultTags: string[] = []
       for (const tagName of (tagNames || [])) {
         let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-        if (!tag) tag = db.insert(schema.tags).values({ name: tagName }).returning().get()
+        if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
         db.insert(schema.paperTags).values({ paper_id: paperId, tag_id: tag.id }).run()
         resultTags.push(tagName)
       }
 
+      syncPaperTagsJson(paperId)
       return { id: paperId, tags: resultTags }
     }
   )
@@ -79,7 +82,7 @@ export async function externalTagRoutes(app: FastifyInstance): Promise<void> {
       if (add) {
         for (const tagName of add) {
           let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-          if (!tag) tag = db.insert(schema.tags).values({ name: tagName }).returning().get()
+          if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
           try { db.insert(schema.paperTags).values({ paper_id: paperId, tag_id: tag.id }).run() } catch {}
         }
       }
@@ -89,6 +92,7 @@ export async function externalTagRoutes(app: FastifyInstance): Promise<void> {
       const tagIds = paperTagRows.map((pt) => pt.tag_id)
       const allTags = tagIds.length > 0 ? db.select().from(schema.tags).all().filter((t) => tagIds.includes(t.id)) : []
 
+      syncPaperTagsJson(paperId)
       return { id: paperId, tags: allTags.map((t) => t.name) }
     }
   )

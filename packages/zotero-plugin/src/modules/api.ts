@@ -63,6 +63,51 @@ export async function resolvePaperId(arxivId: string): Promise<ResolveResult> {
   }
 }
 
+interface SyncTagsResult {
+  ok: boolean;
+  count?: number;
+  error?: string;
+}
+
+/**
+ * Sync Zotero item tags to Paperland (add-only, never removes).
+ * Skips the call if tagNames is empty.
+ */
+export async function syncTags(paperId: number, tagNames: string[]): Promise<SyncTagsResult> {
+  if (tagNames.length === 0) {
+    return { ok: true, count: 0 };
+  }
+
+  const host = getPref("host");
+  const token = getPref("api_token");
+  if (!host || !token) {
+    return { ok: false, error: "Host or token not configured" };
+  }
+
+  const baseUrl = host.replace(/\/+$/, "");
+  const url = `${baseUrl}/external-api/v1/papers/${paperId}/tags`;
+
+  try {
+    Zotero.debug(`[Paperland] Syncing ${tagNames.length} tags for paper #${paperId}`);
+
+    await Zotero.HTTP.request("PATCH", url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ add: tagNames }),
+      responseType: "json",
+      timeout: 15000,
+    });
+
+    Zotero.debug(`[Paperland] Tags synced for paper #${paperId}: ${tagNames.join(", ")}`);
+    return { ok: true, count: tagNames.length };
+  } catch (e: any) {
+    Zotero.debug(`[Paperland] Tag sync error: ${e.message || e}`);
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
 /**
  * Build the full URL to the Paperland paper detail page,
  * optionally embedding Basic Auth credentials.

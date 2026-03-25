@@ -50,6 +50,13 @@
       "when": 1774325022140,
       "tag": "0006_burly_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1774394874275,
+      "tag": "0007_lying_marten_broadcloak",
+      "breakpoints": true
     }
   ]
 }
