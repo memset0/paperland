@@ -22,6 +22,8 @@ import { arxivService } from './services/arxiv_service.js'
 import { semanticScholarService } from './services/semantic_scholar_service.js'
 import { pdfParseService } from './services/pdf_parse_service.js'
 import { papersCoolService } from './services/papers_cool_service.js'
+import { ideaForgeRoutes } from './api/idea-forge.js'
+import { ensureIdeaForgeRoot } from './idea-forge/utils.js'
 
 async function main() {
   // Load config
@@ -49,6 +51,9 @@ async function main() {
       .run()
     console.log('Cleaned up stale service executions and QA entries')
   }
+
+  // Ensure idea-forge directory exists
+  ensureIdeaForgeRoot()
 
   // Start backup scheduler
   startBackupScheduler()
@@ -113,6 +118,9 @@ async function main() {
   await app.register(qaRoutes)
   await app.register(highlightsRoutes)
   await app.register(tagRoutes)
+
+  // Register idea-forge routes
+  await app.register(ideaForgeRoutes)
 
   // Register external API routes
   await app.register(externalPaperRoutes)

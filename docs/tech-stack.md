@@ -22,6 +22,14 @@
 ```
 paperland/
 ├── config.yml                      # 全站统一配置
+├── data/
+│   ├── paperland.db                # SQLite 数据库
+│   ├── backups/                    # 每日备份
+│   └── idea-forge/                 # Idea Forge 文件存储（非数据库）
+│       └── {project-name}/
+│           ├── AGENTS.md           # AI agent 指引
+│           ├── papers/             # 导出的论文
+│           └── ideas/              # 研究想法（按分类目录）
 ├── packages/
 │   ├── frontend/                   # Vue 3 + Vite
 │   │   ├── src/
@@ -30,7 +38,10 @@ paperland/
 │   │   │   │   ├── PaperDetail.vue
 │   │   │   │   ├── QAPage.vue
 │   │   │   │   ├── ServiceDashboard.vue
-│   │   │   │   └── Settings.vue
+│   │   │   │   ├── Settings.vue
+│   │   │   │   └── idea-forge/    # Idea Forge 页面
+│   │   │   │       ├── ProjectList.vue
+│   │   │   │       └── IdeaManager.vue
 │   │   │   ├── components/         # 通用组件
 │   │   │   ├── composables/        # Vue composables
 │   │   │   ├── router/
@@ -48,7 +59,11 @@ paperland/
 │   │   │   │   ├── papers.ts
 │   │   │   │   ├── qa.ts
 │   │   │   │   ├── services.ts
-│   │   │   │   └── settings.ts
+│   │   │   │   ├── settings.ts
+│   │   │   │   └── idea-forge.ts  # Idea Forge API (projects, ideas, paper dump)
+│   │   │   ├── idea-forge/        # Idea Forge 工具函数
+│   │   │   │   ├── utils.ts       # 目录操作、hash、路径解析
+│   │   │   │   └── frontmatter.ts # YAML frontmatter 解析/序列化
 │   │   │   ├── external-api/       # External API routes (/external-api/v1/...)
 │   │   │   │   ├── papers.ts
 │   │   │   │   └── tags.ts

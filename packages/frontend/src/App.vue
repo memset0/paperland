@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watchEffect } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, X, Github, Tag } from 'lucide-vue-next'
+import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, X, Github, Tag, Lightbulb } from 'lucide-vue-next'
 import GlobalAlert from '@/components/GlobalAlert.vue'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 
@@ -25,6 +25,7 @@ const navItems = [
   { path: '/', label: '论文管理', icon: FileText },
   { path: '/tags', label: '标签管理', icon: Tag },
   { path: '/qa', label: 'Q&A', icon: MessageSquare },
+  { path: '/idea-forge', label: 'Idea Forge', icon: Lightbulb },
   { path: '/services', label: '服务管理', icon: Activity },
   { path: '/settings', label: '设置', icon: Settings },
 ]

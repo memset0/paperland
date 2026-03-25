@@ -19,7 +19,8 @@
     "spark-md5": "^3.0.2",
     "tailwind-merge": "*",
     "vue": "^3.4.0",
-    "vue-router": "^4.3.0"
+    "vue-router": "^4.3.0",
+    "vuedraggable": "^4.1.0"
   },
   "devDependencies": {
     "@types/katex": "^0.16.8",

@@ -9,11 +9,12 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@paperland/shared": "workspace:*",
-    "fastify": "*",
     "@fastify/cors": "*",
     "@fastify/static": "*",
+    "@paperland/shared": "workspace:*",
     "drizzle-orm": "*",
+    "fastify": "*",
+    "gray-matter": "^4.0.3",
     "js-yaml": "^4.1.0",
     "unpdf": "*",
     "zod": "^3.23.0"

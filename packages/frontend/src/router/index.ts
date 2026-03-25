@@ -31,6 +31,16 @@ const routes = [
     name: 'settings',
     component: () => import('@/views/Settings.vue'),
   },
+  {
+    path: '/idea-forge',
+    name: 'idea-forge',
+    component: () => import('@/views/idea-forge/ProjectList.vue'),
+  },
+  {
+    path: '/idea-forge/:projectName',
+    name: 'idea-forge-project',
+    component: () => import('@/views/idea-forge/IdeaManager.vue'),
+  },
 ]
 
 export const router = createRouter({

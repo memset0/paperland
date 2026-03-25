@@ -157,6 +157,69 @@ export interface Highlight {
   created_at: string
 }
 
+// Idea Forge
+export type IdeaCategory = 'unreviewed' | 'under-review' | 'validating' | 'archived'
+
+export interface IdeaFrontmatter {
+  name: string
+  author: string
+  tags: string[]
+  create_time: string
+  update_time: string
+  my_score: number
+  llm_score: number
+  my_comment: string
+  summary: string
+  [key: string]: unknown // preserve unknown fields
+}
+
+export interface Idea {
+  dir_name: string
+  category: IdeaCategory
+  name: string
+  author: string
+  tags: string[]
+  create_time: string
+  update_time: string
+  my_score: number
+  llm_score: number
+  my_comment: string
+  summary: string
+  parse_error?: boolean
+}
+
+export interface IdeaDetail {
+  frontmatter: IdeaFrontmatter
+  body: string
+  content_hash: string
+  category: IdeaCategory
+  dir_name: string
+}
+
+export interface ProjectConfig {
+  paper_filter?: {
+    tag_names: string[]
+  }
+}
+
+export interface IdeaForgeProject {
+  name: string
+  idea_count: number
+  paper_count: number
+  created_at: string
+  config: ProjectConfig
+}
+
+export interface DumpPapersRequest {
+  tag_ids?: number[]
+  paper_ids?: number[]
+}
+
+export interface DumpPapersResponse {
+  dumped_count: number
+  project_name: string
+}
+
 // API response types
 export interface PaginatedResponse<T> {
   data: T[]
