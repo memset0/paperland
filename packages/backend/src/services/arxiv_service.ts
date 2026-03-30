@@ -1,12 +1,26 @@
 import { mkdirSync, writeFileSync } from 'fs'
-import { resolve, dirname } from 'path'
+import { resolve } from 'path'
 import type { PaperBoundServiceDef } from './base_service.js'
 
-const ARXIV_API_URL = 'http://export.arxiv.org/api/query'
+const ARXIV_API_URL = 'https://export.arxiv.org/api/query'
 const ARXIV_PDF_URL = 'https://arxiv.org/pdf'
 
 function sanitizeId(arxivId: string): string {
   return arxivId.replace(/[./]/g, '_')
+}
+
+async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url)
+    if (response.status === 429 && attempt < maxRetries) {
+      const waitSec = 10 * Math.pow(2, attempt) // 10, 20, 40 seconds
+      console.log(`Arxiv rate limited, retrying in ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`)
+      await new Promise((r) => setTimeout(r, waitSec * 1000))
+      continue
+    }
+    return response
+  }
+  throw new Error('Unreachable')
 }
 
 async function fetchArxivMetadata(arxivId: string): Promise<{
@@ -16,12 +30,17 @@ async function fetchArxivMetadata(arxivId: string): Promise<{
   categories: string[]
 }> {
   const url = `${ARXIV_API_URL}?id_list=${arxivId}`
-  const response = await fetch(url)
+  const response = await fetchWithRetry(url)
   if (!response.ok) {
     throw new Error(`Arxiv API returned ${response.status}`)
   }
 
   const xml = await response.text()
+
+  // Check for rate limit in body (arxiv sometimes returns 200 with error text)
+  if (xml.includes('Rate exceeded')) {
+    throw new Error('Arxiv rate limit exceeded (in response body)')
+  }
 
   // Parse Atom XML with regex (arxiv API is well-structured)
   const entryMatch = xml.match(/<entry>([\s\S]*?)<\/entry>/)
@@ -73,11 +92,15 @@ async function downloadPdf(arxivId: string): Promise<string> {
   return `data/pdfs/${filename}`
 }
 
-export const arxivService: PaperBoundServiceDef = {
-  name: 'arxiv_service',
+/**
+ * Fetches metadata (title, abstract, authors, categories) from arxiv API.
+ * Separated from PDF download so each can fail/retry independently.
+ */
+export const arxivMetadataService: PaperBoundServiceDef = {
+  name: 'arxiv_metadata_service',
   type: 'paper_bound',
   depends_on: ['arxiv_id'],
-  produces: ['pdf_path', 'link'],
+  produces: ['link'],
 
   async execute(paperId: number, paper: any): Promise<Record<string, any>> {
     const arxivId = paper.arxiv_id
@@ -85,29 +108,37 @@ export const arxivService: PaperBoundServiceDef = {
 
     const result: Record<string, any> = {}
 
-    // Set link if not already set
     if (!paper.link) {
       result.link = `https://arxiv.org/abs/${arxivId}`
     }
 
-    // Fetch metadata
-    try {
-      const meta = await fetchArxivMetadata(arxivId)
-      result.title = meta.title
-      result.authors = meta.authors
-      result.abstract = meta.abstract
-      result.arxiv_categories = meta.categories
-    } catch (err: any) {
-      console.error(`Arxiv metadata fetch failed for ${arxivId}:`, err.message)
-    }
-
-    // Download PDF
-    try {
-      result.pdf_path = await downloadPdf(arxivId)
-    } catch (err: any) {
-      console.error(`Arxiv PDF download failed for ${arxivId}:`, err.message)
-    }
+    const meta = await fetchArxivMetadata(arxivId)
+    result.title = meta.title
+    result.authors = meta.authors
+    result.abstract = meta.abstract
+    result.arxiv_categories = meta.categories
 
     return result
   },
 }
+
+/**
+ * Downloads PDF from arxiv. Depends on arxiv_id, produces pdf_path.
+ */
+export const arxivPdfService: PaperBoundServiceDef = {
+  name: 'arxiv_pdf_service',
+  type: 'paper_bound',
+  depends_on: ['arxiv_id'],
+  produces: ['pdf_path'],
+
+  async execute(paperId: number, paper: any): Promise<Record<string, any>> {
+    const arxivId = paper.arxiv_id
+    if (!arxivId) throw new Error('No arxiv_id on paper')
+
+    const pdfPath = await downloadPdf(arxivId)
+    return { pdf_path: pdfPath }
+  },
+}
+
+// Backwards compatibility: re-export as arxivService pointing to metadata service
+export const arxivService = arxivMetadataService

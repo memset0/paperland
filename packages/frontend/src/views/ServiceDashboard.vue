@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { api } from '@/api/client'
-import { Activity, Clock, AlertCircle, CheckCircle2, Loader2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Activity, Clock, AlertCircle, CheckCircle2, Loader2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-vue-next'
 
 interface ServiceInfo { name: string; type: string; running: number; pending: number; max_concurrency: number }
 interface Execution { id: number; service_name: string; paper_id: number; status: string; progress: number; created_at: string; finished_at: string | null; error: string | null }
@@ -12,6 +12,8 @@ const pagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 0 })
 const loading = ref(false)
 const filterService = ref('')
 const filterStatus = ref('')
+const retryingId = ref<number | null>(null)
+const retryError = ref<string | null>(null)
 
 let poll: ReturnType<typeof setInterval> | null = null
 onMounted(async () => { await fetchAll(); poll = setInterval(fetchAll, 5000) })
@@ -39,6 +41,19 @@ const statusStyle: Record<string, { bg: string; text: string; icon: any }> = {
   blocked: { bg: 'bg-gray-100', text: 'text-gray-500', icon: AlertCircle },
 }
 function getStyle(s: string) { return statusStyle[s] || statusStyle.pending }
+
+async function retryExecution(e: Execution) {
+  retryingId.value = e.id
+  retryError.value = null
+  try {
+    await api.post(`/api/papers/${e.paper_id}/services/${e.service_name}/trigger`)
+    await fetchAll()
+  } catch (err: any) {
+    retryError.value = err.message || '重试失败'
+  } finally {
+    retryingId.value = null
+  }
+}
 </script>
 
 <template>
@@ -63,6 +78,12 @@ function getStyle(s: string) { return statusStyle[s] || statusStyle.pending }
       </div>
     </div>
 
+    <!-- Retry error notification -->
+    <div v-if="retryError" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between">
+      <span class="text-sm text-red-700">{{ retryError }}</span>
+      <button @click="retryError = null" class="text-red-400 hover:text-red-600 text-xs">&times;</button>
+    </div>
+
     <!-- Execution history -->
     <div class="rounded-xl border border-gray-200 bg-white overflow-hidden">
       <div class="border-b border-gray-100 px-5 py-3 flex items-center gap-4">
@@ -84,6 +105,7 @@ function getStyle(s: string) { return statusStyle[s] || statusStyle.pending }
           <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider w-24">状态</th>
           <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider">时间</th>
           <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider">错误</th>
+          <th class="px-4 py-2.5 text-left font-medium text-gray-500 uppercase tracking-wider w-16">操作</th>
         </tr></thead>
         <tbody class="divide-y divide-gray-50">
           <tr v-for="e in executions" :key="e.id" class="hover:bg-gray-50/40">
@@ -96,7 +118,19 @@ function getStyle(s: string) { return statusStyle[s] || statusStyle.pending }
               </span>
             </td>
             <td class="px-4 py-2.5 text-gray-400">{{ new Date(e.created_at).toLocaleString() }}</td>
-            <td class="px-4 py-2.5 text-red-500 max-w-[200px] truncate">{{ e.error || '-' }}</td>
+            <td class="px-4 py-2.5 text-red-500 max-w-[200px] truncate" :title="e.error || undefined">{{ e.error || '-' }}</td>
+            <td class="px-4 py-2.5">
+              <button
+                v-if="e.status === 'failed' || e.status === 'blocked'"
+                :disabled="retryingId === e.id"
+                @click="retryExecution(e)"
+                class="rounded-md p-1 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="重试"
+              >
+                <Loader2 v-if="retryingId === e.id" class="h-3.5 w-3.5 animate-spin" />
+                <RefreshCw v-else class="h-3.5 w-3.5" />
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>

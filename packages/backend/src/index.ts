@@ -18,7 +18,7 @@ import { startBackupScheduler } from './db/backup.js'
 import { getDatabase, schema } from './db/index.js'
 import { inArray } from 'drizzle-orm'
 import { serviceRunner } from './services/service_runner.js'
-import { arxivService } from './services/arxiv_service.js'
+import { arxivMetadataService, arxivPdfService } from './services/arxiv_service.js'
 import { semanticScholarService } from './services/semantic_scholar_service.js'
 import { pdfParseService } from './services/pdf_parse_service.js'
 import { papersCoolService } from './services/papers_cool_service.js'
@@ -60,7 +60,8 @@ async function main() {
 
   // Initialize service runner
   serviceRunner.initialize()
-  serviceRunner.register(arxivService)
+  serviceRunner.register(arxivMetadataService)
+  serviceRunner.register(arxivPdfService)
   serviceRunner.register(semanticScholarService)
   serviceRunner.register(pdfParseService)
   serviceRunner.register(papersCoolService)

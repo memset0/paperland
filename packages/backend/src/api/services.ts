@@ -78,4 +78,28 @@ export async function serviceRoutes(app: FastifyInstance): Promise<void> {
       return { success: true, message: 'Services triggered' }
     }
   )
+
+  // Trigger a single service for a paper (useful for retrying failed services)
+  app.post<{ Params: { id: string; serviceName: string } }>(
+    '/api/papers/:id/services/:serviceName/trigger',
+    async (request, reply) => {
+      const paperId = parseInt(request.params.id, 10)
+      const serviceName = request.params.serviceName
+      const db = getDatabase()
+      const paper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
+      if (!paper) {
+        reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${paperId} not found` } })
+        return
+      }
+
+      const info = serviceRunner.getServiceInfo()
+      if (!info.find((s) => s.name === serviceName)) {
+        reply.code(404).send({ error: { code: 'SERVICE_NOT_FOUND', message: `Service ${serviceName} not found` } })
+        return
+      }
+
+      serviceRunner.executeServiceForPaper(serviceName, paperId).catch(() => {})
+      return { success: true, message: `Service ${serviceName} triggered for paper ${paperId}` }
+    }
+  )
 }

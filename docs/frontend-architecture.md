@@ -499,6 +499,7 @@ key 格式: "arxiv:2401.12345" 或 "corpus:123456789"
 - **依赖图可视化**：展示 paper-bound services 之间的键值依赖关系
 - **并发配置**：为每个 service 配置最大并发数和速率限制
 - **执行历史**：全局查看所有 service 的执行记录，**支持分页**，可按 service 名称和状态筛选
+- **重试操作**：对 `failed` 或 `blocked` 状态的执行记录，提供重试按钮（调用 `POST /api/papers/:id/services/:serviceName/trigger`），带加载状态和错误反馈
 
 ### 3.7 执行记录
 
