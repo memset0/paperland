@@ -6,3 +6,5 @@ pref-password = Password
 pref-api-section = API Token (External API)
 pref-token = Bearer Token
 pref-test-btn = Test Connection
+pref-sync-section = Tag Sync
+pref-sync-btn = Sync All Tags

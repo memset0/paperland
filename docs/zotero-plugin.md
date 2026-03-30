@@ -41,6 +41,17 @@ Generate an API token from **Paperland → Settings → API Tokens**.
 4. If the paper doesn't exist, it is created automatically and services (arXiv fetch, Semantic Scholar, etc.) run in the background
 5. The paper's detail page loads in an embedded browser in the sidebar panel
 
+## Bulk Tag Sync
+
+The plugin preferences include a **Sync All Tags** button that performs a one-click bulk sync of all Zotero tags to Paperland:
+
+1. Scans all items in your Zotero library for arXiv IDs
+2. Looks up each paper in Paperland (without auto-creating)
+3. For papers that exist on both sides, syncs the Zotero item's tags to Paperland (add-only)
+4. Displays a summary with counts: synced, not found in Paperland, no tags, errors
+
+This is useful for initial setup or after bulk-tagging papers in Zotero.
+
 ## Supported Item Types
 
 Currently only papers with arXiv IDs are supported. Items without an arXiv ID show a placeholder message. DOI and title-based lookup may be added in the future.

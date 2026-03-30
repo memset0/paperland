@@ -1,4 +1,5 @@
 import { config } from "../package.json";
+import { bulkSyncTags } from "./modules/bulk-sync";
 import { registerPanel, unregisterPanel } from "./modules/panel";
 import { getPref } from "./modules/prefs";
 
@@ -34,6 +35,13 @@ export const hooks = {
   },
 
   onPrefsLoad(doc: Document) {
+    // Bulk sync button
+    const syncBtn = doc.getElementById("pref-sync-btn");
+    if (syncBtn) {
+      syncBtn.addEventListener("click", () => bulkSyncTags(doc));
+    }
+
+    // Test connection button
     const btn = doc.getElementById("pref-test-btn");
     const resultEl = doc.getElementById("pref-test-result");
     if (!btn || !resultEl) return;

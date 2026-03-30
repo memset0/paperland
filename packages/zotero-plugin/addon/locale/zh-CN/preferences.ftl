@@ -6,3 +6,5 @@ pref-password = 密码
 pref-api-section = API 令牌 (External API)
 pref-token = Bearer Token
 pref-test-btn = 测试连接
+pref-sync-section = 标签同步
+pref-sync-btn = 同步所有标签

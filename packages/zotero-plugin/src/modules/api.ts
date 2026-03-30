@@ -63,6 +63,42 @@ export async function resolvePaperId(arxivId: string): Promise<ResolveResult> {
   }
 }
 
+interface LookupResult {
+  ok: boolean;
+  id?: number;
+}
+
+/**
+ * Look up a paper in Paperland by arXiv ID without auto-creating.
+ * Returns { ok: true, id } if found, { ok: false } if not found or error.
+ */
+export async function lookupPaper(arxivId: string): Promise<LookupResult> {
+  const host = getPref("host");
+  const token = getPref("api_token");
+  if (!host || !token) return { ok: false };
+
+  const baseUrl = host.replace(/\/+$/, "");
+  const url = `${baseUrl}/external-api/v1/papers?arxiv_id=${encodeURIComponent(arxivId)}`;
+
+  try {
+    const resp = await Zotero.HTTP.request("GET", url, {
+      headers: { Authorization: `Bearer ${token}` },
+      responseType: "json",
+      timeout: 15000,
+    });
+
+    const data = typeof resp.response === "string"
+      ? JSON.parse(resp.response)
+      : resp.response;
+
+    const paperId = data?.paper?.id;
+    if (paperId == null) return { ok: false };
+    return { ok: true, id: paperId };
+  } catch {
+    return { ok: false };
+  }
+}
+
 interface SyncTagsResult {
   ok: boolean;
   count?: number;

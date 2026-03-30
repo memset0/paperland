@@ -9,6 +9,8 @@ export type FluentMessageId =
   | 'pref-auth-section'
   | 'pref-host'
   | 'pref-password'
+  | 'pref-sync-btn'
+  | 'pref-sync-section'
   | 'pref-test-btn'
   | 'pref-title'
   | 'pref-token'
