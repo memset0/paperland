@@ -17,8 +17,11 @@ auth:
       password: changeme
 
 services:
-  arxiv:
+  arxiv_metadata_service:
     max_concurrency: 3
+    rate_limit_interval: 5
+  arxiv_pdf_service:
+    max_concurrency: 2
     rate_limit_interval: 3
   semantic_scholar:
     max_concurrency: 5
