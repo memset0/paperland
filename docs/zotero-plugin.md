@@ -33,7 +33,7 @@ Generate an API token from **Paperland → Settings → API Tokens**.
 ## How It Works
 
 1. Select a paper in your Zotero library
-2. The plugin extracts the arXiv ID from the item's metadata:
+2. The plugin extracts the arXiv ID from the item's metadata (version suffixes like `v3` are automatically stripped so all versions map to the same paper):
    - `archiveID` field (e.g., `arXiv:2603.04948`) — primary source
    - `Extra` field — fallback
    - `URL` field (e.g., `https://arxiv.org/abs/2603.04948`) — last resort

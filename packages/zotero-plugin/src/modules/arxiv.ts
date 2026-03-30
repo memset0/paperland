@@ -1,7 +1,13 @@
+/** Strip version suffix (e.g. "v3") from an arXiv ID. */
+function stripVersion(id: string): string {
+  return id.replace(/v\d+$/, "");
+}
+
 /**
  * Extract arXiv ID from a Zotero item.
  * Checks archiveID → extra → url in priority order.
  * Returns the bare ID (e.g. "2603.04948") or null.
+ * Version suffixes (e.g. "v3") are always stripped.
  */
 export function extractArxivId(item: any): string | null {
   if (!item) return null;
@@ -21,14 +27,14 @@ export function extractArxivId(item: any): string | null {
   try {
     const archiveId = item.getField("archiveID");
     const id = tryExtract(archiveId);
-    if (id) return id;
+    if (id) return stripVersion(id);
   } catch (_) {}
 
   // 2. Extra field (may contain "arXiv: 1706.03762" among other text)
   try {
     const extra = item.getField("extra");
     const id = tryExtract(extra);
-    if (id) return id;
+    if (id) return stripVersion(id);
   } catch (_) {}
 
   // 3. URL (https://arxiv.org/abs/2301.12345)
@@ -38,11 +44,11 @@ export function extractArxivId(item: any): string | null {
       let m = url.match(
         /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/i,
       );
-      if (m) return m[1];
+      if (m) return stripVersion(m[1]);
       m = url.match(
         /arxiv\.org\/(?:abs|pdf)\/([\w.-]+\/\d{7}(?:v\d+)?)/i,
       );
-      if (m) return m[1];
+      if (m) return stripVersion(m[1]);
     }
   } catch (_) {}
 
