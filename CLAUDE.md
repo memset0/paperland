@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Workflow
 
 This project follows the **OpenSpec** workflow. All changes must go through:
-1. `/opsx:propose` — create proposal, design, specs, tasks
-2. `/opsx:apply` — implement tasks
-3. `/opsx:archive` — archive completed changes
+1. `/opsx-propose` — create proposal, design, specs, tasks
+2. `/opsx-apply` — implement tasks
+3. `/opsx-archive` — archive completed changes
 
 **Every code change must also update the corresponding docs in `docs/`** (frontend-architecture.md, external-api.md, tech-stack.md).
 
