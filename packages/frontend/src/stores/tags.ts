@@ -40,7 +40,16 @@ export const useTagsStore = defineStore('tags', () => {
   }
 
   async function renameTag(id: number, name: string) {
-    return await api.patch<{ id: number; name: string; color: string } | { error: any; target_tag: any }>(`/api/tags/${id}`, { name })
+    const response = await fetch(`/api/tags/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    const data = await response.json()
+    if (!response.ok && response.status !== 409) {
+      throw new Error(data.error?.message || data.message || 'Rename failed')
+    }
+    return data as { id: number; name: string; color: string } | { error: any; target_tag: any }
   }
 
   async function mergeTag(sourceId: number, targetId: number) {

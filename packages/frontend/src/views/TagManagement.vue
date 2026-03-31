@@ -65,12 +65,7 @@ async function confirmRename() {
     await tagsStore.fetchTags()
     cancelRename()
   } catch (err: any) {
-    if (err?.status === 409) {
-      // Handled above via response parsing. Try reading body
-      renameError.value = '标签名已存在'
-    } else {
-      renameError.value = err?.message || '重命名失败'
-    }
+    renameError.value = err?.message || '重命名失败'
   }
 }
 
