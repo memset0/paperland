@@ -176,8 +176,8 @@ async function addPaper() {
           <tr v-for="paper in store.papers" :key="paper.id" @click="router.push(`/papers/${paper.id}`)" class="hover:bg-indigo-50/40 cursor-pointer transition-colors">
             <td class="px-4 py-3">
               <div class="font-medium text-gray-900 line-clamp-1">{{ paper.title }}</div>
-              <div v-if="(paper as any).tags?.length" class="flex flex-wrap gap-1 mt-1">
-                <TagBadge v-for="t in (paper as any).tags" :key="t.id" :tag-id="t.id" :tag-name="t.name" />
+              <div v-if="(paper as any).tags?.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false).length" class="flex flex-wrap gap-1 mt-1">
+                <TagBadge v-for="t in (paper as any).tags.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false)" :key="t.id" :tag-id="t.id" :tag-name="t.name" />
               </div>
             </td>
             <td class="px-4 py-3 text-gray-500 truncate max-w-[10rem]">{{ formatAuthors(paper.authors) }}</td>

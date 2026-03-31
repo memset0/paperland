@@ -44,9 +44,13 @@ The paper list page's tag filter bar SHALL only display tags where `visible` is 
 - **WHEN** a tag has `visible = true`
 - **THEN** the tag SHALL appear in the paper list's tag filter bar
 
-#### Scenario: Hidden tag still shown on paper cards
+#### Scenario: Hidden tag not shown on paper cards in list
 - **WHEN** a paper is assigned a tag with `visible = false`
-- **THEN** the tag SHALL still be displayed on the paper's card/detail view
+- **THEN** the tag SHALL NOT be displayed on the paper's card in the paper list view
+
+#### Scenario: Visible tag shown on paper cards
+- **WHEN** a paper is assigned a tag with `visible = true`
+- **THEN** the tag SHALL be displayed on the paper's card in the paper list view
 
 ### Requirement: Tag management visibility toggle
 The tag management page SHALL display a toggle icon button for each tag to control visibility.
