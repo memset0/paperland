@@ -20,6 +20,7 @@ export interface Tag {
   id: number
   name: string
   color: string
+  visible: boolean
 }
 
 export interface PaperTag {

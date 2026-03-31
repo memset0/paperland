@@ -1,0 +1,1 @@
+ALTER TABLE `tags` ADD `visible` integer DEFAULT 1 NOT NULL;

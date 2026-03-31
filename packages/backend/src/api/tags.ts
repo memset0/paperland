@@ -22,12 +22,13 @@ export async function tagRoutes(app: FastifyInstance): Promise<void> {
       id: t.id,
       name: t.name,
       color: t.color,
+      visible: !!t.visible,
       paper_count: countMap.get(t.id) || 0,
     }))
   })
 
   // PATCH /api/tags/:id — rename and/or change color
-  app.patch<{ Params: { id: string }; Body: { name?: string; color?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; color?: string; visible?: boolean } }>(
     '/api/tags/:id',
     async (request, reply) => {
       const db = getDatabase()
@@ -35,7 +36,7 @@ export async function tagRoutes(app: FastifyInstance): Promise<void> {
       const tag = db.select().from(schema.tags).where(eq(schema.tags.id, id)).get()
       if (!tag) { reply.code(404).send({ error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }); return }
 
-      const { name, color } = request.body || {}
+      const { name, color, visible } = request.body || {}
       const updates: Record<string, any> = {}
 
       if (name !== undefined && name !== tag.name) {
@@ -55,8 +56,12 @@ export async function tagRoutes(app: FastifyInstance): Promise<void> {
         updates.color = color
       }
 
+      if (visible !== undefined) {
+        updates.visible = visible ? 1 : 0
+      }
+
       if (Object.keys(updates).length === 0) {
-        return { id: tag.id, name: tag.name, color: tag.color }
+        return { id: tag.id, name: tag.name, color: tag.color, visible: !!tag.visible }
       }
 
       db.update(schema.tags).set(updates).where(eq(schema.tags.id, id)).run()
@@ -72,7 +77,7 @@ export async function tagRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const updated = db.select().from(schema.tags).where(eq(schema.tags.id, id)).get()!
-      return { id: updated.id, name: updated.name, color: updated.color }
+      return { id: updated.id, name: updated.name, color: updated.color, visible: !!updated.visible }
     }
   )
 

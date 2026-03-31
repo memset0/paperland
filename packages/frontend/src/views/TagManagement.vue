@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Pencil, Trash2, Tag, Check, X } from 'lucide-vue-next'
+import { Pencil, Trash2, Tag, Check, X, Eye, EyeOff } from 'lucide-vue-next'
 import { useTagsStore, type TagWithCount } from '@/stores/tags'
 import { TAG_COLOR_PALETTE } from '@/utils/tag-colors'
 
@@ -201,6 +201,12 @@ async function setColor(tagId: number, color: string) {
 
         <!-- ID -->
         <span class="shrink-0 text-xs text-gray-300 font-mono">#{{ tag.id }}</span>
+
+        <!-- Visibility toggle (always visible for hidden tags) -->
+        <button @click="tagsStore.toggleVisibility(tag.id)" :class="['rounded p-1.5 transition', tag.visible ? 'text-gray-400 hover:bg-gray-100 hover:text-gray-600 opacity-0 group-hover:opacity-100' : 'text-gray-300 hover:bg-gray-100 hover:text-gray-500']" :title="tag.visible ? '隐藏标签' : '显示标签'">
+          <Eye v-if="tag.visible" class="h-3.5 w-3.5" />
+          <EyeOff v-else class="h-3.5 w-3.5" />
+        </button>
 
         <!-- Actions -->
         <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">

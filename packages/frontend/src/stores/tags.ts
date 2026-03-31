@@ -6,6 +6,7 @@ export interface TagWithCount {
   id: number
   name: string
   color: string
+  visible: boolean
   paper_count: number
 }
 
@@ -58,5 +59,12 @@ export const useTagsStore = defineStore('tags', () => {
     await fetchTags()
   }
 
-  return { tags, loaded, colorMap, getTagColor, fetchTags, refreshCache, ensureLoaded, renameTag, mergeTag, deleteTag, updateTagColor }
+  async function toggleVisibility(id: number) {
+    const tag = tags.value.find(t => t.id === id)
+    if (!tag) return
+    await api.patch(`/api/tags/${id}`, { visible: !tag.visible })
+    await fetchTags()
+  }
+
+  return { tags, loaded, colorMap, getTagColor, fetchTags, refreshCache, ensureLoaded, renameTag, mergeTag, deleteTag, updateTagColor, toggleVisibility }
 })

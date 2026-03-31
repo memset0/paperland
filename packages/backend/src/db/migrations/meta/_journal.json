@@ -57,6 +57,13 @@
       "when": 1774394874275,
       "tag": "0007_lying_marten_broadcloak",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1774850514046,
+      "tag": "0008_wealthy_living_mummy",
+      "breakpoints": true
     }
   ]
 }

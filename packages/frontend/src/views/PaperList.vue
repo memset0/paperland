@@ -144,7 +144,7 @@ async function addPaper() {
       </div>
       <div v-if="showTagFilter" class="mt-2 flex flex-wrap gap-1.5">
         <button
-          v-for="tag in tagsStore.tags" :key="tag.id"
+          v-for="tag in tagsStore.tags.filter(t => t.visible)" :key="tag.id"
           @click="toggleTagFilter(tag.id)"
           :class="['inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ring-1 ring-inset',
             selectedTagIds.includes(tag.id) ? 'ring-2' : 'opacity-70 hover:opacity-100']"

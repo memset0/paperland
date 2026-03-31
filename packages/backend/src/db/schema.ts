@@ -20,6 +20,7 @@ export const tags = sqliteTable('tags', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull().unique(),
   color: text('color').notNull().default(''),
+  visible: integer('visible').notNull().default(1),
 })
 
 export const paperTags = sqliteTable('paper_tags', {
