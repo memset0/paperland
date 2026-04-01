@@ -21,8 +21,8 @@ onMounted(async () => {
   }
 })
 
-// --- Unified entry type for rendering ---
-interface UnifiedEntry {
+// --- Entry type for rendering ---
+interface QAEntry {
   key: string           // 'free-{id}' or 'tmpl-{name}'
   type: 'free' | 'template'
   title: string         // question text
@@ -33,23 +33,9 @@ interface UnifiedEntry {
   templateName?: string // only for template type
 }
 
-const unifiedEntries = computed(() => {
-  const entries: UnifiedEntry[] = []
-
-  // Free QA entries (newest first)
-  for (const entry of store.qaData.free) {
-    entries.push({
-      key: 'free-' + entry.entry_id,
-      type: 'free',
-      title: entry.prompt || '自由提问',
-      entryId: entry.entry_id,
-      status: entry.status,
-      error: entry.error,
-      results: entry.results,
-    })
-  }
-
-  // Template QA entries (config order)
+// Separate computed properties for template and free entries
+const templateEntries = computed(() => {
+  const entries: QAEntry[] = []
   for (const tmpl of store.templates) {
     const data = store.qaData.template[tmpl.name]
     entries.push({
@@ -63,26 +49,40 @@ const unifiedEntries = computed(() => {
       templateName: tmpl.name,
     })
   }
-
   return entries
 })
 
-const hasResults = (e: UnifiedEntry) => e.results.length > 0
-const isRunning = (e: UnifiedEntry) => e.status === 'running' || e.status === 'pending'
-const isFailed = (e: UnifiedEntry) => e.status === 'failed'
+const freeEntries = computed(() => {
+  const entries: QAEntry[] = []
+  for (const entry of store.qaData.free) {
+    entries.push({
+      key: 'free-' + entry.entry_id,
+      type: 'free',
+      title: entry.prompt || '自由提问',
+      entryId: entry.entry_id,
+      status: entry.status,
+      error: entry.error,
+      results: entry.results,
+    })
+  }
+  return entries
+})
+
+const hasResults = (e: QAEntry) => e.results.length > 0
+const isRunning = (e: QAEntry) => e.status === 'running' || e.status === 'pending'
+const isFailed = (e: QAEntry) => e.status === 'failed'
 
 // --- Collapse persistence ---
 function collapseKey(entryKey: string) { return `qa-collapse-${props.paperId}-${entryKey}` }
-function isOpen(entryKey: string, defaultOpen: boolean): boolean {
-  const stored = localStorage.getItem(collapseKey(entryKey))
-  if (stored !== null) return stored === '1'
-  return defaultOpen
+function isOpen(_entryKey: string, _defaultOpen: boolean): boolean {
+  // Always start collapsed
+  return false
 }
 function toggleOpen(entryKey: string, el: HTMLDetailsElement) {
   localStorage.setItem(collapseKey(entryKey), el.open ? '1' : '0')
 }
-function setAllOpen(open: boolean) {
-  const container = document.querySelector('[data-qa-list]')
+function setAllOpen(containerSelector: string, open: boolean) {
+  const container = document.querySelector(containerSelector)
   if (!container) return
   container.querySelectorAll<HTMLDetailsElement>('details[data-qa-entry]').forEach(el => {
     el.open = open
@@ -102,11 +102,11 @@ const hasUngenerated = computed(() =>
 // --- Model selection dialog for regenerate ---
 const regenDialog = ref<{
   show: boolean
-  entry: UnifiedEntry | null
+  entry: QAEntry | null
   selectedModels: string[]
 }>({ show: false, entry: null, selectedModels: [] })
 
-function openRegenDialog(entry: UnifiedEntry) {
+function openRegenDialog(entry: QAEntry) {
   regenDialog.value = {
     show: true,
     entry,
@@ -151,7 +151,7 @@ function submitRegen() {
   regenDialog.value.show = false
 }
 
-function doRegen(entry: UnifiedEntry, models: string[]) {
+function doRegen(entry: QAEntry, models: string[]) {
   if (entry.type === 'template' && entry.templateName) {
     // For templates, regenerate each model separately
     for (const model of models) {
@@ -163,7 +163,7 @@ function doRegen(entry: UnifiedEntry, models: string[]) {
 }
 
 // Called from QAResultView when user clicks regenerate on a specific model's result
-function onResultRegenerate(entry: UnifiedEntry, modelName: string) {
+function onResultRegenerate(entry: QAEntry, modelName: string) {
   // Pre-select that model in the dialog
   regenDialog.value = {
     show: true,
@@ -183,20 +183,21 @@ function generateTemplate(templateName: string) {
 </script>
 
 <template>
-  <div class="rounded-xl border border-gray-200 bg-white">
+  <!-- Template Q&A Card -->
+  <div v-if="templateEntries.length" class="rounded-xl border border-gray-200 bg-white">
     <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
       <div class="flex items-center gap-2">
-        <h3 class="text-sm font-semibold text-gray-900">Q&A</h3>
+        <h3 class="text-sm font-semibold text-gray-900">Template Q&A</h3>
         <span v-if="store.polling" class="inline-flex items-center gap-1 text-[10px] text-indigo-500">
           <Loader2 class="h-3 w-3 animate-spin" /> 生成中...
         </span>
       </div>
       <div class="flex items-center gap-1.5">
-        <button @click="setAllOpen(true)" title="全部展开"
+        <button @click="setAllOpen('[data-qa-template-list]', true)" title="全部展开"
           class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
           <ChevronsUpDown class="h-3.5 w-3.5" />
         </button>
-        <button @click="setAllOpen(false)" title="全部折叠"
+        <button @click="setAllOpen('[data-qa-template-list]', false)" title="全部折叠"
           class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
           <ChevronsDownUp class="h-3.5 w-3.5" />
         </button>
@@ -207,8 +208,8 @@ function generateTemplate(templateName: string) {
       </div>
     </div>
 
-    <div class="divide-y divide-gray-50" data-qa-list>
-      <template v-for="entry in unifiedEntries" :key="entry.key">
+    <div class="divide-y divide-gray-50" data-qa-template-list>
+      <template v-for="entry in templateEntries" :key="entry.key">
 
         <!-- HAS RESULTS: collapsible details -->
         <details v-if="hasResults(entry)"
@@ -253,22 +254,106 @@ function generateTemplate(templateName: string) {
           <!-- Running -->
           <span v-if="isRunning(entry)" class="text-[10px] text-indigo-500 shrink-0">生成中...</span>
           <!-- Failed: retry -->
-          <button v-else-if="isFailed(entry)" @click.stop="entry.type === 'template' ? generateTemplate(entry.templateName!) : store.regenerateEntry(entry.entryId, props.paperId, store.selectedModels)"
+          <button v-else-if="isFailed(entry)" @click.stop="generateTemplate(entry.templateName!)"
             class="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition">
             重试
           </button>
           <!-- Idle: generate -->
-          <button v-else @click.stop="entry.type === 'template' ? generateTemplate(entry.templateName!) : openRegenDialog(entry)"
+          <button v-else @click.stop="generateTemplate(entry.templateName!)"
             class="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition">
             生成
           </button>
         </div>
 
       </template>
-
-      <!-- Empty -->
-      <div v-if="!unifiedEntries.length" class="px-5 py-8 text-center text-sm text-gray-400">暂无 Q&A 记录</div>
     </div>
+  </div>
+
+  <!-- Free Q&A Card -->
+  <div v-if="freeEntries.length" class="rounded-xl border border-gray-200 bg-white">
+    <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+      <div class="flex items-center gap-2">
+        <h3 class="text-sm font-semibold text-gray-900">Free Q&A</h3>
+        <span v-if="store.polling" class="inline-flex items-center gap-1 text-[10px] text-indigo-500">
+          <Loader2 class="h-3 w-3 animate-spin" /> 生成中...
+        </span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button @click="setAllOpen('[data-qa-free-list]', true)" title="全部展开"
+          class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+          <ChevronsUpDown class="h-3.5 w-3.5" />
+        </button>
+        <button @click="setAllOpen('[data-qa-free-list]', false)" title="全部折叠"
+          class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+          <ChevronsDownUp class="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+
+    <div class="divide-y divide-gray-50" data-qa-free-list>
+      <template v-for="entry in freeEntries" :key="entry.key">
+
+        <!-- HAS RESULTS: collapsible details -->
+        <details v-if="hasResults(entry)"
+          class="group"
+          :data-qa-entry="entry.key"
+          :open="isOpen(entry.key, true)"
+          @toggle="(e: Event) => toggleOpen(entry.key, e.target as HTMLDetailsElement)">
+          <summary class="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors list-none [&::-webkit-details-marker]:hidden">
+            <CheckCircle2 v-if="entry.status === 'done'" class="h-4 w-4 text-emerald-500 shrink-0" />
+            <Loader2 v-else-if="isRunning(entry)" class="h-4 w-4 text-indigo-500 shrink-0 animate-spin" />
+            <CheckCircle2 v-else class="h-4 w-4 text-emerald-500 shrink-0" />
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-semibold text-gray-800 line-clamp-1">{{ entry.title }}</span>
+            </div>
+            <span v-if="entry.results.length > 1" class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 shrink-0">
+              {{ entry.results.length }} 个回答
+            </span>
+            <span v-else class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 shrink-0">
+              {{ entry.results[0].model_name }}
+            </span>
+          </summary>
+          <div class="px-5 pb-4 pt-1">
+            <QAResultView
+              :results="entry.results"
+              :entry-key="entry.key"
+              :paper-id="props.paperId"
+              @regenerate="(model: string) => onResultRegenerate(entry, model)"
+              @delete-result="onDeleteResult"
+            />
+          </div>
+        </details>
+
+        <!-- NO RESULTS: inline row -->
+        <div v-else class="flex items-center gap-3 px-5 py-3">
+          <AlertCircle v-if="isFailed(entry)" class="h-4 w-4 text-red-500 shrink-0" />
+          <Loader2 v-else-if="isRunning(entry)" class="h-4 w-4 text-indigo-500 shrink-0 animate-spin" />
+          <Circle v-else class="h-4 w-4 text-gray-300 shrink-0" />
+          <div class="flex-1 min-w-0">
+            <span class="text-sm font-semibold text-gray-800 line-clamp-1">{{ entry.title }}</span>
+            <p v-if="isFailed(entry) && entry.error" class="text-xs text-red-500 mt-0.5 truncate">{{ entry.error }}</p>
+          </div>
+          <!-- Running -->
+          <span v-if="isRunning(entry)" class="text-[10px] text-indigo-500 shrink-0">生成中...</span>
+          <!-- Failed: retry -->
+          <button v-else-if="isFailed(entry)" @click.stop="store.regenerateEntry(entry.entryId, props.paperId, store.selectedModels)"
+            class="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition">
+            重试
+          </button>
+          <!-- Idle: generate -->
+          <button v-else @click.stop="openRegenDialog(entry)"
+            class="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition">
+            生成
+          </button>
+        </div>
+
+      </template>
+    </div>
+  </div>
+
+  <!-- Empty state when no QA at all -->
+  <div v-if="!templateEntries.length && !freeEntries.length" class="rounded-xl border border-gray-200 bg-white">
+    <div class="px-5 py-8 text-center text-sm text-gray-400">暂无 Q&A 记录</div>
   </div>
 
   <!-- Model selection dialog for regenerate -->

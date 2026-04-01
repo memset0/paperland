@@ -153,11 +153,16 @@ const narrowScrollRef = ref<HTMLElement | null>(null)
 
 const qaNavEntries = computed(() => {
   const entries: Array<{ key: string; title: string }> = []
+  // Template entries first, but only those with results
+  for (const tmpl of qaStore.templates) {
+    const data = qaStore.qaData.template[tmpl.name]
+    if (data && data.results.length > 0) {
+      entries.push({ key: 'tmpl-' + tmpl.name, title: tmpl.prompt })
+    }
+  }
+  // Then all free entries
   for (const entry of qaStore.qaData.free) {
     entries.push({ key: 'free-' + entry.entry_id, title: entry.prompt || '自由提问' })
-  }
-  for (const tmpl of qaStore.templates) {
-    entries.push({ key: 'tmpl-' + tmpl.name, title: tmpl.prompt })
   }
   return entries
 })

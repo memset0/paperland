@@ -1,11 +1,26 @@
 ## ADDED Requirements
 
+### Requirement: Sidebar navigation entry list
+The sidebar quick-jump navigation SHALL display entries in this order: template QA entries with results first, then all free QA entries. Template QA entries that have no generated results (no results array or empty results) SHALL be excluded from the navigation.
+
+#### Scenario: Template questions with mixed result status
+- **WHEN** there are 5 template questions but only 3 have generated results, plus 2 free QA entries
+- **THEN** the sidebar shows 5 navigation dots: 3 for completed template questions, then 2 for free questions
+
+#### Scenario: No template questions have results
+- **WHEN** no template questions have generated results but free QA entries exist
+- **THEN** the sidebar shows only free QA entry dots
+
+#### Scenario: All template questions have results
+- **WHEN** all template questions have results and free QA entries also exist
+- **THEN** the sidebar shows template entries first, then free entries
+
 ### Requirement: Navigation dot display
-导航组件 SHALL 在 PaperDetail 页面以 `position: fixed` 悬浮在视口右侧垂直居中位置，为每个 QA 条目（模板问题和自由提问）渲染一个小圆点，垂直紧凑排列（gap 2px）。水平位置对齐到右侧滚动面板的右边缘（内缩 6px）。
+导航组件 SHALL 在 PaperDetail 页面以 `position: fixed` 悬浮在视口右侧垂直居中位置，为每个 QA 条目渲染一个小圆点，垂直紧凑排列（gap 2px）。水平位置对齐到右侧滚动面板的右边缘（内缩 6px）。
 
 #### Scenario: Dots rendered for all QA entries
 - **WHEN** PaperDetail 页面加载完成且存在 QA 条目
-- **THEN** 视口右侧固定位置显示与 QA 条目数量相同的小圆点
+- **THEN** 视口右侧固定位置显示与导航条目数量相同的小圆点
 
 #### Scenario: No dots when no QA entries
 - **WHEN** 论文没有任何 QA 条目
