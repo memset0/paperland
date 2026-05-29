@@ -68,8 +68,9 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 ### 1.1 论文列表页
 
 - 展示所有已添加的论文
-- 每条记录显示：标题、标签（彩色徽章）、作者、来源（link）、日期
+- 每条记录显示：标题、标签（彩色徽章）、作者、来源（link）、引用指标（Cited / Refs）、日期
   - **标签列**：使用 `TagBadge` 组件（`components/TagBadge.vue`），根据标签颜色渲染彩色圆角徽章
+  - **引用指标列**：两个独立列 `Cited` / `Refs`，各用 `CountCell` 组件（`components/CountCell.vue`）渲染一个数字。`Cited`（被引用数）取 `metadata.citation_count`，`Refs`（引用数）取 `metadata.reference_count ?? metadata.references?.length`（旧数据回退到 references 数组长度）。已知值（含 `0`）用 `toLocaleString()` 千分位显示，未富化时显示中性占位符 `–`（区分「未知」与「确为 0」）。两列均 `hidden md:table-cell`（窄屏隐藏）
   - **来源列**：使用 `SourceTag` 组件（`components/SourceTag.vue`），根据 `arxiv_id` 与 `link` 显示可点击的来源标签
     - arXiv 论文：只要 `arxiv_id` 存在就显示红色标签，格式 `arxiv:{id}`，链接由 id 派生（`arxiv.org/abs/{id}`），**不依赖** `link` 字段（会议导入论文经 S2 解析出 `arxiv_id` 但 `link` 为空，OpenReview 链接另存于 `conference_papers`）
     - 其他来源：若 `link` 为非 arXiv 链接则额外显示灰色标签，显示域名（如 `mem.ac`），点击跳转原始链接
@@ -289,9 +290,10 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 ### 1A.3 页面
 
 - **`/conferences`（ConferenceList.vue）**：会议列表。支持按 name 模糊搜索 + 按 `year` 筛选。每张卡片显示 `paper_count` + 各状态计数。「新建会议」按钮弹出对话框（仅 `name` 必填）。
-- **`/conferences/:id`（ConferenceDetail.vue）**：会议详情。按 `topic` 分组展示候选论文（`null` topic 归入「未分类」）；每行展示标题、source badge（arXiv / OpenReview / S2）、状态 badge、来源链接、入库后的「打开论文」链接；行内可单条「确认 / 退回 / 编辑主题 / 删除」；顶栏「导入」对话框支持上传 JSON 文件或粘贴 JSON（接受 `{ papers: [...] }` 或裸数组）；「本次会议一键添加」按钮显示当前 `candidate` 数，点击后弹出对话框 → 调用入库 API → 显示 `{ ingested, skipped, errors }` 汇总。
-  - **解析后的 arXiv / S2 badge**：解析（resolve）匹配到 Semantic Scholar 后，每行额外渲染 `SourceTag`（`arxiv:{id}`，链接由 id 派生）与 `S2Badge`（corpus id，链接到 S2），与论文库内的展示一致。展示 id 的取值优先级：GET 响应里关联论文的 `paper_arxiv_id` / `paper_corpus_id`（后端从 `papers` 表附加）> 候选自身的 `source`/`external_id` > 缓存的 `metadata.s2_match`。
-  - **复选框锁定**：候选行复选框用于批量「确认 / 退回」选择；当论文**已在系统中**（关联论文 `paper_listed === true`，或 `status === 'ingested'`）时复选框**默认勾选且禁用**（不可取消，也不计入选择集合）。「仅元数据」（`paper_listed === false`）仍可勾选，以便挑选后加入列表。「全选本组」会跳过已在系统中的行。
+- **`/conferences/:id`（ConferenceDetail.vue）**：会议详情。按 `topic` 分组展示候选论文（`null` topic 归入「未分类」）。每条候选是一张**筛选卡片**：标题 → 元信息行（作者 · 引用数 · 领域）→ S2 **TL;DR** → **abstract**（`line-clamp` 截断 + 展开/收起）→ **统一外链行**（arXiv chip + `S2Badge` + OpenReview/原文 chip，只显示存在的）+ 可编辑 `#主题`。右侧为**状态药丸**（待添加 / 仅元数据 / 已在库）+ 主操作（仅元数据 → 加入；已在库 → 打开）+ `⋯` 菜单（编辑主题、删除）。顶栏「导入」对话框支持上传 JSON 文件或粘贴 JSON（接受 `{ papers: [...] }` 或裸数组）。
+  - **三态生命周期（派生）**：`待添加`（无 `paper_id`）→ `仅元数据`（有 `paper_id` 且 `paper_listed === false`）→ `已在库`（`paper_listed === true` 或 `status === 'ingested'`）。UI **不再**呈现 `pending/candidate` 的「确认 / 退回」工作流与「本次会议一键添加」（DB `status` 列保留但前端不用）。
+  - **复选框 = 选择以「加入列表」**：`仅元数据` 行可勾选；`已在库` 行默认勾选且锁定（不计入选择集合）；`待添加` 行禁用（需先「解析」）。「全选本组」只选 `仅元数据` 行。批量栏「加入选中到列表 (N)」→ `POST /api/conferences/:id/papers/promote { ids }`（对每条关联论文翻 `listed=1` 并触发完整管线，返回 `{ promoted, skipped, errors }`）。
+  - **筛选字段 & 外链**：卡片的 abstract / TL;DR / 引用数 / 领域来自关联论文（`GET /api/conferences/:id/papers` 附带 `paper_abstract` / `paper_tldr` / `paper_citation_count` / `paper_fields_of_study`）。外链 id 取值优先级：关联论文 `paper_arxiv_id` / `paper_corpus_id` > 候选自身 `source`/`external_id` > 缓存 `metadata.s2_match`；arXiv 用显式 chip（不走 `SourceTag`，避免无 link 时渲染成 `-`）。**配图暂不显示**（S2 Graph API 不提供论文 figures）。
 
 ### 1A.4 入库链路（复用 `papers` ingest pipeline）
 
@@ -339,8 +341,9 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 - **服务门禁**：paper-bound 服务可声明 `requires_listed`；调度器对 `listed=0` 论文把这些服务记为 `deferred`、不执行。**提升**（`listed:0→1`）时 `triggerForPaper` 重跑，deferred 服务执行、已完成的 S2 跳过。
 - **S2 优先元数据**：basic fields + abstract 优先取自 S2；arxiv metadata 退为补缺/PDF。
-- **会议候选解析**：`POST /api/conferences/:id/resolve`（后台、~1 RPS）对未关联候选用 S2 `search/match` 把标题解析为 corpus/arxiv id，`ingestPaper(listed:false)` 建/并出隐藏论文并回填 `conference_papers.paper_id`，缓存 matchScore 供复核；未命中留"待添加"。会议候选状态由 `paper_id` + 关联论文的 `listed` **派生**（待添加 / 仅元数据 / 已加入），不再用 pending/candidate。`GET /api/conferences/:id/papers` 会附加关联论文的 `paper_listed`、`paper_arxiv_id`、`paper_corpus_id`，供候选行渲染 arXiv / S2 badge 与「已在系统中」锁定态。
+- **会议候选解析**：`POST /api/conferences/:id/resolve`（后台、~1 RPS）对未关联候选用 S2 `search/match` 把标题解析为 corpus/arxiv id，`ingestPaper(listed:false)` 建/并出隐藏论文并回填 `conference_papers.paper_id`，缓存 matchScore 供复核；未命中留"待添加"。会议候选状态由 `paper_id` + 关联论文的 `listed` **派生**（待添加 / 仅元数据 / 已加入），不再用 pending/candidate。`GET /api/conferences/:id/papers` 会附加关联论文的 `paper_listed`、`paper_arxiv_id`、`paper_corpus_id`，以及用于就地筛选的 `paper_abstract`、`paper_tldr`、`paper_citation_count`、`paper_fields_of_study`（均派生自关联论文、零冗余）。批量「加入列表」用 `POST /api/conferences/:id/papers/promote { ids }`（对每条关联论文翻 `listed=1` + 触发完整管线）。
 - **前端**：论文列表页有 已列出 / 仅元数据 / 全部 三态切换；仅元数据行显示"仅元数据"徽章 + 行内"抓取"按钮（提升）。会议详情页有"解析"按钮与逐条"加入列表"按钮。论文详情页对 `listed=0` 论文显示"加入列表"。提升经 `PATCH /api/papers/:id { listed: true }`。
+- **列表资格门禁**：仅有 OpenReview 链接、且无 `arxiv_id`/`corpus_id` 的"OpenReview-only"论文不可加入列表。API 响应（列表 `GET /api/papers` 与详情 `GET /api/papers/:id`）含派生布尔 `listable`；前端对 `listable === false` 的行**禁用**"抓取"/"加入列表"按钮并加 tooltip 说明。若后端仍拒绝（`422 LISTING_NOT_ALLOWED`），API client 弹出错误提示且本地状态不变（`promote` 仅在 await 成功后才改本地 `listed`）。**后端约定**：凡把 `listed` 置为 `true` 的路径（`PATCH /api/papers/:id`、`PATCH /external-api/v1/papers/:id`、会议批量 ingest / 候选关联、`ingestPaper` 自动提升）都必须经 `utils/listing.ts` 的 `canList` 判定。
 - **列表过滤**：论文列表（按模式）、External API、idea-forge paper dump 默认只含 `listed=1`；`GET /api/papers/:id` 直链与会议详情页可访问隐藏论文。
 
 ---
@@ -517,16 +520,20 @@ content_priority:
 | 分类 | 字段 | 管理方式 |
 |------|------|---------|
 | 基础字段 | title, abstract, authors | 不纳入依赖管理，任何 fetch service 执行时顺手写入（如果为空） |
-| 服务键值 | pdf_path, contents.pdf_parsed, citation_count, references, ... | 纳入依赖管理，由 produces 声明归属 |
+| 服务键值 | pdf_path, contents.pdf_parsed, citation_count, reference_count, references, ... | 纳入依赖管理，由 produces 声明归属 |
 
 #### 已知 Paper-bound Services
 
 ```typescript
 semantic_scholar_service:
-  depends_on: [arxiv_id]
-  produces:   [corpus_id, citation_count, influential_citation_count, references]
-  # 用 ARXIV:{id} 查询 S2，单次拿到 corpus_id + 引用富化；
-  # tldr/venue/year/doi/fields_of_study/s2_url 等存入 metadata（不纳入 produces，可能缺失）
+  depends_on: []            # 双向：对任何 paper 都可执行，运行时挑 id
+  produces:   [corpus_id, citation_count, influential_citation_count, reference_count, references]
+  # 有 arxiv_id 用 ARXIV:{id}、否则用 CORPUSID:{id} 查询 S2，单次拿到对侧 id + 引用富化；
+  # arxiv_id 故意不放进 produces：corpus-only 论文解析出 arxiv_id 后，arxiv 元数据/PDF 服务
+  #   靠 runner「完成后按实时 key 重触发」自然衔接，而非被提前调度；
+  # reference_count 取 S2 referenceCount（权威总数，不受 references 单页截断影响）；
+  # tldr/venue/year/doi/fields_of_study/s2_url 等存入 metadata（不纳入 produces，可能缺失）；
+  # 既无 arxiv_id 也无 corpus_id 的手动论文：no-op（不发请求）
 
 arxiv_service:
   depends_on: [arxiv_id]
@@ -541,8 +548,10 @@ pdf_parse_service:
 #### 依赖图（前端可视化展示）
 
 ```
-arxiv_id ──┬─→ semantic_scholar_service ──→ corpus_id + 引用富化 (citation_count / references / tldr ...)
-           └─→ arxiv_service ──→ pdf_path ──→ pdf_parse_service ──→ contents.pdf_parsed
+arxiv_id ─┐
+corpus_id ┴─→ semantic_scholar_service ──→ 对侧 id + 引用富化 (citation_count / reference_count / references / tldr ...)
+              （corpus-only 解析出 arxiv_id 后 ↓ 经重触发衔接）
+arxiv_id ─────→ arxiv_service ──→ pdf_path ──→ pdf_parse_service ──→ contents.pdf_parsed
 ```
 
 #### 自动调度逻辑
@@ -813,7 +822,7 @@ models:
 | abstract | text (nullable) | 摘要 |
 | contents | text (JSON, nullable) | 论文内容字典，详见下方 |
 | pdf_path | text (nullable) | 本地 PDF 文件路径 |
-| metadata | text (JSON, nullable) | 各服务抓取的其他元数据（S2: citation_count / influential_citation_count / references / tldr / venue / year / doi / fields_of_study / s2_url） |
+| metadata | text (JSON, nullable) | 各服务抓取的其他元数据（S2: citation_count / reference_count / influential_citation_count / references / tldr / venue / year / doi / fields_of_study / s2_url） |
 | tags_json | text (JSON, nullable) | 冗余标签数据 `[{id, name}]`，自动同步 |
 | created_at | datetime | 创建时间 |
 
@@ -1144,14 +1153,16 @@ Idea Forge 是集成在 Paperland 中的研究想法管理系统。数据存储�
 
 ## 笔记 (Notes)
 
-按用户私有的、面向整篇论文的笔记。UI 文案统一用英文（Notes / Walkthrough）。
+按用户私有的、面向整篇论文的笔记。UI 文案统一用英文（Notes / Overview）。
 
 ### 数据模型
 
-单表 `notes`（见 tech-stack.md），按 `kind` 分两类，无结构化 anchor 字段：
+单表 `notes`（见 tech-stack.md），无结构化 anchor 字段。每 (用户, 论文) 是**一棵树**，由唯一的**根笔记**（`kind='root'`，全树唯一 `parent_id IS NULL` 的节点）锚定：
 
-- **Walkthrough**：每 (用户, 论文) 至多一条，一篇线性 Markdown 长文。
-- **小笔记 note**：任意多条，经 `parent_id` 自引用成树、`sort_order` 定同级次序；前端 `buildTree()` 组装成森林。
+- **根笔记 root**：每 (用户, 论文) 至多一条，是整棵树的父节点；编辑器里标为 **Overview**。它**惰性创建**——没有任何笔记的论文在库中零行，直到用户首次往根笔记写内容、或挂上第一条子笔记时才创建。
+- **笔记 note**：任意多条，经 `parent_id` 自引用挂在根笔记下成树、`sort_order` 定同级次序；前端 `buildRootTree()` 组装成以根笔记为根的单棵树（无持久化根时给出一个合成的占位根节点）。
+- **不再区分大/小笔记**：原 `walkthrough` 类型已废弃（数据迁移 0014 删除其行、为有顶层笔记的 (用户, 论文) 建根并把顶层笔记 reparent 到根下）。「通读全文」类需求今后由独立的 walkthrough view 承载，与根笔记无关。
+- **按内容计数**：仅 `body`（去空白后）非空的节点计入笔记总数——空根笔记、仅有标题无正文的节点都不计数（但仍在思维导图中显示）。
 
 ### 锚定：`paperland://` 内联链接 + content_hash 块寻址
 
@@ -1171,24 +1182,24 @@ paperland://paper/<id>?h=<hash>&s=<start>&e=<end>  // 块内文本范围
 
 ### 浮动编辑窗口
 
-走读与小笔记都在浮动窗口里编辑（`components/notes/`）：
+根笔记（Overview）与普通笔记都在同一浮动窗口里编辑（`components/notes/`）：
 
-- `stores/windows.ts`：多窗管理、z-index 栈（最后点击置顶）、全局尺寸记忆（localStorage，新窗口按上次缩放尺寸打开）。
+- `stores/windows.ts`：多窗管理、z-index 栈（最后点击置顶）、全局尺寸记忆（localStorage，新窗口按上次缩放尺寸打开）。窗口 `kind: 'root' | 'note'`，根窗口按 `root-<paperId>` 唯一键（与具体 note id 无关）。
 - `FloatingNoteWindow.vue`：电脑端可拖拽（标题栏）+ 可缩放（右下角），浮于页面顶层；手机端全屏。标题栏显示标题 + 关闭。
-- `NoteEditor.vue`：三显示模式（Editor / Split / Preview）点选切换；预览复用 `MarkdownContent`；2s 防抖自动保存 + Ctrl+S（沿用 idea-forge 范式）。
+- `NoteEditor.vue`：三显示模式（Editor / Split / Preview）点选切换；预览复用 `MarkdownContent`；2s 防抖自动保存 + Ctrl+S（沿用 idea-forge 范式）。根窗口标题固定为 **Overview**、无标题输入框，保存走 `saveRoot`（首次惰性建根）；普通笔记走 `updateNote`。
 - `NoteWindowHost.vue`：在 `App.vue` 挂载一次，渲染所有打开的窗口。
 
 ### 分支思维导图
 
-`components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：小笔记以分支思维导图呈现（CSS 自动布局的层级节点 + 连线，节点只显示标题）。点击节点开其编辑窗口；节点支持增子 / 增兄 / 删除（删除前确认并显示连带子节点数）；HTML5 拖拽改父子（落点调 move 端点，乐观更新 + 失败回滚，后端防环）。
+`components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：整棵笔记树以分支思维导图呈现（CSS 自动布局的层级节点 + 连线，节点只显示标题），**根笔记始终作为唯一根节点显示**（无持久化根时为占位节点，标为 Overview）。点击节点开其编辑窗口（根节点 → Overview 编辑器）；普通节点支持增子 / 增兄 / 删除（删除前确认并显示连带子节点数），**根节点不可拖拽、不可删除、无「增兄」**（只可增子）；拖拽改父子（落到某节点 → 成其子；落到空白画布 → 挂到根笔记下，绝不变成无父节点），乐观更新 + 失败回滚，后端防环。表头计数为 `store.noteCount`（仅非空 body 的节点）。
 
 ### 入口与归属
 
-- 论文详情页右栏 `PaperNotesCard`（位于 Q&A 之上）：Walkthrough 入口 + 思维导图；匿名显示「Sign in to take notes」。
-- 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：跨论文聚合，按论文分组 + 客户端搜索；点击笔记跳到其 `/papers/:id?note=` 并打开浮窗。
+- 论文详情页右栏 `PaperNotesCard`（位于 Q&A 之上）：即思维导图本身（根笔记 + 其子树）；匿名显示「Sign in to take notes」。
+- 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：跨论文聚合，按论文分组 + 客户端搜索（仅列 body 非空的笔记，空根笔记不出现）；点击笔记跳到其 `/papers/:id?note=`（根笔记用 `?root=1`）并打开浮窗。
 - 侧边栏新增 Notes 项（登录门禁）。
 - 访问控制沿用 auth 模型：owner-scoped 读（匿名返回空 200）、写一律 `requireUser` + 属主校验（非属主 404）。
 
 ### 后端 API（`api/notes.ts`，全部 owner-scoped）
 
-`GET /api/papers/:id/notes`、`PUT /api/papers/:id/walkthrough`（upsert + 乐观 `updated_at` 409）、`POST /api/papers/:id/notes`、`PATCH /api/notes/:id`、`POST /api/notes/:id/move`（防环）、`DELETE /api/notes/:id`（事务内级联删子树）、`GET /api/notes`（跨论文聚合 + `paper_title`）。
+`GET /api/papers/:id/notes`（返回 `{ notes }` 扁平列表，含根笔记）、`PUT /api/papers/:id/root`（upsert 根笔记 + 乐观 `updated_at` 409；首次创建无需 `updated_at`）、`POST /api/papers/:id/notes`（无 `parent_id` 时经 `ensureRoot` 挂到根下、惰性建根）、`PATCH /api/notes/:id`、`POST /api/notes/:id/move`（防环；`parent_id` 为 null 解析为根；拒绝移动根）、`DELETE /api/notes/:id`（事务内级联删子树；拒绝删根）、`GET /api/notes`（跨论文聚合 + `paper_title`，排除 body 为空的行）。根笔记的单实例由 `notes_root_unq` 分区唯一索引（`WHERE kind='root'`）保证，`ensureRoot` 在索引冲突时回读胜出者。

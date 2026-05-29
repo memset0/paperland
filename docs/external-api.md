@@ -103,15 +103,18 @@ Base URL: `/external-api/v1`
   "title": "New Title",           // 可选，arXiv 论文不可修改
   "authors": ["Author A"],        // 可选，arXiv 论文不可修改
   "link": "https://example.com",  // 可选
-  "content": "论文内容文本"         // 可选，写入 contents.user_input
+  "content": "论文内容文本",        // 可选，写入 contents.user_input
+  "listed": true                  // 可选，加入列表(true)/降为仅元数据(false)
 }
 ```
 
 - arXiv 论文（有 `arxiv_id`）尝试修改 `title` 或 `authors` 时返回 `400`
 - `content` 为空字符串时清除 `user_input`
 - 成功更新后 `updated_at` 自动刷新
+- `listed: true` 时把论文加入列表并触发完整抓取管线；`listed: false` 始终允许（降为仅元数据）
+- **列表资格**：仅有 OpenReview 链接、且无 `arxiv_id`/`corpus_id`（也无 arxiv.org 链接）的"OpenReview-only"论文不能被设为 `listed: true`，此时返回 `422`，错误码 `LISTING_NOT_ALLOWED`，`listed` 不变、不触发管线
 
-**Response:** 返回更新后的论文对象（同 GET /papers/:id 格式）。
+**Response:** 返回更新后的论文对象（同 GET /papers/:id 格式）。响应含派生字段 `listable`（布尔）：`false` 表示该论文为 OpenReview-only、不可加入列表。
 
 #### DELETE /papers/:id
 
@@ -146,6 +149,8 @@ Base URL: `/external-api/v1`
 
 未找到时返回 `404`。
 
+> 注：本 API 无"全量列表"端点，仅按 ID 精确查询。通过会议解析创建的"仅元数据"论文（`listed=0`，尚未加入阅读列表）也会被 lookup 命中（它们确已在库中、用于去重），但不会出现在站内论文列表里，直到被显式"加入列表"。
+
 #### GET /papers/full
 
 获取论文所有信息（包括 Q&A、Service 执行历史）。同步接口，开启 `auto_create` 或 `auto_template_qa` 时会等待所有操作完成后再返回（长 timeout）。
@@ -167,7 +172,7 @@ Base URL: `/external-api/v1`
 | `exclude` | (无) | 排除指定字段，逗号分隔。如 `exclude=contents,services` |
 
 **注意事项：**
-- `auto_create=true` 时按所提供的 arxiv_id / corpus_id 创建并触发抓取；带 arxiv_id 的论文会经 `semantic_scholar_service` 补全 corpus_id 与引用富化。**仅凭 corpus_id 创建的论文不再自动反查 arxiv_id**（单 id 即保留）
+- `auto_create=true` 时按所提供的 arxiv_id / corpus_id 创建并触发抓取。`semantic_scholar_service` 现在是**双向**的：带 arxiv_id 的论文会查 `ARXIV:{id}` 补全 corpus_id 与引用富化，**仅凭 corpus_id 创建的论文也会查 `CORPUSID:{id}` 反查 arxiv_id 并做同样的富化**（若该论文确实存在 arXiv 版本）；解析出 arxiv_id 后，arxiv 元数据/PDF 抓取会经依赖图自动衔接
 - `auto_template_qa=true` 时，仅执行缺失的模板提问（和前端"一键生成"行为一致）
 - 该接口设有较长 timeout，等待所有抓取和提问完成后返回完整数据
 
@@ -189,6 +194,7 @@ Base URL: `/external-api/v1`
     "pdf_path": "/data/pdfs/2401.12345.pdf",
     "metadata": {
       "citation_count": 178090,
+      "reference_count": 137,
       "influential_citation_count": 19901,
       "tldr": "A new simple network architecture, the Transformer, based solely on attention...",
       "references": [{ "paper_id": "...", "title": "...", "year": 2015 }],

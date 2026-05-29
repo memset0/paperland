@@ -1,8 +1,5 @@
-# semantic-scholar-fetch Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change semantic-scholar-service. Update Purpose after archive.
-## Requirements
 ### Requirement: Fetch Semantic Scholar data
 The semantic_scholar_service SHALL fetch paper data from the Semantic Scholar Graph API for any paper that has an `arxiv_id` **or** a `corpus_id`, in a single request. It SHALL query via the `ARXIV:{arxiv_id}` path identifier when an `arxiv_id` is present, otherwise via the `CORPUSID:{corpus_id}` path identifier. It SHALL be a paper-bound service that is eligible for every paper and selects its query identifier at run time (no `depends_on` gate). The service SHALL write back every external ID present in the response `externalIds` that the paper is missing — so a paper added by `arxiv_id` gains its `corpus_id`, and a paper added by `corpus_id` gains its `arxiv_id`. When only the original ID is available it SHALL keep it unchanged and SHALL NOT fail. When the paper has neither identifier the service SHALL no-op (no request, no metadata change) and complete successfully.
 
@@ -57,43 +54,6 @@ The service SHALL persist a defined set of Semantic Scholar fields, storing what
 - **WHEN** the paper already has a non-empty title set by arxiv_service and S2 returns a different title
 - **THEN** the service SHALL NOT change the paper's title
 
-### Requirement: API key and rate-limit compliance
-The service SHALL send the configured Semantic Scholar API key via the `x-api-key` HTTP header when one is configured (`api_key` literal or `api_key_env` environment variable), and SHALL apply exponential backoff with jitter on HTTP 429 and 5xx responses as required by Semantic Scholar. The service SHALL respect the configured `max_concurrency` and `rate_limit_interval`.
-
-#### Scenario: Send API key header
-- **WHEN** `services.semantic_scholar_service.api_key` (or `api_key_env`) is configured
-- **THEN** every S2 request SHALL include the `x-api-key` header with that value
-
-#### Scenario: Backoff on rate limit
-- **WHEN** an S2 request returns HTTP 429
-- **THEN** the service SHALL wait with exponentially increasing delay (honoring `Retry-After` if present) and retry, rather than failing immediately
-
-#### Scenario: Degrade without a key
-- **WHEN** no API key is configured
-- **THEN** the service SHALL still issue requests anonymously and rely on backoff plus the configured (larger) interval to absorb throttling
-
-### Requirement: corpus_id uniqueness safety
-When the resolved `corpus_id` is already held by a different paper row, the service SHALL NOT fail the whole execution; it SHALL skip writing `corpus_id` and still persist the remaining enrichment fields.
-
-#### Scenario: corpus_id collision
-- **WHEN** S2 resolves a corpus_id that already belongs to another paper
-- **THEN** the service SHALL leave that paper's corpus_id unchanged, still store citation metadata in metadata, and complete without raising an unhandled unique-constraint error
-
-### Requirement: Backfill existing papers
-The system SHALL provide a one-time backfill that runs the semantic_scholar_service for existing papers that have an `arxiv_id` but are missing Semantic Scholar enrichment (no `citation_count` in metadata), saving the resolved corpus_id and enrichment to the database. Backfill SHALL go through the ServiceRunner so it respects the configured rate limit and surfaces progress in `service_executions`.
-
-#### Scenario: Backfill resolves missing S2 data
-- **WHEN** backfill is triggered
-- **THEN** for each paper with arxiv_id and no citation_count in metadata, the service SHALL fetch S2 and persist the corpus_id and enrichment
-
-#### Scenario: Backfill skips already-enriched papers
-- **WHEN** a paper already has citation_count in its metadata
-- **THEN** backfill SHALL NOT issue an S2 request for it
-
-#### Scenario: Backfill respects the rate limit
-- **WHEN** many papers are eligible for backfill
-- **THEN** the requests SHALL be serialized through the service's rate limiter so the configured rate is not exceeded
-
 ### Requirement: Capture citation graph
 The service SHALL capture the paper's Semantic Scholar citation graph into a `paper_citations` table: both `references` (papers this paper cites) and `citations` (papers that cite this paper). For each edge it SHALL store the related paper's title, authors, year, venue, external IDs (arxiv_id / doi / corpus_id) and S2 url, plus the citation `contexts`, `intents`, and an `is_influential` flag. It SHALL reach the edge endpoints using the same identifier expression used for the single-paper lookup (`ARXIV:{arxiv_id}` when available, otherwise `CORPUSID:{corpus_id}`). It SHALL fetch one page per direction via the dedicated `/references` and `/citations` endpoints, and ALL S2 requests (single-paper lookup + edge endpoints) SHALL share one rate limiter so the configured rate is not exceeded. Citation-graph fetching SHALL be best-effort. A read endpoint `GET /api/papers/:id/citations` SHALL return the stored references and citations.
 
@@ -120,15 +80,3 @@ The service SHALL capture the paper's Semantic Scholar citation graph into a `pa
 #### Scenario: Cascade on delete
 - **WHEN** a paper is deleted
 - **THEN** its paper_citations rows SHALL be deleted as well
-
-### Requirement: Surface Semantic Scholar data in paper detail
-The paper detail view SHALL display `citation_count`, `influential_citation_count`, and `tldr` when present in the paper's metadata.
-
-#### Scenario: Display citation metrics and tldr
-- **WHEN** a paper's metadata contains citation_count and tldr
-- **THEN** the paper detail view SHALL show the citation count (and influential citation count) and the tldr text
-
-#### Scenario: Hidden when absent
-- **WHEN** a paper's metadata has no S2 fields
-- **THEN** the paper detail view SHALL NOT render the citation/tldr section
-

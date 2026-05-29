@@ -8,6 +8,7 @@ import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { Plus, Search, FileText, ChevronLeft, ChevronRight, ArrowUpDown, Tag, Loader2 } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
+import CountCell from '@/components/CountCell.vue'
 import TagBadge from '@/components/TagBadge.vue'
 import TagSelector from '@/components/TagSelector.vue'
 import { Card } from '@/components/ui/card'
@@ -55,6 +56,29 @@ function fetchWithFilters(page = 1) {
 
 function onSearch() { fetchWithFilters(1) }
 function goToPage(p: number) { fetchWithFilters(p) }
+
+const promotingId = ref<number | null>(null)
+function setListedMode(mode: 'listed' | 'unlisted' | 'all') {
+  store.listedMode = mode
+  fetchWithFilters(1)
+}
+function onRowClick(paper: any) {
+  // Metadata-only papers are not navigable until fetched (promoted)
+  if (paper.listed) router.push(`/papers/${paper.id}`)
+}
+async function promote(paper: any) {
+  if (paper.listable === false) return
+  promotingId.value = paper.id
+  try {
+    await store.promote(paper.id)
+    fetchWithFilters(store.pagination.page)
+  } catch {
+    // Backend rejected (e.g. 422 LISTING_NOT_ALLOWED) — the error toast is already shown
+    // by the API client and local state is left unchanged.
+  } finally {
+    promotingId.value = null
+  }
+}
 
 function toggleTagFilter(tagId: number) {
   const idx = selectedTagIds.value.indexOf(tagId)
@@ -129,8 +153,8 @@ async function addPaper() {
       </Button>
     </div>
 
-    <div class="flex gap-2">
-      <div class="relative flex-1">
+    <div class="flex flex-wrap gap-2">
+      <div class="relative w-full md:w-auto md:flex-1">
         <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
         <Input v-model="search" @keyup.enter="onSearch" placeholder="搜索论文标题、摘要..." class="pl-9" />
       </div>
@@ -143,6 +167,18 @@ async function addPaper() {
         <DropdownMenuContent align="end">
           <DropdownMenuItem @click="setSort('created_at')">添加时间</DropdownMenuItem>
           <DropdownMenuItem @click="setSort('updated_at')">最近修改</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <Button variant="outline">
+            {{ store.listedMode === 'all' ? '全部' : store.listedMode === 'unlisted' ? '仅元数据' : '已列出' }}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem @click="setListedMode('listed')">已列出</DropdownMenuItem>
+          <DropdownMenuItem @click="setListedMode('unlisted')">仅元数据（待添加）</DropdownMenuItem>
+          <DropdownMenuItem @click="setListedMode('all')">全部</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -177,33 +213,53 @@ async function addPaper() {
         <TableHeader>
           <TableRow>
             <TableHead>标题</TableHead>
-            <TableHead class="w-40">作者</TableHead>
+            <TableHead class="w-40 hidden md:table-cell">作者</TableHead>
             <TableHead class="w-32">来源</TableHead>
-            <TableHead class="w-24">添加日期</TableHead>
-            <TableHead class="w-24">最近修改</TableHead>
+            <TableHead class="w-16 hidden md:table-cell">Cited</TableHead>
+            <TableHead class="w-16 hidden md:table-cell">Refs</TableHead>
+            <TableHead class="w-24 hidden md:table-cell">添加日期</TableHead>
+            <TableHead class="w-24 hidden md:table-cell">最近修改</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow
             v-for="paper in store.papers" :key="paper.id"
-            class="cursor-pointer"
-            @click="router.push(`/papers/${paper.id}`)"
+            :class="paper.listed ? 'cursor-pointer' : 'opacity-70'"
+            @click="onRowClick(paper)"
           >
             <TableCell>
-              <div class="font-medium line-clamp-1">{{ paper.title }}</div>
+              <div class="flex items-center gap-2">
+                <div class="font-medium line-clamp-1">{{ paper.title }}</div>
+                <Badge v-if="!paper.listed" variant="outline" class="shrink-0">仅元数据</Badge>
+                <Button
+                  v-if="!paper.listed"
+                  size="xs" variant="secondary" class="shrink-0"
+                  :disabled="promotingId === paper.id || (paper as any).listable === false"
+                  :title="(paper as any).listable === false ? '仅有 OpenReview 链接，缺少 arXiv / Semantic Scholar 来源，无法加入列表' : undefined"
+                  @click.stop="promote(paper)"
+                >
+                  {{ promotingId === paper.id ? '抓取中…' : '抓取' }}
+                </Button>
+              </div>
               <div v-if="(paper as any).tags?.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false).length" class="flex flex-wrap gap-1 mt-1">
                 <TagBadge v-for="t in (paper as any).tags.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false)" :key="t.id" :tag-id="t.id" :tag-name="t.name" />
               </div>
             </TableCell>
-            <TableCell class="text-muted-foreground truncate max-w-[10rem]">{{ formatAuthors(paper.authors) }}</TableCell>
+            <TableCell class="text-muted-foreground truncate max-w-[10rem] hidden md:table-cell">{{ formatAuthors(paper.authors) }}</TableCell>
             <TableCell>
               <div class="flex items-center gap-1 whitespace-nowrap">
                 <SourceTag :link="paper.link" :arxiv-id="paper.arxiv_id" />
                 <S2Badge :corpus-id="paper.corpus_id" :s2-url="(paper as any).metadata?.s2_url" />
               </div>
             </TableCell>
-            <TableCell class="text-muted-foreground text-xs">{{ new Date(paper.created_at).toLocaleDateString() }}</TableCell>
-            <TableCell class="text-muted-foreground text-xs">{{ new Date(paper.updated_at).toLocaleDateString() }}</TableCell>
+            <TableCell class="hidden md:table-cell">
+              <CountCell :value="(paper as any).metadata?.citation_count" title="Number of papers that cite this paper" />
+            </TableCell>
+            <TableCell class="hidden md:table-cell">
+              <CountCell :value="(paper as any).metadata?.reference_count ?? (paper as any).metadata?.references?.length" title="Number of papers this paper cites" />
+            </TableCell>
+            <TableCell class="text-muted-foreground text-xs hidden md:table-cell">{{ new Date(paper.created_at).toLocaleDateString() }}</TableCell>
+            <TableCell class="text-muted-foreground text-xs hidden md:table-cell">{{ new Date(paper.updated_at).toLocaleDateString() }}</TableCell>
           </TableRow>
         </TableBody>
       </Table>

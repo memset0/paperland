@@ -26,6 +26,7 @@ describe('mapS2ToPaperFields', () => {
       abstract: 'abs',
       authors: [{ name: 'A' }, { name: 'B' }],
       citationCount: 100,
+      referenceCount: 137,
       influentialCitationCount: 9,
       references: [{ paperId: 'r1', title: 'Ref', year: 2015 }],
       tldr: { text: 'short' },
@@ -36,6 +37,8 @@ describe('mapS2ToPaperFields', () => {
     const r = __test__.mapS2ToPaperFields(data, { arxiv_id: '1706.03762', corpus_id: null })
     expect(r.corpus_id).toBe('13756489') // number coerced to string
     expect(r.citation_count).toBe(100)
+    // reference_count comes from S2 referenceCount (authoritative total), not the page length
+    expect(r.reference_count).toBe(137)
     expect(r.influential_citation_count).toBe(9)
     expect(r.references).toEqual([{ paper_id: 'r1', title: 'Ref', year: 2015 }])
     expect(r.tldr).toBe('short')
@@ -52,6 +55,7 @@ describe('mapS2ToPaperFields', () => {
     const r = __test__.mapS2ToPaperFields({ externalIds: { CorpusId: 5 } }, { arxiv_id: 'x', corpus_id: null })
     expect(r.corpus_id).toBe('5')
     expect(r.citation_count).toBe(0)
+    expect(r.reference_count).toBe(0) // defaults to 0 when S2 omits referenceCount
     expect(r.influential_citation_count).toBe(0)
     expect(r.references).toEqual([])
     expect('tldr' in r).toBe(false)
@@ -62,6 +66,20 @@ describe('mapS2ToPaperFields', () => {
   it('does not overwrite a corpus_id the paper already has', () => {
     const r = __test__.mapS2ToPaperFields({ externalIds: { CorpusId: 999 } }, { arxiv_id: 'x', corpus_id: '111' })
     expect('corpus_id' in r).toBe(false)
+  })
+
+  it('back-fills arxiv_id from S2 for a corpus-only paper (reverse resolution)', () => {
+    const data = {
+      paperId: 'xyz',
+      externalIds: { ArXiv: '1706.03762', CorpusId: 13756489 },
+      citationCount: 5,
+      referenceCount: 10,
+    }
+    const r = __test__.mapS2ToPaperFields(data, { arxiv_id: null, corpus_id: '13756489' })
+    expect(r.arxiv_id).toBe('1706.03762') // resolved from externalIds.ArXiv
+    expect('corpus_id' in r).toBe(false) // corpus_id already present, not rewritten
+    expect(r.citation_count).toBe(5)
+    expect(r.reference_count).toBe(10)
   })
 })
 
@@ -161,13 +179,18 @@ describe('mapEdge', () => {
 })
 
 describe('service declaration', () => {
-  it('is reoriented to arxiv_id -> corpus_id + enrichment', () => {
+  it('is bidirectional (eligible via arxiv_id OR corpus_id) and produces enrichment incl. reference_count', () => {
     expect(semanticScholarService.name).toBe('semantic_scholar_service')
-    expect(semanticScholarService.depends_on).toEqual(['arxiv_id'])
+    // Empty depends_on: eligible for every paper, picks its query id (ARXIV: or CORPUSID:) at run time
+    expect(semanticScholarService.depends_on).toEqual([])
     expect(semanticScholarService.produces).toContain('corpus_id')
     expect(semanticScholarService.produces).toContain('citation_count')
     expect(semanticScholarService.produces).toContain('influential_citation_count')
+    expect(semanticScholarService.produces).toContain('reference_count')
     expect(semanticScholarService.produces).toContain('references')
+    // arxiv_id is resolved as a side effect but must NOT be in produces, so arxiv-keyed
+    // services chain via the runner's live-key re-trigger (see service docs)
+    expect(semanticScholarService.produces).not.toContain('arxiv_id')
     // tldr may be absent from S2 responses, so it must NOT gate the service
     expect(semanticScholarService.produces).not.toContain('tldr')
   })

@@ -13,6 +13,7 @@ const S2_FIELDS = [
   'abstract',
   'authors',
   'citationCount',
+  'referenceCount',
   'influentialCitationCount',
   'references.title',
   'references.year',
@@ -43,6 +44,7 @@ interface S2Response {
   abstract?: string
   authors?: Array<{ name: string }>
   citationCount?: number
+  referenceCount?: number
   influentialCitationCount?: number
   references?: S2Reference[]
   tldr?: { model?: string; text?: string } | null
@@ -174,6 +176,8 @@ function mapS2ToPaperFields(data: S2Response, paper: any): Record<string, any> {
 
   result.citation_count = data.citationCount ?? 0
   result.influential_citation_count = data.influentialCitationCount ?? 0
+  // Authoritative total (the `references` page below is capped and undercounts).
+  result.reference_count = data.referenceCount ?? 0
   result.references = (data.references || []).map((r) => ({
     paper_id: r.paperId,
     title: r.title,
@@ -228,15 +232,16 @@ function saveEdges(paperId: number, direction: string, rows: Record<string, any>
 /**
  * Fetch one page each of references (papers this paper cites) and citations
  * (papers that cite this paper), with contexts/intents, and store them in
- * paper_citations. Best-effort: a failure in either direction is logged and does
- * not fail the enrichment.
+ * paper_citations. `idExpr` is the resolved S2 id expression (e.g. `ARXIV:1706.03762`
+ * or `CORPUSID:13756489`). Best-effort: a failure in either direction is logged and
+ * does not fail the enrichment.
  */
-async function fetchAndSaveEdges(paperId: number, arxivId: string): Promise<void> {
+async function fetchAndSaveEdges(paperId: number, idExpr: string): Promise<void> {
   const now = new Date().toISOString()
   const limit = String(EDGE_PAGE_LIMIT)
 
   try {
-    const refs = await s2Get(`/paper/ARXIV:${arxivId}/references`, REF_FIELDS, { limit })
+    const refs = await s2Get(`/paper/${idExpr}/references`, REF_FIELDS, { limit })
     const rows = (refs.data || [])
       .map((e: any) => mapEdge(e, 'citedPaper', 'reference', paperId, now))
       .filter((r: Record<string, any>) => r.s2_paper_id || r.title)
@@ -246,7 +251,7 @@ async function fetchAndSaveEdges(paperId: number, arxivId: string): Promise<void
   }
 
   try {
-    const cites = await s2Get(`/paper/ARXIV:${arxivId}/citations`, CIT_FIELDS, { limit })
+    const cites = await s2Get(`/paper/${idExpr}/citations`, CIT_FIELDS, { limit })
     const rows = (cites.data || [])
       .map((e: any) => mapEdge(e, 'citingPaper', 'citation', paperId, now))
       .filter((r: Record<string, any>) => r.s2_paper_id || r.title)
@@ -257,25 +262,36 @@ async function fetchAndSaveEdges(paperId: number, arxivId: string): Promise<void
 }
 
 /**
- * Fetches Semantic Scholar data for an arxiv paper: resolves corpus_id, stores
- * citation metrics/references/tldr on the paper, and captures the citation graph
- * (references + citations with contexts) into the paper_citations table.
+ * Fetches Semantic Scholar data for a paper identified by EITHER arxiv_id or
+ * corpus_id: resolves the missing cross-id (arxiv_id <-> corpus_id), stores citation
+ * metrics/references/tldr on the paper, and captures the citation graph (references +
+ * citations with contexts) into the paper_citations table.
+ *
+ * `depends_on` is empty so the service is eligible for every paper and picks its
+ * query id at run time. `arxiv_id` is intentionally NOT in `produces`: arxiv-keyed
+ * services (metadata/PDF) are chained by the runner's live-key re-trigger once a
+ * corpus-only paper's arxiv_id is resolved, rather than being scheduled prematurely.
  */
 export const semanticScholarService: PaperBoundServiceDef = {
   name: SERVICE_NAME,
   type: 'paper_bound',
-  depends_on: ['arxiv_id'],
-  produces: ['corpus_id', 'citation_count', 'influential_citation_count', 'references'],
+  depends_on: [],
+  produces: ['corpus_id', 'citation_count', 'influential_citation_count', 'reference_count', 'references'],
 
   async execute(paperId: number, paper: any): Promise<Record<string, any>> {
-    const arxivId = paper.arxiv_id
-    if (!arxivId) throw new Error('No arxiv_id on paper')
+    const idExpr = paper.arxiv_id
+      ? `ARXIV:${paper.arxiv_id}`
+      : paper.corpus_id
+        ? `CORPUSID:${paper.corpus_id}`
+        : null
+    // Manual papers with neither external id have nothing to resolve — no-op.
+    if (!idExpr) return {}
 
-    const data = await fetchS2(`ARXIV:${arxivId}`)
+    const data = await fetchS2(idExpr)
     const result = mapS2ToPaperFields(data, paper)
 
     // Capture the citation graph (best-effort; does not block enrichment).
-    await fetchAndSaveEdges(paperId, arxivId)
+    await fetchAndSaveEdges(paperId, idExpr)
 
     return result
   },
