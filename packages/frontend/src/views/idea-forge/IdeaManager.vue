@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useIdeasStore } from '@/stores/ideas'
 import { useIdeaForgeStore } from '@/stores/idea-forge'
+import { usePageTitle } from '@/composables/usePageTitle'
 import InboxView from '@/components/idea-forge/InboxView.vue'
 import KanbanView from '@/components/idea-forge/KanbanView.vue'
 import ListView from '@/components/idea-forge/ListView.vue'
@@ -28,6 +29,9 @@ onMounted(() => {
 
 const projectName = computed(() => route.params.projectName as string)
 const view = computed(() => (route.query.view as string) || 'inbox')
+
+// Browser tab title follows the open Idea Forge project.
+usePageTitle(() => projectName.value)
 
 const sortField = ref('update_time')
 const sortOrder = ref<'asc' | 'desc'>('desc')
@@ -55,8 +59,8 @@ watch([projectName, sortField, sortOrder, filterTag, filterCategories, view], ()
   loadIdeas()
 }, { immediate: true })
 
-function setView(v: string) {
-  router.replace({ query: { ...route.query, view: v } })
+function setView(v: string | number) {
+  router.replace({ query: { ...route.query, view: String(v) } })
 }
 
 function toggleCategoryFilter(cat: string) {

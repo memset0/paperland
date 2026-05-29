@@ -142,6 +142,7 @@ papers
   contents        text      nullable          // JSON: { user_input, pdf_parsed, ... }
   pdf_path        text      nullable
   metadata        text      nullable          // JSON
+  listed          integer   not null default 1 // 全局可见性: 1=列表显示+完整管线, 0=仅元数据/隐藏
   created_at      text      not null          // ISO 8601
 
 users
@@ -211,6 +212,47 @@ highlights
   color           text      not null          // yellow | green | blue | pink
   note            text      nullable
   created_at      text      not null
+
+notes                                          // 按用户私有的论文笔记
+  id              integer   primary key autoincrement
+  user_id         integer   → users.id, not null     // 属主
+  paper_id        integer   → papers.id, not null
+  kind            text      not null                 // 'walkthrough' | 'note'
+  parent_id       integer   → notes.id, nullable      // 自引用树；walkthrough 与顶层 note 为 null
+  title           text      nullable                 // 小笔记标题；walkthrough 不用
+  body            text      not null default ''       // Markdown；锚点以 paperland:// 链接内联于 body
+  sort_order      integer   not null default 0        // 同级排序
+  created_at      text      not null
+  updated_at      text      not null
+
+conferences
+  id              integer   primary key autoincrement
+  name            text      not null
+  year            integer   nullable
+  start_date      text      nullable          // ISO 8601 date
+  end_date        text      nullable
+  location        text      nullable
+  description     text      nullable
+  link            text      nullable
+  created_at      text      not null
+  updated_at      text      not null
+
+conference_papers                              // 候选池
+  id              integer   primary key autoincrement
+  conference_id   integer   → conferences.id, not null
+  title           text      not null
+  topic           text      nullable           // 自由文本，按主题分组用
+  authors         text      nullable           // JSON array
+  abstract        text      nullable
+  source          text      nullable           // 'arxiv' | 'openreview' | 'semantic_scholar' | null
+  external_id     text      nullable
+  link            text      nullable
+  status          text      not null default 'pending'  // pending | candidate | ingested
+  paper_id        integer   → papers.id, nullable       // 入库后写入
+  metadata        text      nullable           // JSON: 原始抓取数据
+  created_at      text      not null
+  updated_at      text      not null
+  index (conference_id, status)
 ```
 
 ---

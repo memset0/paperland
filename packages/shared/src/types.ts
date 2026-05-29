@@ -11,6 +11,7 @@ export interface Paper {
   metadata: Record<string, unknown> | null
   link: string | null
   tags_json: string | null
+  listed: boolean
   created_at: string
   updated_at: string
 }
@@ -197,6 +198,89 @@ export interface Highlight {
   color: HighlightColor
   note: string | null
   created_at: string
+}
+
+// Notes — per-user, per-paper walkthrough + tree of small notes.
+// Anchors are NOT a column; they live inline in `body` as `paperland://` links.
+export type NoteKind = 'walkthrough' | 'note'
+
+export interface Note {
+  id: number
+  user_id: number
+  paper_id: number
+  kind: NoteKind
+  parent_id: number | null // self-referential tree; null for walkthrough & top-level notes
+  title: string | null
+  body: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+// A note annotated with its paper's title (for the cross-paper /notes aggregate).
+export interface NoteWithPaper extends Note {
+  paper_title: string
+}
+
+// Conferences
+export interface Conference {
+  id: number
+  name: string
+  year: number | null
+  start_date: string | null
+  end_date: string | null
+  location: string | null
+  description: string | null
+  link: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Conference list item: a Conference plus aggregate counts of its candidate pool. */
+export interface ConferenceListItem extends Conference {
+  paper_count: number
+  status_counts: { pending: number; candidate: number; ingested: number }
+}
+
+export type ConferencePaperStatus = 'pending' | 'candidate' | 'ingested'
+export type ConferencePaperSource = 'arxiv' | 'openreview' | 'semantic_scholar' | null
+
+export interface ConferencePaper {
+  id: number
+  conference_id: number
+  title: string
+  topic: string | null
+  authors: string[]
+  abstract: string | null
+  source: ConferencePaperSource
+  external_id: string | null
+  link: string | null
+  status: ConferencePaperStatus
+  paper_id: number | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+/** Payload accepted by POST /api/conferences/:id/papers/import. */
+export interface ConferenceImportPayload {
+  papers: Array<{
+    title: string
+    topic?: string | null
+    source?: string | null
+    external_id?: string | null
+    link?: string | null
+    authors?: string[] | null
+    abstract?: string | null
+    metadata?: Record<string, unknown> | null
+  }>
+}
+
+/** Summary returned by POST /api/conferences/:id/ingest. */
+export interface ConferenceIngestSummary {
+  ingested: number
+  skipped: number
+  errors: Array<{ candidate_id: number; message: string }>
 }
 
 // Idea Forge

@@ -100,3 +100,37 @@ export const usersApi = {
   update: (id: number, payload: { role?: UserRole; password?: string }) =>
     api.patch<{ data: User }>(`/api/users/${id}`, payload),
 }
+
+// Notes API
+import type { Note, NoteWithPaper } from '@paperland/shared'
+
+export const notesApi = {
+  // Raw fetch: owner-scoped read returns empty for anonymous (and degrades silently
+  // to empty if the route/server isn't ready) — no global error toast.
+  async getForPaper(paperId: number): Promise<{ walkthrough: Note | null; notes: Note[] }> {
+    try {
+      const res = await fetch(`/api/papers/${paperId}/notes`, { credentials: 'same-origin' })
+      if (!res.ok) return { walkthrough: null, notes: [] }
+      return await res.json()
+    } catch {
+      return { walkthrough: null, notes: [] }
+    }
+  },
+
+  saveWalkthrough: (paperId: number, body: string, updated_at?: string) =>
+    api.put<{ data: Note }>(`/api/papers/${paperId}/walkthrough`, { body, updated_at }),
+
+  create: (paperId: number, data: { title?: string | null; body?: string; parent_id?: number | null }) =>
+    api.post<{ data: Note }>(`/api/papers/${paperId}/notes`, data),
+
+  update: (id: number, data: { title?: string | null; body?: string; updated_at?: string }) =>
+    api.patch<{ data: Note }>(`/api/notes/${id}`, data),
+
+  move: (id: number, data: { parent_id: number | null; sort_order: number }) =>
+    api.post<{ data: Note }>(`/api/notes/${id}/move`, data),
+
+  remove: (id: number) =>
+    api.delete<{ success: boolean; deleted: number }>(`/api/notes/${id}`),
+
+  listAll: () => api.get<{ data: NoteWithPaper[] }>('/api/notes'),
+}

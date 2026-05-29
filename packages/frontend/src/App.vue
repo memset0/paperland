@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watchEffect } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, Lightbulb, LogIn, CircleUser } from '@lucide/vue'
+import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, Lightbulb, LogIn, CircleUser, CalendarDays, NotebookPen } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import LoginDialog from '@/components/LoginDialog.vue'
 import AccountDialog from '@/components/AccountDialog.vue'
+import NoteWindowHost from '@/components/notes/NoteWindowHost.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,8 +49,10 @@ onUnmounted(() => {
 interface NavItem { path: string; label: string; icon: any; requiresAuth?: boolean; requiresAdmin?: boolean }
 const navItems: NavItem[] = [
   { path: '/', label: '论文管理', icon: FileText },
+  { path: '/conferences', label: '会议', icon: CalendarDays },
   { path: '/tags', label: '标签管理', icon: Tag, requiresAuth: true },
   { path: '/qa', label: 'Q&A', icon: MessageSquare, requiresAuth: true },
+  { path: '/notes', label: 'Notes', icon: NotebookPen, requiresAuth: true },
   { path: '/idea-forge', label: 'Idea Forge', icon: Lightbulb, requiresAuth: true },
   { path: '/services', label: '服务管理', icon: Activity, requiresAdmin: true },
   { path: '/settings', label: '设置', icon: Settings, requiresAdmin: true },
@@ -213,8 +216,11 @@ async function doLogout() {
     </template>
 
     <!-- ========== Main content ========== -->
-    <main :class="['flex-1 overflow-y-auto', isMobile && !isEmbed ? 'pt-12' : '']">
+    <main :class="['flex-1 overflow-y-auto overflow-x-hidden', isMobile && !isEmbed ? 'pt-12' : '']">
       <RouterView />
     </main>
+
+    <!-- Floating note editor windows (above app chrome) -->
+    <NoteWindowHost />
   </div>
 </template>

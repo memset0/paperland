@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { type QAResult } from '@/stores/qa'
+import { requestedResultId } from '@/composables/useBlockAnchor'
 import { RefreshCw, Copy, Check, Trash2, Pin } from '@lucide/vue'
 import MarkdownContent from './MarkdownContent.vue'
 import { Button } from '@/components/ui/button'
@@ -57,6 +58,14 @@ function sortedResults(): QAResult[] {
 
 const activeTab = ref<string>('')
 
+// An anchor jump can ask for a specific answer (by qa_result id) to be shown.
+// Result ids are globally unique, so only the view owning that result reacts.
+watch(requestedResultId, (id) => {
+  if (id != null && props.results.some(r => r.id === id)) {
+    activeTab.value = String(id)
+  }
+}, { immediate: true })
+
 function copyAnswer(resultId: number, text: string) {
   navigator.clipboard.writeText(text)
   copiedId.value = resultId
@@ -75,7 +84,7 @@ function copyAnswer(resultId: number, text: string) {
       </TabsTrigger>
     </TabsList>
     <TabsContent v-for="r in sortedResults()" :key="r.id" :value="String(r.id)">
-      <MarkdownContent :content="r.answer" :highlight-pathname="highlightPathname" class="text-sm" />
+      <MarkdownContent :content="r.answer" :highlight-pathname="highlightPathname" :paper-id="paperId" class="text-sm" />
       <div class="flex items-center gap-1 mt-3 pt-2 border-t">
         <Button
           variant="ghost"
@@ -101,7 +110,7 @@ function copyAnswer(resultId: number, text: string) {
   </Tabs>
 
   <div v-else-if="results.length === 1">
-    <MarkdownContent :content="results[0].answer" :highlight-pathname="highlightPathname" class="text-sm" />
+    <MarkdownContent :content="results[0].answer" :highlight-pathname="highlightPathname" :paper-id="paperId" class="text-sm" />
     <div class="flex items-center justify-between mt-3 pt-2 border-t">
       <div class="flex items-center gap-2">
         <Badge variant="secondary">{{ results[0].model_name }}</Badge>

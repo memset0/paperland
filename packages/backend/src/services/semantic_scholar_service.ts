@@ -114,6 +114,43 @@ async function fetchS2(idExpr: string): Promise<S2Response> {
   return s2Get(`/paper/${idExpr}`, S2_FIELDS) as Promise<S2Response>
 }
 
+export interface S2Match {
+  corpus_id: string | null
+  arxiv_id: string | null
+  matched_title: string | null
+  match_score: number | null
+}
+
+/**
+ * Resolve a paper title to its Semantic Scholar ids via the title-match endpoint.
+ * Returns null when there is no acceptable match. Goes through the shared S2 rate
+ * gate + 429 backoff (so it is safe to call in a batch loop).
+ */
+export async function matchPaperByTitle(title: string): Promise<S2Match | null> {
+  try {
+    // Note: `matchScore` is returned automatically by the match endpoint and is NOT a
+    // valid `fields` value (requesting it yields 400).
+    const res = await s2Get('/paper/search/match', 'title,externalIds', { query: title })
+    const m = res?.data?.[0]
+    if (!m) return null
+    const ext = m.externalIds || {}
+    const corpus_id = ext.CorpusId != null ? String(ext.CorpusId)
+      : (m.corpusId != null ? String(m.corpusId) : null)
+    const arxiv_id = ext.ArXiv || null
+    if (!corpus_id && !arxiv_id) return null
+    return {
+      corpus_id,
+      arxiv_id,
+      matched_title: m.title || null,
+      match_score: typeof m.matchScore === 'number' ? m.matchScore : null,
+    }
+  } catch (e: any) {
+    // The match endpoint returns 404 when nothing matches → treat as "no match".
+    if (/no record/i.test(e?.message || '')) return null
+    throw e
+  }
+}
+
 /**
  * Map an S2 response onto paper fields. Writes back any external IDs the paper
  * is missing (notably corpus_id), and stores enrichment in metadata. Optional

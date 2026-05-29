@@ -5,16 +5,21 @@ import mk from '@traptitech/markdown-it-katex'
 import SparkMD5 from 'spark-md5'
 import 'katex/dist/katex.min.css'
 import { toast } from 'vue-sonner'
-import { StickyNote, Trash2, Save } from '@lucide/vue'
+import { useRouter, useRoute } from 'vue-router'
+import { StickyNote, Trash2, Save, Link2 } from '@lucide/vue'
 import { useHighlightStore } from '@/stores/highlights'
 import { useAuthStore } from '@/stores/auth'
 import { applyHighlights, clearHighlights, getSelectionOffsets } from '@/composables/useHighlight'
+import { useBlockAnchor, type AnchorRange } from '@/composables/useBlockAnchor'
 import type { HighlightColor } from '@paperland/shared'
 
-const props = defineProps<{ content: string; highlightPathname?: string }>()
+const props = defineProps<{ content: string; highlightPathname?: string; paperId?: number }>()
 
 const highlightStore = useHighlightStore()
 const auth = useAuthStore()
+const router = useRouter()
+const route = useRoute()
+const { locateBlock } = useBlockAnchor()
 const containerRef = ref<HTMLElement | null>(null)
 
 // Touch device detection (same approach as QAPanelNav.vue)
@@ -175,6 +180,53 @@ async function createHighlight(color: HighlightColor) {
   closeAllPopups()
 }
 
+// ---- paperland:// anchor links ----
+
+/** Parse `paperland://paper/<id>?h=<hash>&s=<start>&e=<end>` (h/s/e all optional). */
+function parsePaperlandUrl(href: string): { paperId: number; hash: string | null; range: AnchorRange | null } | null {
+  const m = href.match(/^paperland:\/\/paper\/(\d+)(?:\?(.*))?$/)
+  if (!m) return null
+  const params = new URLSearchParams(m[2] || '')
+  const s = params.get('s')
+  const e = params.get('e')
+  return {
+    paperId: parseInt(m[1], 10),
+    hash: params.get('h'),
+    range: s != null && e != null ? { start: parseInt(s, 10), end: parseInt(e, 10) } : null,
+  }
+}
+
+/** Intercept clicks on `paperland://` links: jump in-app instead of navigating the browser. */
+function onAnchorLinkClick(e: MouseEvent | Event) {
+  const a = (e.target as Element)?.closest('a[href^="paperland://"]') as HTMLAnchorElement | null
+  if (!a) return
+  e.preventDefault()
+  e.stopPropagation()
+  const target = parsePaperlandUrl(a.getAttribute('href') || '')
+  if (!target) return
+  const onSamePaper = route.name === 'paper-detail' && parseInt(route.params.id as string, 10) === target.paperId
+  if (onSamePaper) {
+    locateBlock(target.paperId, target.hash, target.range)
+  } else {
+    const query: Record<string, string> = {}
+    if (target.hash) query.h = target.hash
+    if (target.range) { query.s = String(target.range.start); query.e = String(target.range.end) }
+    router.push({ path: `/papers/${target.paperId}`, query })
+  }
+}
+
+/** Build a `paperland://` link for the current selection and copy it (as Markdown) to the clipboard. */
+function copyAnchorLink() {
+  if (!pendingSelection.value || !contentHash.value || !props.paperId) return
+  const { start_offset, end_offset, text } = pendingSelection.value
+  const url = `paperland://paper/${props.paperId}?h=${contentHash.value}&s=${start_offset}&e=${end_offset}`
+  const label = text.trim().slice(0, 40).replace(/\s+/g, ' ') || '锚点'
+  navigator.clipboard.writeText(`[${label}](${url})`)
+  toast.success('锚点链接已复制', { position: 'bottom-center' })
+  window.getSelection()?.removeAllRanges()
+  closeAllPopups()
+}
+
 // ---- Hover Tooltip (desktop only) ----
 
 function onMarkMouseEnter(e: MouseEvent) {
@@ -326,12 +378,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="markdown-content max-w-none relative" style="position: relative;">
+  <div class="markdown-content max-w-none relative" style="position: relative;" :data-content-hash="contentHash">
     <div
       ref="containerRef"
       @mouseover="onMarkMouseEnter"
       @mouseout="onMarkMouseLeave"
-      @click="onMarkClick($event); onKatexClick($event)"
+      @click="onAnchorLinkClick($event); onMarkClick($event); onKatexClick($event)"
     />
 
     <!-- Selection Toolbar -->
@@ -351,6 +403,9 @@ onBeforeUnmount(() => {
       </div>
       <button class="hl-note-toggle" @click.stop="showNoteInput = !showNoteInput" title="Add note">
         <StickyNote class="hl-icon" />
+      </button>
+      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyAnchorLink" title="复制为锚点链接">
+        <Link2 class="hl-icon" />
       </button>
       <div v-if="showNoteInput" class="hl-note-input" @click.stop>
         <input
@@ -411,6 +466,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* --- Markdown styles --- */
+/* Break long unbreakable tokens (URLs, identifiers) so prose never forces the
+   article wider than its container — the main cause of mobile horizontal scroll.
+   overflow-wrap is inherited, so this covers p / li / headings too. Code blocks
+   (<pre>) keep white-space:pre + their own overflow-x:auto and are unaffected. */
+.markdown-content { overflow-wrap: anywhere; }
 .markdown-content :deep(h1) { font-size: 1.25em; font-weight: 700; margin: 1em 0 0.5em; }
 .markdown-content :deep(h2) { font-size: 1.125em; font-weight: 600; margin: 0.8em 0 0.4em; }
 .markdown-content :deep(h3) { font-size: 1em; font-weight: 600; margin: 0.6em 0 0.3em; }
@@ -421,6 +481,7 @@ onBeforeUnmount(() => {
 .markdown-content :deep(code) {
   background: #f3f4f6; border-radius: 0.25rem; padding: 0.15em 0.35em;
   font-size: 0.85em; color: #374151;
+  overflow-wrap: anywhere; word-break: break-word;
 }
 .markdown-content :deep(pre) {
   background: #1f2937; color: #e5e7eb; border-radius: 0.5rem;
@@ -439,7 +500,7 @@ onBeforeUnmount(() => {
 }
 .markdown-content :deep(th) { background: #f9fafb; font-weight: 600; }
 .markdown-content :deep(strong) { font-weight: 600; }
-.markdown-content :deep(a) { color: var(--primary); text-decoration: underline; }
+.markdown-content :deep(a) { color: var(--primary); text-decoration: underline; word-break: break-all; }
 .markdown-content :deep(hr) { border: none; border-top: 1px solid #e5e7eb; margin: 0.75em 0; }
 /* KaTeX display math: center and handle overflow */
 .markdown-content :deep(.katex-display) {

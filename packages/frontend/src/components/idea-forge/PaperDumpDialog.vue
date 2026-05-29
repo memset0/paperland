@@ -123,8 +123,8 @@ async function dumpByPapers() {
   }
 }
 
-function onTabChange(v: string) {
-  tab.value = v as 'tags' | 'papers'
+function onTabChange(v: string | number) {
+  tab.value = String(v) as 'tags' | 'papers'
   if (v === 'papers') loadPapers()
 }
 

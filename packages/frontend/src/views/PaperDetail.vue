@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed, ref } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
+import { useBlockAnchor } from '@/composables/useBlockAnchor'
 import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save, Loader2 } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
@@ -11,8 +12,10 @@ import TagSelector from '@/components/TagSelector.vue'
 import { useTagsStore } from '@/stores/tags'
 import { api } from '@/api/client'
 import { useEmbedMode } from '@/composables/useEmbedMode'
+import { usePageTitle } from '@/composables/usePageTitle'
 import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
 import QAList from '@/components/QAList.vue'
+import PaperNotesCard from '@/components/PaperNotesCard.vue'
 import PaperCitations from '@/components/PaperCitations.vue'
 import QAInput from '@/components/QAInput.vue'
 import QAPanelNav from '@/components/QAPanelNav.vue'
@@ -34,7 +37,11 @@ const qaStore = useQAStore()
 const highlightStore = useHighlightStore()
 const tagsStore = useTagsStore()
 const { isEmbed } = useEmbedMode()
+const { locateBlock } = useBlockAnchor()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
+
+// Browser tab title follows the paper; shows a placeholder until it loads.
+usePageTitle(() => store.currentPaper?.title ?? '论文详情')
 
 // Semantic Scholar enrichment surfaced from paper.metadata (null if none present).
 const s2meta = computed(() => {
@@ -86,14 +93,40 @@ function toggleCollapse() {
   }
 }
 
+/** Jump to a `?h=<hash>` deep-link target once the paper + Q&A data are present. */
+function handleAnchorFromRoute() {
+  const h = route.query.h
+  if (typeof h !== 'string' || !h) return
+  const s = route.query.s
+  const e = route.query.e
+  const range = typeof s === 'string' && typeof e === 'string'
+    ? { start: parseInt(s, 10), end: parseInt(e, 10) }
+    : null
+  locateBlock(paperId.value, h, range)
+}
+
+async function loadPaperData() {
+  await store.fetchPaper(paperId.value)
+  highlightStore.loadForPathname(route.path)
+  qaStore.switchPaper(paperId.value)
+  await qaStore.fetchQA(paperId.value, true)
+}
+
 onMounted(async () => {
   window.addEventListener('resize', onResize)
   tagsStore.ensureLoaded()
-  await store.fetchPaper(paperId.value)
-  highlightStore.loadForPathname(route.path)
   await qaStore.fetchTemplates()
-  qaStore.switchPaper(paperId.value)
-  await qaStore.fetchQA(paperId.value, true)
+  await loadPaperData()
+  await nextTick()
+  handleAnchorFromRoute()
+})
+
+// Anchor deep-links (`/papers/:id?h=`) and cross-paper anchor jumps. RouterView is not
+// keyed, so navigating paper→paper reuses this component — reload data on id change.
+watch(() => [route.params.id, route.query.h, route.query.s, route.query.e], async (next, prev) => {
+  if (next[0] !== prev[0]) await loadPaperData()
+  await nextTick()
+  handleAnchorFromRoute()
 })
 
 function navigateToTagFilter(tagId: number) {
@@ -246,10 +279,21 @@ async function confirmDelete() {
     deleting.value = false
   }
 }
+
+const promoting = ref(false)
+async function promote() {
+  if (!store.currentPaper) return
+  promoting.value = true
+  try {
+    await store.promote(store.currentPaper.id)
+  } finally {
+    promoting.value = false
+  }
+}
 </script>
 
 <template>
-  <div class="h-screen flex flex-col overflow-hidden">
+  <div class="h-full flex flex-col overflow-hidden">
     <!-- Embed: compact header -->
     <div v-if="isEmbed" class="flex h-6 items-center gap-1 border-b px-2 shrink-0">
       <div class="min-w-0 flex-1">
@@ -343,6 +387,9 @@ async function confirmDelete() {
               <div class="flex items-start justify-between gap-3">
                 <h2 class="text-lg font-semibold leading-snug">{{ store.currentPaper.title }}</h2>
                 <div class="flex items-center gap-1 shrink-0">
+                  <Button v-if="store.currentPaper.listed === false" size="sm" :disabled="promoting" @click="promote">
+                    {{ promoting ? '加入中…' : '加入列表' }}
+                  </Button>
                   <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">
                     <Pencil />
                   </Button>
@@ -354,6 +401,7 @@ async function confirmDelete() {
               <div class="flex flex-wrap gap-1.5">
                 <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
                 <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
+                <a v-for="(o, i) in ((store.currentPaper as any).openreview_links || [])" :key="'or' + i" :href="o.link" target="_blank" rel="noopener" class="inline-flex items-center rounded-md border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground">OpenReview<span v-if="((store.currentPaper as any).openreview_links || []).length > 1" class="ml-0.5">{{ i + 1 }}</span></a>
                 <Badge variant="outline" class="gap-1">
                   <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
                 </Badge>
@@ -435,13 +483,15 @@ async function confirmDelete() {
                   </div>
                 </CollapsibleTrigger>
                 <CollapsibleContent class="px-5 pb-4 pt-1">
-                  <MarkdownContent :content="faq.answer" class="text-sm" />
+                  <MarkdownContent :content="faq.answer" :paper-id="paperId" class="text-sm" />
                 </CollapsibleContent>
               </Collapsible>
             </div>
           </Card>
 
           <PaperCitations :paper-id="paperId" />
+
+          <PaperNotesCard :paper-id="paperId" />
 
           <QAList :paper-id="paperId" />
         </div>
@@ -499,6 +549,7 @@ async function confirmDelete() {
             <div class="flex flex-wrap gap-1.5">
               <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
               <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
+                <a v-for="(o, i) in ((store.currentPaper as any).openreview_links || [])" :key="'or' + i" :href="o.link" target="_blank" rel="noopener" class="inline-flex items-center rounded-md border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground">OpenReview<span v-if="((store.currentPaper as any).openreview_links || []).length > 1" class="ml-0.5">{{ i + 1 }}</span></a>
               <Badge variant="outline" class="gap-1">
                 <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
               </Badge>
@@ -580,13 +631,15 @@ async function confirmDelete() {
                 </div>
               </CollapsibleTrigger>
               <CollapsibleContent class="px-5 pb-4 pt-1">
-                <MarkdownContent :content="faq.answer" class="text-sm" />
+                <MarkdownContent :content="faq.answer" :paper-id="paperId" class="text-sm" />
               </CollapsibleContent>
             </Collapsible>
           </div>
         </Card>
 
         <PaperCitations :paper-id="paperId" />
+
+        <PaperNotesCard :paper-id="paperId" />
 
         <QAList :paper-id="paperId" />
       </div>

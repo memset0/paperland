@@ -140,3 +140,22 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/60;
 }
+
+/* Transient flash when a paperland:// anchor jumps to a MarkdownContent block. */
+@keyframes block-anchor-flash {
+  0%   { background-color: color-mix(in oklch, var(--primary) 28%, transparent); }
+  100% { background-color: transparent; }
+}
+.block-anchor-flash {
+  animation: block-anchor-flash 1.5s ease-out;
+  border-radius: var(--radius);
+  scroll-margin: 1rem;
+}
+
+/* Transient highlight for a paperland:// sub-range jump (s/e offsets within a block). */
+mark.block-anchor-range {
+  color: inherit;
+  background-color: transparent;
+  border-radius: 2px;
+  animation: block-anchor-flash 1.8s ease-out forwards;
+}

@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { computed } from 'vue'
 import type { ToasterProps } from 'vue-sonner'
 
 import {
@@ -13,6 +14,16 @@ import { Toaster as Sonner } from 'vue-sonner'
 import { cn } from '@/lib/utils'
 
 const props = defineProps<ToasterProps>()
+
+// Forward all caller props, defaulting toastOptions to a rounded toast (caller can
+// still override). Merging here avoids specifying `toastOptions` twice on <Sonner>.
+const forwarded = computed<ToasterProps>(() => ({
+  ...props,
+  toastOptions: {
+    classes: { toast: 'rounded-md' },
+    ...props.toastOptions,
+  },
+}))
 </script>
 
 <template>
@@ -29,12 +40,7 @@ const props = defineProps<ToasterProps>()
       '--gray5': 'var(--border)',
       '--gray12': 'var(--popover-foreground)',
     }"
-    :toast-options="{
-      classes: {
-        toast: 'rounded-md',
-      },
-    }"
-    v-bind="props"
+    v-bind="forwarded"
   >
     <template #success-icon>
       <CircleCheckIcon class="size-4" />

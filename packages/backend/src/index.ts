@@ -14,6 +14,7 @@ import { paperRoutes } from './api/papers.js'
 import { serviceRoutes } from './api/services.js'
 import { qaRoutes } from './api/qa.js'
 import { highlightsRoutes } from './api/highlights.js'
+import { notesRoutes } from './api/notes.js'
 import { tagRoutes } from './api/tags.js'
 import { externalPaperRoutes } from './external-api/papers.js'
 import { externalTagRoutes } from './external-api/tags.js'
@@ -26,6 +27,7 @@ import { semanticScholarService } from './services/semantic_scholar_service.js'
 import { pdfParseService } from './services/pdf_parse_service.js'
 import { papersCoolService } from './services/papers_cool_service.js'
 import { ideaForgeRoutes } from './api/idea-forge.js'
+import { conferenceRoutes } from './api/conferences.js'
 import { ensureIdeaForgeRoot } from './idea-forge/utils.js'
 
 async function main() {
@@ -125,10 +127,14 @@ async function main() {
   await app.register(serviceRoutes)
   await app.register(qaRoutes)
   await app.register(highlightsRoutes)
+  await app.register(notesRoutes)
   await app.register(tagRoutes)
 
   // Register idea-forge routes
   await app.register(ideaForgeRoutes)
+
+  // Register conferences routes
+  await app.register(conferenceRoutes)
 
   // Register external API routes
   await app.register(externalPaperRoutes)

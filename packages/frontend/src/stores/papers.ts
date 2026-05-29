@@ -10,6 +10,8 @@ export const usePapersStore = defineStore('papers', () => {
   const loading = ref(false)
   const sortBy = ref<'created_at' | 'updated_at'>((localStorage.getItem('paperland_sort_by') as 'created_at' | 'updated_at') || 'updated_at')
   const sortOrder = ref<'asc' | 'desc'>((localStorage.getItem('paperland_sort_order') as 'asc' | 'desc') || 'desc')
+  // Visibility mode: 'listed' (default) | 'unlisted' (metadata-only) | 'all'
+  const listedMode = ref<'listed' | 'unlisted' | 'all'>('listed')
 
   async function fetchPapers(page = 1, search = '', tagIds?: number[]) {
     loading.value = true
@@ -19,6 +21,7 @@ export const usePapersStore = defineStore('papers', () => {
       if (tagIds && tagIds.length > 0) params.set('tag_ids', tagIds.join(','))
       params.set('sort_by', sortBy.value)
       params.set('sort_order', sortOrder.value)
+      params.set('listed', listedMode.value)
       const res = await api.get<PaginatedResponse<Paper>>(`/api/papers?${params}`)
       papers.value = res.data
       pagination.value = res.pagination
@@ -52,5 +55,14 @@ export const usePapersStore = defineStore('papers', () => {
     return await api.delete<{ success: boolean; deleted_id: number }>(`/api/papers/${id}`)
   }
 
-  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, fetchPapers, fetchPaper, createPaper, updatePaper, deletePaper }
+  /** Promote a metadata-only paper into the library (listed=true → full pipeline). */
+  async function promote(id: number) {
+    const updated = await api.patch<Paper>(`/api/papers/${id}`, { listed: true })
+    const row = papers.value.find(p => p.id === id)
+    if (row) row.listed = true
+    if (currentPaper.value && currentPaper.value.id === id) currentPaper.value.listed = true
+    return updated
+  }
+
+  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, listedMode, fetchPapers, fetchPaper, createPaper, updatePaper, deletePaper, promote }
 })

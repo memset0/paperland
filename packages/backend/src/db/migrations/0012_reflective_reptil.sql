@@ -1,0 +1,1 @@
+ALTER TABLE `papers` ADD `listed` integer DEFAULT 1 NOT NULL;

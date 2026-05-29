@@ -2,53 +2,76 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
+import { formatTitle } from '@/composables/usePageTitle'
 
 const routes = [
   {
     path: '/',
     name: 'papers',
     component: () => import('@/views/PaperList.vue'),
+    meta: { title: '论文管理' },
   },
   {
     path: '/papers/:id',
     name: 'paper-detail',
     component: () => import('@/views/PaperDetail.vue'),
+    // Placeholder until the paper loads; PaperDetail overrides with the paper title.
+    meta: { title: '论文详情' },
   },
   {
     path: '/qa',
     name: 'qa',
     component: () => import('@/views/QAPage.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, title: 'Q&A' },
+  },
+  {
+    path: '/notes',
+    name: 'notes',
+    component: () => import('@/views/NotesPage.vue'),
+    meta: { requiresAuth: true, title: 'Notes' },
   },
   {
     path: '/tags',
     name: 'tags',
     component: () => import('@/views/TagManagement.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, title: '标签管理' },
   },
   {
     path: '/services',
     name: 'services',
     component: () => import('@/views/ServiceDashboard.vue'),
-    meta: { requiresAdmin: true },
+    meta: { requiresAdmin: true, title: '服务管理' },
   },
   {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/Settings.vue'),
-    meta: { requiresAdmin: true },
+    meta: { requiresAdmin: true, title: '设置' },
+  },
+  {
+    path: '/conferences',
+    name: 'conferences',
+    component: () => import('@/views/ConferenceList.vue'),
+    meta: { title: '会议' },
+  },
+  {
+    path: '/conferences/:id',
+    name: 'conference-detail',
+    component: () => import('@/views/ConferenceDetail.vue'),
+    meta: { title: '会议详情' },
   },
   {
     path: '/idea-forge',
     name: 'idea-forge',
     component: () => import('@/views/idea-forge/ProjectList.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, title: 'Idea Forge' },
   },
   {
     path: '/idea-forge/:projectName',
     name: 'idea-forge-project',
     component: () => import('@/views/idea-forge/IdeaManager.vue'),
-    meta: { requiresAuth: true },
+    // Placeholder until projects load; IdeaManager overrides with the project name.
+    meta: { requiresAuth: true, title: 'Idea Forge' },
   },
 ]
 
@@ -75,4 +98,11 @@ router.beforeEach(async (to) => {
     return to.path === '/' ? false : '/'
   }
   return true
+})
+
+// Keep the browser tab title in sync with the page. Runs synchronously on every
+// confirmed navigation; dynamic pages (paper detail, idea-forge project) then
+// refine the title in-view via usePageTitle once their data resolves.
+router.afterEach((to) => {
+  document.title = formatTitle(to.meta.title as string | undefined)
 })

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, index, unique } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, primaryKey, index, unique, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
 // User accounts. Website credentials live here (not in config.yml).
 export const users = sqliteTable('users', {
@@ -29,6 +29,7 @@ export const papers = sqliteTable('papers', {
   metadata: text('metadata'), // JSON
   link: text('link'),
   tags_json: text('tags_json'), // JSON: [{ id, name }]
+  listed: integer('listed').notNull().default(1), // global visibility: 1 = shown + full pipeline, 0 = metadata-only/hidden
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 })
@@ -96,6 +97,22 @@ export const highlights = sqliteTable('highlights', {
   created_at: text('created_at').notNull(),
 })
 
+// Per-user, per-paper notes: one `walkthrough` (linear Markdown) + a tree of small
+// `note` rows (self-referential `parent_id`). Anchors live inline in `body` as
+// `paperland://` links, so there is no anchor column.
+export const notes = sqliteTable('notes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  user_id: integer('user_id').notNull().references(() => users.id), // owner
+  paper_id: integer('paper_id').notNull().references(() => papers.id),
+  kind: text('kind').notNull(), // 'walkthrough' | 'note'
+  parent_id: integer('parent_id').references((): AnySQLiteColumn => notes.id), // self-ref; null for walkthrough & top-level notes
+  title: text('title'),
+  body: text('body').notNull().default(''),
+  sort_order: integer('sort_order').notNull().default(0),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
 export const apiTokens = sqliteTable('api_tokens', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   token: text('token').notNull().unique(),
@@ -103,6 +120,42 @@ export const apiTokens = sqliteTable('api_tokens', {
   created_at: text('created_at').notNull(),
   revoked_at: text('revoked_at'),
 })
+
+// Conferences: top-level entity grouping a set of candidate papers (see conferencePapers).
+export const conferences = sqliteTable('conferences', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  year: integer('year'),
+  start_date: text('start_date'), // ISO 8601 date
+  end_date: text('end_date'),     // ISO 8601 date
+  location: text('location'),
+  description: text('description'),
+  link: text('link'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+// Conference candidate pool. Papers live here BEFORE being ingested into `papers`.
+// status: 'pending' (待确认) → 'candidate' (候选中) → 'ingested' (已入库).
+// When ingested, `paper_id` is set to the matching/created papers row.
+export const conferencePapers = sqliteTable('conference_papers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  conference_id: integer('conference_id').notNull().references(() => conferences.id),
+  title: text('title').notNull(),
+  topic: text('topic'),
+  authors: text('authors'),      // JSON array
+  abstract: text('abstract'),
+  source: text('source'),        // 'arxiv' | 'openreview' | 'semantic_scholar' | null
+  external_id: text('external_id'),
+  link: text('link'),
+  status: text('status').notNull().default('pending'),
+  paper_id: integer('paper_id').references(() => papers.id),
+  metadata: text('metadata'),    // JSON: raw pre-scraped data
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+}, (table) => [
+  index('conference_papers_conf_status_idx').on(table.conference_id, table.status),
+])
 
 // Semantic Scholar citation graph: one row per citation edge.
 // direction = 'reference' (this paper cites the other) | 'citation' (the other cites this paper)
