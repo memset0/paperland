@@ -3,8 +3,9 @@ import { onMounted, onUnmounted, computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save, Loader2 } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
+import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
 import TagSelector from '@/components/TagSelector.vue'
 import { useTagsStore } from '@/stores/tags'
@@ -12,10 +13,19 @@ import { api } from '@/api/client'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
 import QAList from '@/components/QAList.vue'
+import PaperCitations from '@/components/PaperCitations.vue'
 import QAInput from '@/components/QAInput.vue'
 import QAPanelNav from '@/components/QAPanelNav.vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useHighlightStore } from '@/stores/highlights'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,14 +36,22 @@ const tagsStore = useTagsStore()
 const { isEmbed } = useEmbedMode()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
 
+// Semantic Scholar enrichment surfaced from paper.metadata (null if none present).
+const s2meta = computed(() => {
+  const m = (store.currentPaper?.metadata ?? {}) as any
+  const citationCount = m.citation_count
+  const influentialCount = m.influential_citation_count
+  const tldr = m.tldr
+  if (citationCount === undefined && influentialCount === undefined && !tldr) return null
+  return { citationCount, influentialCount, tldr }
+})
+
 function reloadPage() { window.location.reload() }
 
-// Responsive: only show split view on wide screens (never in embed mode)
 const isWide = ref(window.innerWidth >= 900)
 function onResize() { isWide.value = window.innerWidth >= 900 }
 const showSplitView = computed(() => isWide.value && !isEmbed.value)
 
-// Draggable split
 const leftWidth = ref(45)
 const dragging = ref(false)
 const collapsed = ref(false)
@@ -82,7 +100,6 @@ function navigateToTagFilter(tagId: number) {
   router.push({ path: '/', query: { tags: String(tagId) } })
 }
 
-// Tag editing
 const isEditingTags = ref(false)
 const editingTags = ref<string[]>([])
 const savingTags = ref(false)
@@ -115,14 +132,12 @@ onUnmounted(() => {
   qaStore.stopPolling()
 })
 
-// Papers.cool Chinese summary — FAQ panels
 const summaryFaqs = computed(() => {
   const meta = store.currentPaper?.metadata
   if (!meta || typeof meta !== 'object') return null
   const raw = (meta as Record<string, unknown>).papers_cool_summary
   if (typeof raw !== 'string' || raw.length === 0) return null
 
-  // Split by Q\d+: pattern into individual FAQ items
   const parts = raw.split(/(?=Q\d+[:：])/)
   const faqs: Array<{ question: string; answer: string }> = []
   for (const part of parts) {
@@ -141,33 +156,32 @@ const papersCoolUrl = computed(() => {
   return id ? `https://papers.cool/arxiv/${id}` : null
 })
 
+const kimiOpenMap = ref<Record<number, boolean>>({})
+
 function setAllKimiOpen(open: boolean) {
-  const container = document.querySelector('[data-kimi-list]')
-  if (!container) return
-  container.querySelectorAll<HTMLDetailsElement>('details').forEach(el => { el.open = open })
+  if (!summaryFaqs.value) return
+  for (let i = 0; i < summaryFaqs.value.length; i++) {
+    kimiOpenMap.value[i] = open
+  }
 }
 
-// QA panel navigation
 const wideScrollRef = ref<HTMLElement | null>(null)
 const narrowScrollRef = ref<HTMLElement | null>(null)
 
 const qaNavEntries = computed(() => {
   const entries: Array<{ key: string; title: string }> = []
-  // Template entries first, but only those with results
   for (const tmpl of qaStore.templates) {
     const data = qaStore.qaData.template[tmpl.name]
     if (data && data.results.length > 0) {
       entries.push({ key: 'tmpl-' + tmpl.name, title: tmpl.prompt })
     }
   }
-  // Then all free entries
   for (const entry of qaStore.qaData.free) {
     entries.push({ key: 'free-' + entry.entry_id, title: entry.prompt || '自由提问' })
   }
   return entries
 })
 
-// Edit mode
 const editing = ref(false)
 const saving = ref(false)
 const editForm = ref({ title: '', authors: '', link: '', content: '' })
@@ -216,14 +230,11 @@ async function saveEdit() {
   }
 }
 
-// Delete
 const showDeleteDialog = ref(false)
 const deleteConfirmId = ref('')
 const deleting = ref(false)
 
-const deleteIdMatch = computed(() => {
-  return deleteConfirmId.value === String(store.currentPaper?.id)
-})
+const deleteIdMatch = computed(() => deleteConfirmId.value === String(store.currentPaper?.id))
 
 async function confirmDelete() {
   if (!deleteIdMatch.value) return
@@ -239,28 +250,27 @@ async function confirmDelete() {
 
 <template>
   <div class="h-screen flex flex-col overflow-hidden">
-    <!-- Embed: compact header with title + refresh -->
-    <div v-if="isEmbed" class="flex h-6 items-center gap-1 border-b border-gray-200 px-2 shrink-0">
+    <!-- Embed: compact header -->
+    <div v-if="isEmbed" class="flex h-6 items-center gap-1 border-b px-2 shrink-0">
       <div class="min-w-0 flex-1">
-        <h1 class="text-[11px] font-medium text-gray-500 truncate">{{ store.currentPaper?.title || '' }}</h1>
+        <h1 class="text-[11px] font-medium text-muted-foreground truncate">{{ store.currentPaper?.title || '' }}</h1>
       </div>
-      <button @click="reloadPage" class="shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition" title="刷新页面">
-        <RefreshCw class="h-3 w-3" />
-      </button>
+      <Button variant="ghost" size="icon-xs" title="刷新页面" @click="reloadPage">
+        <RefreshCw />
+      </Button>
     </div>
     <!-- Normal header -->
-    <div v-else class="flex h-12 items-center gap-3 border-b border-gray-200 bg-white px-4 shrink-0">
-      <button @click="router.push('/')" class="rounded-md p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
-        <ArrowLeft class="h-4 w-4" />
-      </button>
+    <div v-else class="flex h-12 items-center gap-3 border-b bg-background px-4 shrink-0">
+      <Button variant="ghost" size="icon-sm" @click="router.push('/')">
+        <ArrowLeft />
+      </Button>
       <div class="min-w-0 flex-1">
-        <h1 class="text-sm font-semibold text-gray-900 truncate">{{ store.currentPaper?.title || '加载中...' }}</h1>
+        <h1 class="text-sm font-semibold truncate">{{ store.currentPaper?.title || '加载中...' }}</h1>
       </div>
     </div>
 
     <!-- Wide screen: split view -->
     <div v-if="showSplitView" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging }">
-      <!-- Left: Viewer panel + floating input overlay -->
       <div
         :style="{ width: collapsed ? '0%' : leftWidth + '%' }"
         class="shrink-0 overflow-hidden relative"
@@ -272,327 +282,338 @@ async function confirmDelete() {
         </div>
       </div>
 
-      <!-- Divider -->
       <div
+        class="shrink-0 relative flex items-center justify-center touch-none group bg-border transition-colors"
+        :class="[
+          collapsed ? 'cursor-default' : 'cursor-col-resize',
+          dragging ? 'bg-ring' : 'hover:bg-ring/60',
+        ]"
+        :style="{ width: '2px' }"
         @pointerdown.prevent="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
-        class="shrink-0 relative flex items-center justify-center touch-none group"
-        :class="[
-          collapsed ? 'cursor-default' : 'cursor-col-resize',
-          dragging ? 'bg-indigo-500' : 'bg-gray-300 hover:bg-indigo-400',
-          'transition-colors'
-        ]"
-        :style="{ width: '2px' }"
       >
-        <!-- Invisible hit area for easier grabbing -->
         <div class="absolute inset-y-0 -left-[5px] -right-[5px]"></div>
-        <!-- Collapse/expand toggle button -->
-        <button
+        <Button
+          variant="outline" size="icon-sm"
+          class="absolute z-10 rounded-full opacity-0 group-hover:opacity-100"
           @pointerdown.stop
           @click.stop="toggleCollapse"
-          class="absolute z-10 flex items-center justify-center w-6 h-6 rounded-full bg-white border border-gray-200 shadow text-gray-400 hover:text-indigo-600 hover:border-indigo-300 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
         >
-          <PanelLeftOpen v-if="collapsed" class="h-3.5 w-3.5" />
-          <PanelLeftClose v-else class="h-3.5 w-3.5" />
-        </button>
+          <PanelLeftOpen v-if="collapsed" />
+          <PanelLeftClose v-else />
+        </Button>
       </div>
 
-      <!-- Right: Info + QA + floating input -->
       <div ref="wideScrollRef" class="flex-1 overflow-y-auto relative">
         <div v-if="store.loading" class="flex items-center justify-center h-full">
-          <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
+          <Loader2 class="h-5 w-5 animate-spin text-primary" />
         </div>
         <div v-else-if="store.currentPaper" class="p-5 space-y-5 pb-40">
-          <!-- Paper info -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5">
-            <!-- Edit mode -->
+          <Card class="p-5">
             <template v-if="editing">
               <div class="space-y-3">
-                <div>
-                  <label class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1 block">标题</label>
-                  <input v-model="editForm.title" :disabled="isArxiv" :class="['w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100', isArxiv ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : '']" />
+                <div class="space-y-1.5">
+                  <Label>标题</Label>
+                  <Input v-model="editForm.title" :disabled="isArxiv" />
                 </div>
-                <div>
-                  <label class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1 block">作者 (逗号分隔)</label>
-                  <input v-model="editForm.authors" :disabled="isArxiv" :class="['w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100', isArxiv ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : '']" />
+                <div class="space-y-1.5">
+                  <Label>作者 (逗号分隔)</Label>
+                  <Input v-model="editForm.authors" :disabled="isArxiv" />
                 </div>
-                <div>
-                  <label class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1 block">来源链接</label>
-                  <input v-model="editForm.link" placeholder="https://..." class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
+                <div class="space-y-1.5">
+                  <Label>来源链接</Label>
+                  <Input v-model="editForm.link" placeholder="https://..." />
                 </div>
-                <div>
-                  <label class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1 block">内容 (User Input)</label>
-                  <textarea v-model="editForm.content" rows="10" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 resize-y font-mono" placeholder="输入论文内容..."></textarea>
+                <div class="space-y-1.5">
+                  <Label>内容 (User Input)</Label>
+                  <Textarea v-model="editForm.content" rows="10" placeholder="输入论文内容..." class="font-mono resize-y" />
                 </div>
-                <div class="flex justify-end gap-2 pt-1">
-                  <button @click="cancelEdit" class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 transition">
-                    <X class="h-3.5 w-3.5" /> 取消
-                  </button>
-                  <button @click="saveEdit" :disabled="saving" class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
-                    <Save class="h-3.5 w-3.5" /> {{ saving ? '保存中...' : '保存' }}
-                  </button>
+                <div class="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" @click="cancelEdit">
+                    <X />取消
+                  </Button>
+                  <Button size="sm" :disabled="saving" @click="saveEdit">
+                    <Save />{{ saving ? '保存中...' : '保存' }}
+                  </Button>
                 </div>
               </div>
             </template>
-            <!-- View mode -->
             <template v-else>
-              <div class="flex items-start justify-between gap-3 mb-3">
-                <h2 class="text-lg font-semibold text-gray-900 leading-snug">{{ store.currentPaper.title }}</h2>
+              <div class="flex items-start justify-between gap-3">
+                <h2 class="text-lg font-semibold leading-snug">{{ store.currentPaper.title }}</h2>
                 <div class="flex items-center gap-1 shrink-0">
-                  <button @click="enterEditMode" class="rounded-md p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="编辑">
-                    <Pencil class="h-3.5 w-3.5" />
-                  </button>
-                  <button @click="showDeleteDialog = true; deleteConfirmId = ''" class="rounded-md p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 transition" title="删除">
-                    <Trash2 class="h-3.5 w-3.5" />
-                  </button>
+                  <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">
+                    <Pencil />
+                  </Button>
+                  <Button variant="ghost" size="icon-sm" title="删除" class="hover:text-destructive" @click="showDeleteDialog = true; deleteConfirmId = ''">
+                    <Trash2 />
+                  </Button>
                 </div>
               </div>
-              <div class="flex flex-wrap gap-1.5 mb-4">
+              <div class="flex flex-wrap gap-1.5">
                 <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
-                <span v-if="store.currentPaper.corpus_id" class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
-                  Corpus: {{ store.currentPaper.corpus_id }}
-                </span>
-                <span class="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-0.5 text-xs text-gray-500 ring-1 ring-inset ring-gray-200">
-                  <Calendar class="h-3 w-3" /> {{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
-                </span>
+                <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
+                <Badge variant="outline" class="gap-1">
+                  <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
+                </Badge>
               </div>
-              <div v-if="store.currentPaper.authors?.length" class="mb-4">
-                <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2"><Users class="h-3 w-3" /> 作者</div>
+              <div v-if="store.currentPaper.authors?.length" class="space-y-2">
+                <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <Users class="h-3 w-3" /> 作者
+                </div>
                 <div class="flex flex-wrap gap-1">
-                  <span v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{{ a }}</span>
+                  <Badge v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" variant="secondary">{{ a }}</Badge>
                 </div>
               </div>
-              <div class="mb-4">
-                <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+              <div class="space-y-2">
+                <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   <Tag class="h-3 w-3" /> 标签
-                  <button v-if="!isEditingTags" @click="startEditTags" class="ml-auto rounded p-0.5 text-gray-300 hover:text-gray-500 transition"><Pencil class="h-3 w-3" /></button>
+                  <Button v-if="!isEditingTags" variant="ghost" size="icon-xs" class="ml-auto" @click="startEditTags">
+                    <Pencil />
+                  </Button>
                 </div>
                 <template v-if="isEditingTags">
                   <TagSelector v-model="editingTags" />
-                  <div class="flex gap-2 mt-2">
-                    <button @click="saveTags" :disabled="savingTags" class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
+                  <div class="flex gap-2">
+                    <Button size="sm" :disabled="savingTags" @click="saveTags">
                       {{ savingTags ? '保存中...' : '保存' }}
-                    </button>
-                    <button @click="cancelEditTags" class="rounded-md px-3 py-1 text-xs text-gray-500 hover:bg-gray-100 transition">取消</button>
+                    </Button>
+                    <Button variant="ghost" size="sm" @click="cancelEditTags">取消</Button>
                   </div>
                 </template>
                 <template v-else>
                   <div v-if="(store.currentPaper as any).tags?.length" class="flex flex-wrap gap-1">
                     <TagBadge v-for="t in (store.currentPaper as any).tags" :key="t.id || t" :tag-id="t.id || 0" :tag-name="t.name || t" clickable @click="navigateToTagFilter(t.id)" />
                   </div>
-                  <button v-else @click="startEditTags" class="text-xs text-gray-400 hover:text-indigo-500 transition">+ 添加标签</button>
+                  <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
                 </template>
               </div>
-              <div v-if="store.currentPaper.abstract">
-                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">摘要</div>
-                <p class="text-sm text-gray-600 leading-relaxed">{{ store.currentPaper.abstract }}</p>
+              <div v-if="store.currentPaper.abstract" class="space-y-2">
+                <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
+                <p class="text-sm text-muted-foreground leading-relaxed">{{ store.currentPaper.abstract }}</p>
+              </div>
+              <div v-if="s2meta" class="space-y-2">
+                <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Semantic Scholar</div>
+                <div class="flex flex-wrap gap-1.5">
+                  <Badge v-if="s2meta.citationCount !== undefined" variant="secondary">引用 {{ s2meta.citationCount }}</Badge>
+                  <Badge v-if="s2meta.influentialCount !== undefined" variant="outline">influential {{ s2meta.influentialCount }}</Badge>
+                </div>
+                <p v-if="s2meta.tldr" class="text-sm text-muted-foreground leading-relaxed"><span class="font-medium text-foreground">TL;DR </span>{{ s2meta.tldr }}</p>
               </div>
             </template>
-          </div>
-          <!-- Kimi summary from papers.cool -->
-          <div v-if="summaryFaqs" class="rounded-xl border border-gray-200 bg-white">
-            <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+          </Card>
+
+          <Card v-if="summaryFaqs" class="overflow-hidden gap-0 py-0">
+            <div class="flex items-center justify-between border-b px-5 py-3">
               <div class="flex items-center gap-2">
-                <h3 class="text-sm font-semibold text-gray-900">Kimi 自动摘要</h3>
+                <h3 class="text-sm font-semibold">Kimi 自动摘要</h3>
                 <a v-if="papersCoolUrl" :href="papersCoolUrl" target="_blank" rel="noopener noreferrer"
-                  class="inline-flex items-center gap-0.5 text-xs text-indigo-500 hover:text-indigo-700 transition-colors">
+                  class="inline-flex items-center gap-0.5 text-xs text-primary hover:underline">
                   (papers.cool) <ExternalLink class="h-2.5 w-2.5" />
                 </a>
               </div>
               <div class="flex items-center gap-1.5">
-                <button @click="setAllKimiOpen(true)" title="全部展开"
-                  class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
-                  <ChevronsUpDown class="h-3.5 w-3.5" />
-                </button>
-                <button @click="setAllKimiOpen(false)" title="全部折叠"
-                  class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
-                  <ChevronsDownUp class="h-3.5 w-3.5" />
-                </button>
+                <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllKimiOpen(true)">
+                  <ChevronsUpDown />
+                </Button>
+                <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllKimiOpen(false)">
+                  <ChevronsDownUp />
+                </Button>
               </div>
             </div>
-            <div class="divide-y divide-gray-50" data-kimi-list>
-              <details v-for="(faq, i) in summaryFaqs" :key="i" class="group">
-                <summary class="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors list-none [&::-webkit-details-marker]:hidden">
-                  <span class="text-xs text-indigo-500 font-semibold shrink-0">Q{{ i + 1 }}</span>
+            <div class="divide-y">
+              <Collapsible
+                v-for="(faq, i) in summaryFaqs" :key="i"
+                :open="kimiOpenMap[i] || false"
+                @update:open="(v: boolean) => kimiOpenMap[i] = v"
+              >
+                <CollapsibleTrigger class="flex w-full items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/40 transition-colors text-left">
+                  <span class="text-xs font-semibold shrink-0 text-muted-foreground">Q{{ i + 1 }}</span>
                   <div class="flex-1 min-w-0">
-                    <span class="text-sm font-semibold text-gray-800">{{ faq.question }}</span>
+                    <span class="text-sm font-semibold">{{ faq.question }}</span>
                   </div>
-                </summary>
-                <div class="px-5 pb-4 pt-1">
-                  <MarkdownContent :content="faq.answer" class="text-sm text-gray-600" />
-                </div>
-              </details>
+                </CollapsibleTrigger>
+                <CollapsibleContent class="px-5 pb-4 pt-1">
+                  <MarkdownContent :content="faq.answer" class="text-sm" />
+                </CollapsibleContent>
+              </Collapsible>
             </div>
-          </div>
+          </Card>
+
+          <PaperCitations :paper-id="paperId" />
+
           <QAList :paper-id="paperId" />
         </div>
         <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="wideScrollRef" :paper-id="paperId" />
       </div>
     </div>
 
-    <!-- Narrow screen: single column -->
+    <!-- Narrow screen -->
     <div v-else ref="narrowScrollRef" class="flex-1 overflow-y-auto relative">
       <div v-if="store.loading" class="flex items-center justify-center py-20">
-        <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
+        <Loader2 class="h-5 w-5 animate-spin text-primary" />
       </div>
       <div v-else-if="store.currentPaper" :class="isEmbed ? 'p-1.5 space-y-1.5' : 'p-5 space-y-5 max-w-3xl mx-auto pb-40'">
-        <!-- Paper info -->
-        <div :class="['rounded-xl border border-gray-200 bg-white', isEmbed ? 'p-3' : 'p-5']">
-          <!-- Edit mode -->
+        <Card :class="isEmbed ? 'p-3' : 'p-5'">
           <template v-if="editing">
             <div class="space-y-3">
-              <div>
-                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1 block">标题</label>
-                <input v-model="editForm.title" :disabled="isArxiv" :class="['w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100', isArxiv ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : '']" />
+              <div class="space-y-1.5">
+                <Label>标题</Label>
+                <Input v-model="editForm.title" :disabled="isArxiv" />
               </div>
-              <div>
-                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1 block">作者 (逗号分隔)</label>
-                <input v-model="editForm.authors" :disabled="isArxiv" :class="['w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100', isArxiv ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : '']" />
+              <div class="space-y-1.5">
+                <Label>作者 (逗号分隔)</Label>
+                <Input v-model="editForm.authors" :disabled="isArxiv" />
               </div>
-              <div>
-                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1 block">来源链接</label>
-                <input v-model="editForm.link" placeholder="https://..." class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
+              <div class="space-y-1.5">
+                <Label>来源链接</Label>
+                <Input v-model="editForm.link" placeholder="https://..." />
               </div>
-              <div>
-                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1 block">内容 (User Input)</label>
-                <textarea v-model="editForm.content" rows="10" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 resize-y font-mono" placeholder="输入论文内容..."></textarea>
+              <div class="space-y-1.5">
+                <Label>内容 (User Input)</Label>
+                <Textarea v-model="editForm.content" rows="10" placeholder="输入论文内容..." class="font-mono resize-y" />
               </div>
-              <div class="flex justify-end gap-2 pt-1">
-                <button @click="cancelEdit" class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 transition">
-                  <X class="h-3.5 w-3.5" /> 取消
-                </button>
-                <button @click="saveEdit" :disabled="saving" class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
-                  <Save class="h-3.5 w-3.5" /> {{ saving ? '保存中...' : '保存' }}
-                </button>
+              <div class="flex justify-end gap-2">
+                <Button variant="outline" size="sm" @click="cancelEdit">
+                  <X />取消
+                </Button>
+                <Button size="sm" :disabled="saving" @click="saveEdit">
+                  <Save />{{ saving ? '保存中...' : '保存' }}
+                </Button>
               </div>
             </div>
           </template>
-          <!-- View mode -->
           <template v-else>
-            <div class="flex items-start justify-between gap-3 mb-3">
-              <h2 :class="[isEmbed ? 'text-sm' : 'text-lg', 'font-semibold text-gray-900 leading-snug']">{{ store.currentPaper.title }}</h2>
+            <div class="flex items-start justify-between gap-3">
+              <h2 :class="[isEmbed ? 'text-sm' : 'text-lg', 'font-semibold leading-snug']">{{ store.currentPaper.title }}</h2>
               <div v-if="!isEmbed" class="flex items-center gap-1 shrink-0">
-                <button @click="enterEditMode" class="rounded-md p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="编辑">
-                  <Pencil class="h-3.5 w-3.5" />
-                </button>
-                <button @click="showDeleteDialog = true; deleteConfirmId = ''" class="rounded-md p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 transition" title="删除">
-                  <Trash2 class="h-3.5 w-3.5" />
-                </button>
+                <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">
+                  <Pencil />
+                </Button>
+                <Button variant="ghost" size="icon-sm" title="删除" class="hover:text-destructive" @click="showDeleteDialog = true; deleteConfirmId = ''">
+                  <Trash2 />
+                </Button>
               </div>
             </div>
-            <div class="flex flex-wrap gap-1.5 mb-4">
+            <div class="flex flex-wrap gap-1.5">
               <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
-              <span v-if="store.currentPaper.corpus_id" class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
-                Corpus: {{ store.currentPaper.corpus_id }}
-              </span>
-              <span class="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-0.5 text-xs text-gray-500 ring-1 ring-inset ring-gray-200">
-                <Calendar class="h-3 w-3" /> {{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
-              </span>
+              <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
+              <Badge variant="outline" class="gap-1">
+                <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
+              </Badge>
             </div>
-            <div v-if="store.currentPaper.authors?.length" class="mb-4">
-              <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2"><Users class="h-3 w-3" /> 作者</div>
+            <div v-if="store.currentPaper.authors?.length" class="space-y-2">
+              <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <Users class="h-3 w-3" /> 作者
+              </div>
               <div class="flex flex-wrap gap-1">
-                <span v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{{ a }}</span>
+                <Badge v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" variant="secondary">{{ a }}</Badge>
               </div>
             </div>
-            <div class="mb-4">
-              <div class="flex items-center gap-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+            <div class="space-y-2">
+              <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 <Tag class="h-3 w-3" /> 标签
-                <button v-if="!isEditingTags" @click="startEditTags" class="ml-auto rounded p-0.5 text-gray-300 hover:text-gray-500 transition"><Pencil class="h-3 w-3" /></button>
+                <Button v-if="!isEditingTags" variant="ghost" size="icon-xs" class="ml-auto" @click="startEditTags">
+                  <Pencil />
+                </Button>
               </div>
               <template v-if="isEditingTags">
                 <TagSelector v-model="editingTags" />
-                <div class="flex gap-2 mt-2">
-                  <button @click="saveTags" :disabled="savingTags" class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
+                <div class="flex gap-2">
+                  <Button size="sm" :disabled="savingTags" @click="saveTags">
                     {{ savingTags ? '保存中...' : '保存' }}
-                  </button>
-                  <button @click="cancelEditTags" class="rounded-md px-3 py-1 text-xs text-gray-500 hover:bg-gray-100 transition">取消</button>
+                  </Button>
+                  <Button variant="ghost" size="sm" @click="cancelEditTags">取消</Button>
                 </div>
               </template>
               <template v-else>
                 <div v-if="(store.currentPaper as any).tags?.length" class="flex flex-wrap gap-1">
                   <TagBadge v-for="t in (store.currentPaper as any).tags" :key="t.id || t" :tag-id="t.id || 0" :tag-name="t.name || t" clickable @click="navigateToTagFilter(t.id)" />
                 </div>
-                <button v-else @click="startEditTags" class="text-xs text-gray-400 hover:text-indigo-500 transition">+ 添加标签</button>
+                <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
               </template>
             </div>
-            <div v-if="store.currentPaper.abstract">
-              <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">摘要</div>
-              <p class="text-sm text-gray-600 leading-relaxed">{{ store.currentPaper.abstract }}</p>
+            <div v-if="store.currentPaper.abstract" class="space-y-2">
+              <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
+              <p class="text-sm text-muted-foreground leading-relaxed">{{ store.currentPaper.abstract }}</p>
+            </div>
+            <div v-if="s2meta" class="space-y-2">
+              <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Semantic Scholar</div>
+              <div class="flex flex-wrap gap-1.5">
+                <Badge v-if="s2meta.citationCount !== undefined" variant="secondary">引用 {{ s2meta.citationCount }}</Badge>
+                <Badge v-if="s2meta.influentialCount !== undefined" variant="outline">influential {{ s2meta.influentialCount }}</Badge>
+              </div>
+              <p v-if="s2meta.tldr" class="text-sm text-muted-foreground leading-relaxed"><span class="font-medium text-foreground">TL;DR </span>{{ s2meta.tldr }}</p>
             </div>
           </template>
-        </div>
-        <!-- Kimi summary from papers.cool -->
-        <div v-if="summaryFaqs" class="rounded-xl border border-gray-200 bg-white">
-          <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+        </Card>
+
+        <Card v-if="summaryFaqs" class="overflow-hidden gap-0 py-0">
+          <div class="flex items-center justify-between border-b px-5 py-3">
             <div class="flex items-center gap-2">
-              <h3 class="text-sm font-semibold text-gray-900">Kimi 自动摘要</h3>
+              <h3 class="text-sm font-semibold">Kimi 自动摘要</h3>
               <a v-if="papersCoolUrl" :href="papersCoolUrl" target="_blank" rel="noopener noreferrer"
-                class="inline-flex items-center gap-0.5 text-xs text-indigo-500 hover:text-indigo-700 transition-colors">
+                class="inline-flex items-center gap-0.5 text-xs text-primary hover:underline">
                 (papers.cool) <ExternalLink class="h-2.5 w-2.5" />
               </a>
             </div>
             <div class="flex items-center gap-1.5">
-              <button @click="setAllKimiOpen(true)" title="全部展开"
-                class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
-                <ChevronsUpDown class="h-3.5 w-3.5" />
-              </button>
-              <button @click="setAllKimiOpen(false)" title="全部折叠"
-                class="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
-                <ChevronsDownUp class="h-3.5 w-3.5" />
-              </button>
+              <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllKimiOpen(true)">
+                <ChevronsUpDown />
+              </Button>
+              <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllKimiOpen(false)">
+                <ChevronsDownUp />
+              </Button>
             </div>
           </div>
-          <div class="divide-y divide-gray-50" data-kimi-list>
-            <details v-for="(faq, i) in summaryFaqs" :key="i" class="group">
-              <summary class="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors list-none [&::-webkit-details-marker]:hidden">
-                <span class="text-xs text-indigo-500 font-semibold shrink-0">Q{{ i + 1 }}</span>
+          <div class="divide-y">
+            <Collapsible
+              v-for="(faq, i) in summaryFaqs" :key="i"
+              :open="kimiOpenMap[i] || false"
+              @update:open="(v: boolean) => kimiOpenMap[i] = v"
+            >
+              <CollapsibleTrigger class="flex w-full items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/40 transition-colors text-left">
+                <span class="text-xs font-semibold shrink-0 text-muted-foreground">Q{{ i + 1 }}</span>
                 <div class="flex-1 min-w-0">
-                  <span class="text-sm font-semibold text-gray-800">{{ faq.question }}</span>
+                  <span class="text-sm font-semibold">{{ faq.question }}</span>
                 </div>
-              </summary>
-              <div class="px-5 pb-4 pt-1">
-                <MarkdownContent :content="faq.answer" class="text-sm text-gray-600" />
-              </div>
-            </details>
+              </CollapsibleTrigger>
+              <CollapsibleContent class="px-5 pb-4 pt-1">
+                <MarkdownContent :content="faq.answer" class="text-sm" />
+              </CollapsibleContent>
+            </Collapsible>
           </div>
-        </div>
+        </Card>
+
+        <PaperCitations :paper-id="paperId" />
+
         <QAList :paper-id="paperId" />
       </div>
       <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="narrowScrollRef" :paper-id="paperId" />
-      <!-- Floating input (sticky at bottom of page) -->
       <QAInput v-if="store.currentPaper" :paper-id="paperId" />
     </div>
-    <!-- Delete confirmation dialog -->
-    <Teleport to="body">
-      <div v-if="showDeleteDialog" class="fixed inset-0 z-50 flex items-center justify-center">
-        <div class="fixed inset-0 bg-black/40 backdrop-blur-sm" @click="showDeleteDialog = false"></div>
-        <div class="relative w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-semibold text-red-600">删除论文</h2>
-            <button @click="showDeleteDialog = false" class="text-gray-400 hover:text-gray-600"><X class="h-5 w-5" /></button>
-          </div>
-          <div class="space-y-3">
-            <p class="text-sm text-gray-600">
-              你确定要删除论文 <span class="font-semibold text-gray-900">"{{ store.currentPaper?.title }}"</span> 吗？
-            </p>
-            <div class="rounded-lg bg-red-50 border border-red-100 p-3">
-              <p class="text-xs text-red-700">此操作不可撤销。该论文下的所有 Q&A 条目、回答结果、服务执行记录、标签关联和高亮标注都将被永久删除。</p>
-            </div>
-            <div>
-              <label class="text-sm text-gray-600 block mb-1.5">请输入论文内部 ID <span class="font-mono font-semibold text-gray-900">{{ store.currentPaper?.id }}</span> 以确认删除：</label>
-              <input v-model="deleteConfirmId" placeholder="输入论文 ID" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-100" />
-            </div>
-          </div>
-          <div class="flex justify-end gap-2 mt-5">
-            <button @click="showDeleteDialog = false" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">取消</button>
-            <button @click="confirmDelete" :disabled="!deleteIdMatch || deleting" class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 transition">
-              {{ deleting ? '删除中...' : '确认删除' }}
-            </button>
-          </div>
+
+    <Dialog v-model:open="showDeleteDialog">
+      <DialogContent class="max-w-md">
+        <DialogHeader>
+          <DialogTitle class="text-destructive">删除论文</DialogTitle>
+          <DialogDescription>
+            你确定要删除论文 <span class="font-semibold">"{{ store.currentPaper?.title }}"</span> 吗？
+            此操作不可撤销。该论文下的所有 Q&A 条目、回答结果、服务执行记录、标签关联和高亮标注都将被永久删除。
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-1.5">
+          <Label>请输入论文内部 ID <span class="font-mono font-semibold">{{ store.currentPaper?.id }}</span> 以确认删除：</Label>
+          <Input v-model="deleteConfirmId" placeholder="输入论文 ID" class="font-mono" />
         </div>
-      </div>
-    </Teleport>
+        <DialogFooter>
+          <Button variant="ghost" @click="showDeleteDialog = false">取消</Button>
+          <Button variant="destructive" :disabled="!deleteIdMatch || deleting" @click="confirmDelete">
+            {{ deleting ? '删除中...' : '确认删除' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
