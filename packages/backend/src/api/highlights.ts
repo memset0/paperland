@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { touchPaperUpdatedAt, parsePaperIdFromPathname } from '../db/utils.js'
+import { requireUser } from '../auth/guards.js'
 
 export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/highlights?pathname=/papers/42
@@ -10,10 +11,13 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
     if (!pathname) {
       return reply.code(400).send({ error: { message: 'pathname query parameter is required' } })
     }
+    // Owner-scoped: anonymous users get an empty set (HTTP 200, not 401).
+    const userId = request.user?.id
+    if (userId == null) return { data: [] }
 
     const db = getDatabase()
     const rows = db.select().from(schema.highlights)
-      .where(eq(schema.highlights.pathname, pathname))
+      .where(and(eq(schema.highlights.pathname, pathname), eq(schema.highlights.user_id, userId)))
       .all()
 
     return { data: rows }
@@ -28,7 +32,7 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
     text: string
     color: string
     note?: string | null
-  } }>('/api/highlights', async (request, reply) => {
+  } }>('/api/highlights', { preHandler: requireUser }, async (request, reply) => {
     const { pathname, content_hash, start_offset, end_offset, text, color, note } = request.body || {} as any
     if (!pathname || !content_hash || start_offset == null || end_offset == null || !text || !color) {
       return reply.code(400).send({ error: { message: 'Missing required fields' } })
@@ -41,6 +45,7 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
 
     const db = getDatabase()
     const result = db.insert(schema.highlights).values({
+      user_id: request.user!.id,
       pathname,
       content_hash,
       start_offset,
@@ -59,7 +64,7 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
 
   // PUT /api/highlights/:id
   app.put<{ Params: { id: string }; Body: { color?: string; note?: string | null } }>(
-    '/api/highlights/:id', async (request, reply) => {
+    '/api/highlights/:id', { preHandler: requireUser }, async (request, reply) => {
       const id = parseInt(request.params.id, 10)
       const { color, note } = request.body || {} as any
 
@@ -68,7 +73,8 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
         .where(eq(schema.highlights.id, id))
         .get()
 
-      if (!existing) {
+      // Treat another user's highlight as not found.
+      if (!existing || existing.user_id !== request.user!.id) {
         return reply.code(404).send({ error: { message: 'Highlight not found' } })
       }
 
@@ -101,7 +107,7 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
   )
 
   // DELETE /api/highlights/:id
-  app.delete<{ Params: { id: string } }>('/api/highlights/:id', async (request, reply) => {
+  app.delete<{ Params: { id: string } }>('/api/highlights/:id', { preHandler: requireUser }, async (request, reply) => {
     const id = parseInt(request.params.id, 10)
 
     const db = getDatabase()
@@ -109,7 +115,8 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
       .where(eq(schema.highlights.id, id))
       .get()
 
-    if (!existing) {
+    // Treat another user's highlight as not found.
+    if (!existing || existing.user_id !== request.user!.id) {
       return reply.code(404).send({ error: { message: 'Highlight not found' } })
     }
 

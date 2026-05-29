@@ -4,13 +4,17 @@ import MarkdownIt from 'markdown-it'
 import mk from '@traptitech/markdown-it-katex'
 import SparkMD5 from 'spark-md5'
 import 'katex/dist/katex.min.css'
+import { toast } from 'vue-sonner'
+import { StickyNote, Trash2, Save } from '@lucide/vue'
 import { useHighlightStore } from '@/stores/highlights'
+import { useAuthStore } from '@/stores/auth'
 import { applyHighlights, clearHighlights, getSelectionOffsets } from '@/composables/useHighlight'
 import type { HighlightColor } from '@paperland/shared'
 
 const props = defineProps<{ content: string; highlightPathname?: string }>()
 
 const highlightStore = useHighlightStore()
+const auth = useAuthStore()
 const containerRef = ref<HTMLElement | null>(null)
 
 // Touch device detection (same approach as QAPanelNav.vue)
@@ -95,6 +99,9 @@ function onSelectionChange() {
 function handleSelectionSettled() {
   const el = containerRef.value
   if (!el) return
+
+  // Highlighting is a logged-in feature; never show the toolbar for anonymous users.
+  if (!auth.isAuthenticated) return
 
   const selection = window.getSelection()
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
@@ -263,28 +270,19 @@ async function menuDelete() {
 
 // ---- KaTeX Copy ----
 
-const showToast = ref(false)
-let toastTimer: ReturnType<typeof setTimeout> | null = null
-
 function onKatexClick(e: MouseEvent | Event) {
   const target = e.target as Element
-  // Find the closest .katex element (covers both inline and display math)
   const katexEl = target.closest('.katex')
   if (!katexEl) return
 
-  // Don't copy if user is selecting text (highlight flow)
   const selection = window.getSelection()
   if (selection && !selection.isCollapsed) return
 
-  // Extract LaTeX source from the <annotation> element KaTeX generates
   const annotation = katexEl.querySelector('annotation[encoding="application/x-tex"]')
   if (!annotation?.textContent) return
 
-  const latex = annotation.textContent
-  navigator.clipboard.writeText(latex).then(() => {
-    if (toastTimer) clearTimeout(toastTimer)
-    showToast.value = true
-    toastTimer = setTimeout(() => { showToast.value = false }, 2000)
+  navigator.clipboard.writeText(annotation.textContent).then(() => {
+    toast.success('LaTeX 已复制到剪贴板', { position: 'bottom-center' })
   })
 }
 
@@ -306,7 +304,7 @@ function onDocumentDismiss(e: MouseEvent | TouchEvent) {
 }
 
 const COLORS: HighlightColor[] = ['yellow', 'green', 'blue', 'pink']
-const COLOR_LABELS: Record<HighlightColor, string> = { yellow: '黄', green: '绿', blue: '蓝', pink: '粉' }
+const COLOR_LABELS: Record<HighlightColor, string> = { yellow: 'Yellow', green: 'Green', blue: 'Blue', pink: 'Pink' }
 
 // ---- Lifecycle ----
 
@@ -351,13 +349,13 @@ onBeforeUnmount(() => {
           @click.stop="createHighlight(c)"
         />
       </div>
-      <button class="hl-note-toggle" @click.stop="showNoteInput = !showNoteInput" title="添加笔记">
-        📝
+      <button class="hl-note-toggle" @click.stop="showNoteInput = !showNoteInput" title="Add note">
+        <StickyNote class="hl-icon" />
       </button>
       <div v-if="showNoteInput" class="hl-note-input" @click.stop>
         <input
           v-model="noteText"
-          placeholder="添加笔记..."
+          placeholder="Add note..."
           @keydown.enter.stop="createHighlight('yellow')"
         />
       </div>
@@ -389,27 +387,25 @@ onBeforeUnmount(() => {
         />
       </div>
       <div class="hl-menu-actions">
-        <button v-if="!menuEditNote" @click.stop="menuEditNote = true" class="hl-menu-btn">📝 笔记</button>
-        <button @click.stop="menuDelete" class="hl-menu-btn hl-menu-btn-danger">🗑 删除</button>
+        <button v-if="!menuEditNote" @click.stop="menuEditNote = true" class="hl-menu-btn">
+          <StickyNote class="hl-icon" /> Note
+        </button>
+        <button @click.stop="menuDelete" class="hl-menu-btn hl-menu-btn-danger">
+          <Trash2 class="hl-icon" /> Delete
+        </button>
       </div>
       <div v-if="menuEditNote" class="hl-menu-note">
         <input
           v-model="menuNoteText"
-          placeholder="添加笔记..."
+          placeholder="Add note..."
           @keydown.enter.stop="menuSaveNote"
         />
-        <button @click.stop="menuSaveNote" class="hl-menu-btn">保存</button>
+        <button @click.stop="menuSaveNote" class="hl-menu-btn">
+          <Save class="hl-icon" /> Save
+        </button>
       </div>
     </div>
 
-    <!-- Toast -->
-    <Teleport to="body">
-      <Transition name="toast-fade">
-        <div v-if="showToast" class="katex-copy-toast">
-          LaTeX 已复制到剪贴板
-        </div>
-      </Transition>
-    </Teleport>
   </div>
 </template>
 
@@ -443,7 +439,7 @@ onBeforeUnmount(() => {
 }
 .markdown-content :deep(th) { background: #f9fafb; font-weight: 600; }
 .markdown-content :deep(strong) { font-weight: 600; }
-.markdown-content :deep(a) { color: #4f46e5; text-decoration: underline; }
+.markdown-content :deep(a) { color: var(--primary); text-decoration: underline; }
 .markdown-content :deep(hr) { border: none; border-top: 1px solid #e5e7eb; margin: 0.75em 0; }
 /* KaTeX display math: center and handle overflow */
 .markdown-content :deep(.katex-display) {
@@ -452,7 +448,7 @@ onBeforeUnmount(() => {
 .markdown-content :deep(.katex-display > .katex) { text-align: center; }
 /* KaTeX click-to-copy cursor & hover */
 .markdown-content :deep(.katex) { cursor: pointer; border-radius: 6px; transition: background-color 0.15s; padding: 1px 3px; }
-.markdown-content :deep(.katex:hover) { background-color: rgba(99, 102, 241, 0.08); }
+.markdown-content :deep(.katex:hover) { background-color: color-mix(in oklch, var(--primary) 12%, transparent); }
 
 /* --- Highlight colors --- */
 .markdown-content :deep(.hl-yellow) { background-color: rgba(250, 204, 21, 0.35); border-radius: 2px; cursor: pointer; }
@@ -460,11 +456,17 @@ onBeforeUnmount(() => {
 .markdown-content :deep(.hl-blue) { background-color: rgba(96, 165, 250, 0.35); border-radius: 2px; cursor: pointer; }
 .markdown-content :deep(.hl-pink) { background-color: rgba(244, 114, 182, 0.35); border-radius: 2px; cursor: pointer; }
 
+/* --- Shared icon size for buttons in toolbar / menu --- */
+.hl-icon {
+  width: 14px; height: 14px; display: inline-block; vertical-align: -2px;
+}
+
 /* --- Toolbar --- */
 .hl-toolbar {
   position: absolute; z-index: 50; transform: translateX(-50%);
   display: flex; align-items: center; gap: 4px;
-  background: white; border: 1px solid #e5e7eb; border-radius: 8px;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: calc(var(--radius) + 2px);
   padding: 4px 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   flex-wrap: wrap; user-select: none; -webkit-user-select: none;
 }
@@ -473,72 +475,66 @@ onBeforeUnmount(() => {
   width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent;
   cursor: pointer; transition: transform 0.1s;
 }
-.hl-color-btn:hover { transform: scale(1.2); border-color: #6b7280; }
+.hl-color-btn:hover { transform: scale(1.2); border-color: var(--muted-foreground); }
 .hl-btn-yellow { background: rgba(250, 204, 21, 0.7); }
 .hl-btn-green { background: rgba(74, 222, 128, 0.7); }
 .hl-btn-blue { background: rgba(96, 165, 250, 0.7); }
 .hl-btn-pink { background: rgba(244, 114, 182, 0.7); }
 .hl-note-toggle {
-  background: none; border: none; cursor: pointer; font-size: 14px;
-  padding: 2px 4px; border-radius: 4px;
+  background: none; border: none; cursor: pointer;
+  color: var(--popover-foreground);
+  padding: 4px; border-radius: var(--radius-sm);
+  display: inline-flex; align-items: center; justify-content: center;
 }
-.hl-note-toggle:hover { background: #f3f4f6; }
+.hl-note-toggle:hover { background: var(--accent); color: var(--accent-foreground); }
 .hl-note-input {
   width: 100%; margin-top: 4px;
 }
 .hl-note-input input {
   width: 100%; padding: 4px 8px; font-size: 12px;
-  border: 1px solid #d1d5db; border-radius: 4px; outline: none;
+  background: var(--background); color: var(--foreground);
+  border: 1px solid var(--input); border-radius: var(--radius-sm); outline: none;
 }
-.hl-note-input input:focus { border-color: #6366f1; }
+.hl-note-input input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent); }
 
 /* --- Tooltip --- */
 .hl-tooltip {
   position: absolute; z-index: 50; transform: translateX(-50%) translateY(-100%);
-  background: #1f2937; color: white; font-size: 12px; line-height: 1.4;
-  padding: 4px 8px; border-radius: 4px; max-width: 250px;
+  background: var(--primary); color: var(--primary-foreground);
+  font-size: 12px; line-height: 1.4;
+  padding: 4px 8px; border-radius: var(--radius-sm); max-width: 250px;
   pointer-events: none; white-space: pre-wrap;
 }
 .hl-tooltip::after {
   content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-  border: 4px solid transparent; border-top-color: #1f2937;
+  border: 4px solid transparent; border-top-color: var(--primary);
 }
 
 /* --- Click Menu --- */
 .hl-menu {
   position: absolute; z-index: 50; transform: translateX(-50%);
-  background: white; border: 1px solid #e5e7eb; border-radius: 8px;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: calc(var(--radius) + 2px);
   padding: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   min-width: 160px; user-select: none; -webkit-user-select: none;
 }
 .hl-menu-colors { display: flex; gap: 4px; margin-bottom: 6px; justify-content: center; }
 .hl-menu-actions { display: flex; gap: 4px; }
 .hl-menu-btn {
-  flex: 1; padding: 4px 8px; font-size: 12px; border: 1px solid #e5e7eb;
-  border-radius: 4px; background: white; cursor: pointer;
+  flex: 1; padding: 4px 8px; font-size: 12px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  background: var(--background); color: var(--foreground);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;
 }
-.hl-menu-btn:hover { background: #f3f4f6; }
-.hl-menu-btn-danger { color: #ef4444; }
-.hl-menu-btn-danger:hover { background: #fef2f2; }
+.hl-menu-btn:hover { background: var(--accent); color: var(--accent-foreground); }
+.hl-menu-btn-danger { color: var(--destructive); }
+.hl-menu-btn-danger:hover { background: color-mix(in oklch, var(--destructive) 12%, transparent); color: var(--destructive); }
 .hl-menu-note { margin-top: 6px; display: flex; gap: 4px; }
 .hl-menu-note input {
   flex: 1; padding: 4px 8px; font-size: 12px;
-  border: 1px solid #d1d5db; border-radius: 4px; outline: none;
+  background: var(--background); color: var(--foreground);
+  border: 1px solid var(--input); border-radius: var(--radius-sm); outline: none;
 }
-.hl-menu-note input:focus { border-color: #6366f1; }
+.hl-menu-note input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent); }
 </style>
 
-<style>
-/* Toast — teleported to body, must be global */
-.katex-copy-toast {
-  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-  background: #1f2937; color: white; font-size: 14px;
-  padding: 8px 20px; border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  z-index: 9999; pointer-events: none;
-}
-.toast-fade-enter-active { transition: opacity 0.2s, transform 0.2s; }
-.toast-fade-leave-active { transition: opacity 0.3s, transform 0.3s; }
-.toast-fade-enter-from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-.toast-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
-</style>

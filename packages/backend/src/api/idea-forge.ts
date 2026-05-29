@@ -12,6 +12,7 @@ import {
   listDirs, getDirCreatedAt, sanitizeDirName, ensureProjectDirs,
 } from '../idea-forge/utils.js'
 import { parseIdeaReadme, serializeIdeaReadme } from '../idea-forge/frontmatter.js'
+import { requireUser } from '../auth/guards.js'
 
 /** Read the AGENTS.md template from demo-project if it exists */
 function getAgentsMdTemplate(): string | null {
@@ -108,6 +109,8 @@ function resolvePaperContent(contents: Record<string, string | null> | null): st
 }
 
 export async function ideaForgeRoutes(app: FastifyInstance): Promise<void> {
+  // Idea Forge requires login (shared among authenticated users; not per-user isolated).
+  app.addHook('preHandler', requireUser)
 
   // ── Project endpoints ──
 

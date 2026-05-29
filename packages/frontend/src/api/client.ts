@@ -1,4 +1,4 @@
-import { dispatchApiError } from '@/lib/error-bus'
+import { dispatchApiError, dispatchUnauthorized } from '@/lib/error-bus'
 
 const BASE_URL = ''
 
@@ -7,6 +7,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${BASE_URL}${url}`, {
       ...options,
+      credentials: 'same-origin',
       headers: {
         ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
         ...options?.headers,
@@ -20,7 +21,12 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: response.statusText }))
     const message = error.error?.message || error.message || 'Request failed'
-    dispatchApiError(message)
+    // A 401 means the session is missing/expired — prompt login instead of a raw error toast.
+    if (response.status === 401) {
+      dispatchUnauthorized()
+    } else {
+      dispatchApiError(message)
+    }
     throw new Error(message)
   }
 
@@ -60,4 +66,37 @@ export const highlightApi = {
 
   remove: (id: number) =>
     api.delete<{ success: boolean }>(`/api/highlights/${id}`),
+}
+
+// Auth + user management API
+import type { SessionUser, User, UserRole } from '@paperland/shared'
+
+export const authApi = {
+  me: () => api.get<{ user: SessionUser | null }>('/api/auth/me'),
+
+  // Raw fetch so a failed login surfaces inline (no global toast / login-prompt loop).
+  async login(username: string, password: string): Promise<{ user: SessionUser }> {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    })
+    const body = await res.json().catch(() => ({} as any))
+    if (!res.ok) throw new Error(body?.error?.message || '登录失败')
+    return body
+  },
+
+  logout: () => api.post<{ success: boolean }>('/api/auth/logout'),
+
+  updateAccount: (payload: { username?: string; current_password?: string; password?: string }) =>
+    api.patch<{ user: SessionUser }>('/api/auth/me', payload),
+}
+
+export const usersApi = {
+  list: () => api.get<{ data: User[] }>('/api/users'),
+  create: (payload: { username: string; password: string; role: UserRole }) =>
+    api.post<{ data: User }>('/api/users', payload),
+  update: (id: number, payload: { role?: UserRole; password?: string }) =>
+    api.patch<{ data: User }>(`/api/users/${id}`, payload),
 }

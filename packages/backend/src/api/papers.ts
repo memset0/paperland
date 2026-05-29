@@ -3,8 +3,8 @@ import { eq, like, or, desc, asc, inArray, sql, and } from 'drizzle-orm'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { withDedup, getDedupKey } from '../services/paper_dedup.js'
 import { serviceRunner } from '../services/service_runner.js'
-import { randomTagColor } from '../utils/tag-colors.js'
-import { syncPaperTagsJson } from '../utils/tags-json-sync.js'
+import { requireUser } from '../auth/guards.js'
+import { userTagsByPapers, userTagsForPaper, findOrCreateUserTag, findUserTagByName, clearUserPaperTags } from '../utils/user-tags.js'
 
 export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // List papers with pagination and search
@@ -62,8 +62,9 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       const total = allResults.length
       const data = allResults.slice((page - 1) * pageSize, page * pageSize)
 
-      // Parse JSON fields + include tags
-      const parsed = data.map(parsePaper)
+      // Parse JSON fields + attach the current user's tags (none for anonymous)
+      const tagsByPaper = userTagsByPapers(db, data.map(p => p.id), request.user?.id ?? null)
+      const parsed = data.map(p => ({ ...parsePaper(p), tags: tagsByPaper.get(p.id) ?? [] }))
 
       return {
         data: parsed,
@@ -88,16 +89,12 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       return
     }
 
-    // Get tags with full info (id, name, color)
-    const paperTagRows = db.select().from(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).all()
-    const tagIds = paperTagRows.map(pt => pt.tag_id)
-    const tagList = tagIds.length > 0
-      ? db.select().from(schema.tags).all().filter(t => tagIds.includes(t.id))
-      : []
+    // The current user's tags for this paper (none for anonymous)
+    const tags = userTagsForPaper(db, id, request.user?.id ?? null)
 
     return {
       ...parsePaper(paper),
-      tags: tagList.map(t => ({ id: t.id, name: t.name, color: t.color })),
+      tags,
     }
   })
 
@@ -128,6 +125,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // Update paper
   app.patch<{ Params: { id: string }; Body: { title?: string; authors?: string[]; link?: string; content?: string } }>(
     '/api/papers/:id',
+    { preHandler: requireUser },
     async (request, reply) => {
       const db = getDatabase()
       const id = parseInt(request.params.id, 10)
@@ -170,7 +168,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
   )
 
   // Delete paper with cascade
-  app.delete<{ Params: { id: string } }>('/api/papers/:id', async (request, reply) => {
+  app.delete<{ Params: { id: string } }>('/api/papers/:id', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const id = parseInt(request.params.id, 10)
     const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
@@ -210,8 +208,10 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // Create paper
   app.post<{ Body: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; content?: string; link?: string; tags?: string[] } }>(
     '/api/papers',
+    { preHandler: requireUser },
     async (request, reply) => {
       const { arxiv_id, corpus_id, title, authors, content, link, tags: tagNames } = request.body || {}
+      const userId = request.user!.id
 
       if (!title && !arxiv_id && !corpus_id) {
         reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Must provide arxiv_id, corpus_id, or title' } })
@@ -235,7 +235,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
             if (corpus_id && !existing.corpus_id) {
               db.update(schema.papers).set({ corpus_id }).where(eq(schema.papers.id, existing.id)).run()
             }
-            return { ...parsePaper(existing), created: false }
+            return { ...parsePaper(existing), tags: userTagsForPaper(db, existing.id, userId), created: false }
           }
         }
         if (corpus_id) {
@@ -244,7 +244,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
             if (arxiv_id && !existing.arxiv_id) {
               db.update(schema.papers).set({ arxiv_id }).where(eq(schema.papers.id, existing.id)).run()
             }
-            return { ...parsePaper(existing), created: false }
+            return { ...parsePaper(existing), tags: userTagsForPaper(db, existing.id, userId), created: false }
           }
         }
 
@@ -262,16 +262,12 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
           updated_at: now,
         }).returning().get()
 
-        // Handle tags
+        // Handle tags (scoped to the creating user)
         if (tagNames && tagNames.length > 0) {
           for (const tagName of tagNames) {
-            let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-            if (!tag) {
-              tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
-            }
+            const tag = findOrCreateUserTag(db, userId, tagName)
             db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
           }
-          syncPaperTagsJson(paper.id)
         }
 
         // Trigger services in background (non-blocking)
@@ -279,7 +275,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
           console.error(`Failed to trigger services for paper ${paper.id}:`, err)
         })
 
-        return { ...parsePaper(paper), created: true }
+        return { ...parsePaper(paper), tags: userTagsForPaper(db, paper.id, userId), created: true }
       }
 
       // Use dedup if we have an external ID
@@ -290,57 +286,49 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
     }
   )
 
-  // GET /api/papers/:id/tags — get paper's tags with color
+  // GET /api/papers/:id/tags — the current user's tags for this paper (empty for anonymous)
   app.get<{ Params: { id: string } }>('/api/papers/:id/tags', async (request, reply) => {
     const db = getDatabase()
     const id = parseInt(request.params.id, 10)
     const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
     if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${id} not found` } }); return }
 
-    const rows = db.select({ id: schema.tags.id, name: schema.tags.name, color: schema.tags.color })
-      .from(schema.paperTags)
-      .innerJoin(schema.tags, eq(schema.paperTags.tag_id, schema.tags.id))
-      .where(eq(schema.paperTags.paper_id, id))
-      .all()
-    return rows
+    return userTagsForPaper(db, id, request.user?.id ?? null)
   })
 
-  // PUT /api/papers/:id/tags — replace all paper tags
+  // PUT /api/papers/:id/tags — replace the current user's tags for this paper
   app.put<{ Params: { id: string }; Body: { tags: string[] } }>(
     '/api/papers/:id/tags',
+    { preHandler: requireUser },
     async (request, reply) => {
       const db = getDatabase()
       const id = parseInt(request.params.id, 10)
+      const userId = request.user!.id
       const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
       if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${id} not found` } }); return }
 
       const { tags: tagNames } = request.body || {}
 
-      db.delete(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).run()
+      // Only clear THIS user's associations; other users' tags on the paper are untouched.
+      clearUserPaperTags(db, id, userId)
 
       for (const tagName of (tagNames || [])) {
-        let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-        if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
+        const tag = findOrCreateUserTag(db, userId, tagName)
         db.insert(schema.paperTags).values({ paper_id: id, tag_id: tag.id }).run()
       }
 
-      syncPaperTagsJson(id)
-
-      const rows = db.select({ id: schema.tags.id, name: schema.tags.name, color: schema.tags.color })
-        .from(schema.paperTags)
-        .innerJoin(schema.tags, eq(schema.paperTags.tag_id, schema.tags.id))
-        .where(eq(schema.paperTags.paper_id, id))
-        .all()
-      return rows
+      return userTagsForPaper(db, id, userId)
     }
   )
 
-  // PATCH /api/papers/:id/tags — add/remove tags
+  // PATCH /api/papers/:id/tags — add/remove the current user's tags on this paper
   app.patch<{ Params: { id: string }; Body: { add?: string[]; remove?: string[] } }>(
     '/api/papers/:id/tags',
+    { preHandler: requireUser },
     async (request, reply) => {
       const db = getDatabase()
       const id = parseInt(request.params.id, 10)
+      const userId = request.user!.id
       const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
       if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${id} not found` } }); return }
 
@@ -348,7 +336,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
 
       if (remove) {
         for (const tagName of remove) {
-          const tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
+          const tag = findUserTagByName(db, userId, tagName)
           if (tag) {
             db.delete(schema.paperTags)
               .where(and(eq(schema.paperTags.paper_id, id), eq(schema.paperTags.tag_id, tag.id)))
@@ -359,20 +347,12 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
 
       if (add) {
         for (const tagName of add) {
-          let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-          if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
+          const tag = findOrCreateUserTag(db, userId, tagName)
           try { db.insert(schema.paperTags).values({ paper_id: id, tag_id: tag.id }).run() } catch {}
         }
       }
 
-      syncPaperTagsJson(id)
-
-      const rows = db.select({ id: schema.tags.id, name: schema.tags.name, color: schema.tags.color })
-        .from(schema.paperTags)
-        .innerJoin(schema.tags, eq(schema.paperTags.tag_id, schema.tags.id))
-        .where(eq(schema.paperTags.paper_id, id))
-        .all()
-      return rows
+      return userTagsForPaper(db, id, userId)
     }
   )
 }
@@ -383,6 +363,6 @@ function parsePaper(raw: any) {
     authors: typeof raw.authors === 'string' ? JSON.parse(raw.authors) : raw.authors,
     contents: raw.contents ? JSON.parse(raw.contents) : null,
     metadata: raw.metadata ? JSON.parse(raw.metadata) : null,
-    tags: raw.tags_json ? (typeof raw.tags_json === 'string' ? JSON.parse(raw.tags_json) : raw.tags_json) : [],
+    tags: [], // per-user tags are attached by the route handler (papers.tags_json is deprecated)
   }
 }

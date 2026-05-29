@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { resolve, dirname } from 'path'
 import { mkdirSync } from 'fs'
+import { randomBytes } from 'crypto'
 import { getConfig } from '../config.js'
 import * as schema from './schema.js'
 
@@ -51,6 +52,33 @@ export function initDatabase(): ReturnType<typeof drizzle> {
       '[]'
     ) WHERE tags_json IS NULL
   `)
+
+  // ── User auth: seed initial admin + migrate pre-auth data ownership ──
+  // If no users exist yet, create an `admin` with a random password (printed once).
+  const userCount = (_sqlite.query('SELECT COUNT(*) AS c FROM users').get() as { c: number }).c
+  if (userCount === 0) {
+    const password = randomBytes(18).toString('base64url')
+    const password_hash = Bun.password.hashSync(password)
+    _sqlite.query('INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)')
+      .run('admin', password_hash, 'admin', new Date().toISOString())
+    const line = '='.repeat(68)
+    console.log(`\n${line}`)
+    console.log('  Paperland — created initial admin user (shown only once)')
+    console.log('    username: admin')
+    console.log(`    password: ${password}`)
+    console.log('  Log in and change it from the account menu.')
+    console.log(`${line}\n`)
+  }
+
+  // Backfill ownership of pre-auth data to the lowest-id admin.
+  // Idempotent: only rows with NULL user_id are affected (none after the first run).
+  const admin = _sqlite.query("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get() as { id: number } | undefined
+  if (admin) {
+    _sqlite.exec(`UPDATE tags SET user_id = ${admin.id} WHERE user_id IS NULL`)
+    _sqlite.exec(`UPDATE highlights SET user_id = ${admin.id} WHERE user_id IS NULL`)
+    _sqlite.exec(`UPDATE api_tokens SET user_id = ${admin.id} WHERE user_id IS NULL`)
+    _sqlite.exec(`UPDATE qa_entries SET user_id = ${admin.id} WHERE user_id IS NULL AND type = 'free'`)
+  }
 
   return _db
 }

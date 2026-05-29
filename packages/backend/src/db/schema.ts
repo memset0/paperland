@@ -1,4 +1,21 @@
-import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, primaryKey, index, unique } from 'drizzle-orm/sqlite-core'
+
+// User accounts. Website credentials live here (not in config.yml).
+export const users = sqliteTable('users', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  username: text('username').notNull().unique(),
+  password_hash: text('password_hash').notNull(),
+  role: text('role').notNull().default('user'), // 'admin' | 'user'
+  created_at: text('created_at').notNull(),
+})
+
+// Login sessions. `id` is an opaque random token stored in an httpOnly cookie.
+export const sessions = sqliteTable('sessions', {
+  id: text('id').primaryKey(),
+  user_id: integer('user_id').notNull().references(() => users.id),
+  created_at: text('created_at').notNull(),
+  expires_at: text('expires_at').notNull(),
+})
 
 export const papers = sqliteTable('papers', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -18,10 +35,13 @@ export const papers = sqliteTable('papers', {
 
 export const tags = sqliteTable('tags', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  name: text('name').notNull().unique(),
+  user_id: integer('user_id').references(() => users.id), // owner; nullable for migration, app always sets it
+  name: text('name').notNull(),
   color: text('color').notNull().default(''),
   visible: integer('visible').notNull().default(1),
-})
+}, (table) => [
+  unique('tags_user_name_unq').on(table.user_id, table.name),
+])
 
 export const paperTags = sqliteTable('paper_tags', {
   paper_id: integer('paper_id').notNull().references(() => papers.id),
@@ -33,6 +53,7 @@ export const paperTags = sqliteTable('paper_tags', {
 export const qaEntries = sqliteTable('qa_entries', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   paper_id: integer('paper_id').notNull().references(() => papers.id),
+  user_id: integer('user_id').references(() => users.id), // owner for free entries; null for template (public/shared)
   type: text('type').notNull(), // 'template' | 'free'
   template_name: text('template_name'),
   status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'done' | 'failed'
@@ -64,6 +85,7 @@ export const serviceExecutions = sqliteTable('service_executions', {
 
 export const highlights = sqliteTable('highlights', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  user_id: integer('user_id').references(() => users.id), // owner; nullable for migration, app always sets it
   pathname: text('pathname').notNull(),
   content_hash: text('content_hash').notNull(),
   start_offset: integer('start_offset').notNull(),
@@ -77,6 +99,7 @@ export const highlights = sqliteTable('highlights', {
 export const apiTokens = sqliteTable('api_tokens', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   token: text('token').notNull().unique(),
+  user_id: integer('user_id').references(() => users.id), // owning user; nullable for migration
   created_at: text('created_at').notNull(),
   revoked_at: text('revoked_at'),
 })

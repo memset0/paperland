@@ -1,11 +1,14 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import cookie from '@fastify/cookie'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { loadConfig, getConfig } from './config.js'
 import { initDatabase } from './db/index.js'
-import { basicAuth } from './auth/basic_auth.js'
 import { tokenAuth } from './auth/token_auth.js'
+import { resolveSessionUser, getDevAdmin } from './auth/session_auth.js'
+import { authRoutes } from './api/auth.js'
+import { userRoutes } from './api/users.js'
 import { settingsRoutes } from './api/settings.js'
 import { paperRoutes } from './api/papers.js'
 import { serviceRoutes } from './api/services.js'
@@ -30,7 +33,7 @@ async function main() {
   const config = loadConfig()
 
   if (!config.auth.enabled) {
-    console.warn('WARNING: Auth is disabled — all API routes are publicly accessible')
+    console.warn('WARNING: Auth is disabled (dev bypass) — all /api routes are accessible as admin')
   }
 
   // Initialize database
@@ -72,6 +75,8 @@ async function main() {
 
   // CORS
   await app.register(cors, { origin: true, credentials: true })
+  // Cookie support (session login)
+  await app.register(cookie)
 
   // Health check (no auth)
   app.get('/api/health', async () => ({ status: 'ok' }))
@@ -79,22 +84,22 @@ async function main() {
   // External API health check (requires token auth — validates both connectivity and token)
   app.get('/external-api/v1/health', async () => ({ status: 'ok' }))
 
-  // Apply auth hooks
+  // Identity resolution hook. Authorization is enforced per-route via
+  // requireUser / requireAdmin preHandlers; this hook only attaches request.user.
   app.addHook('onRequest', async (request, reply) => {
-    // Skip health check
+    // Health check is always public
     if (request.url === '/api/health') return
 
-    // External API uses token auth
+    // External API uses Bearer token auth (resolves the token's owning user)
     if (request.url.startsWith('/external-api/')) {
       await tokenAuth(request, reply)
       return
     }
 
-    // Internal API uses basic auth (if enabled)
+    // Website API: when auth is enabled, resolve the session user (may be null);
+    // when disabled (dev bypass), act as the admin user.
     if (request.url.startsWith('/api/')) {
-      if (getConfig().auth.enabled) {
-        await basicAuth(request, reply)
-      }
+      request.user = getConfig().auth.enabled ? resolveSessionUser(request) : getDevAdmin()
       return
     }
   })
@@ -113,6 +118,8 @@ async function main() {
   })
 
   // Register routes
+  await app.register(authRoutes)
+  await app.register(userRoutes)
   await app.register(settingsRoutes)
   await app.register(paperRoutes)
   await app.register(serviceRoutes)

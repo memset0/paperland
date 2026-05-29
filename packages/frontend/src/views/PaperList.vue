@@ -1,16 +1,35 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useTagsStore } from '@/stores/tags'
-import { Plus, Search, X, FileText, ChevronLeft, ChevronRight, ArrowUpDown, Tag } from 'lucide-vue-next'
+import { useAuthStore } from '@/stores/auth'
+import { useLoginPrompt } from '@/composables/useLoginPrompt'
+import { Plus, Search, FileText, ChevronLeft, ChevronRight, ArrowUpDown, Tag, Loader2 } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
+import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
 import TagSelector from '@/components/TagSelector.vue'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 
 const store = usePapersStore()
 const tagsStore = useTagsStore()
+const auth = useAuthStore()
+const { openLogin } = useLoginPrompt()
 const router = useRouter()
+
+function onAddClick() {
+  if (auth.isAuthenticated) showAdd.value = true
+  else openLogin()
+}
 const route = useRoute()
 const search = ref('')
 const showAdd = ref(false)
@@ -18,12 +37,10 @@ const addTab = ref<'arxiv' | 'corpus' | 'manual'>('arxiv')
 const addForm = ref({ arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '', tags: [] as string[] })
 const adding = ref(false)
 
-// Tag filter state
 const selectedTagIds = ref<number[]>([])
 const showTagFilter = ref(false)
 
 onMounted(() => {
-  // Initialize tag filter from URL
   const tagsParam = route.query.tags as string
   if (tagsParam) {
     selectedTagIds.value = tagsParam.split(',').map(Number).filter(n => !isNaN(n))
@@ -31,8 +48,6 @@ onMounted(() => {
   tagsStore.ensureLoaded()
   fetchWithFilters()
 })
-
-const showSortMenu = ref(false)
 
 function fetchWithFilters(page = 1) {
   store.fetchPapers(page, search.value, selectedTagIds.value.length > 0 ? selectedTagIds.value : undefined)
@@ -48,7 +63,6 @@ function toggleTagFilter(tagId: number) {
   } else {
     selectedTagIds.value.push(tagId)
   }
-  // Update URL query
   const query = { ...route.query }
   if (selectedTagIds.value.length > 0) {
     query.tags = selectedTagIds.value.join(',')
@@ -72,7 +86,6 @@ function setSort(field: 'created_at' | 'updated_at') {
   store.sortOrder = 'desc'
   localStorage.setItem('paperland_sort_by', field)
   localStorage.setItem('paperland_sort_order', 'desc')
-  showSortMenu.value = false
   fetchWithFilters(1)
 }
 
@@ -105,145 +118,146 @@ async function addPaper() {
 </script>
 
 <template>
-  <div class="p-6">
-    <div class="flex items-center justify-between mb-6">
+  <div class="p-6 space-y-4">
+    <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-semibold text-gray-900">论文管理</h1>
-        <p class="text-sm text-gray-500 mt-0.5">管理你的学术论文库</p>
+        <h1 class="text-xl font-semibold">论文管理</h1>
+        <p class="text-sm text-muted-foreground mt-0.5">管理你的学术论文库</p>
       </div>
-      <button @click="showAdd = true" class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 transition-colors">
-        <Plus class="h-4 w-4" />添加论文
-      </button>
+      <Button @click="onAddClick">
+        <Plus />添加论文
+      </Button>
     </div>
 
-    <!-- Search + Sort -->
-    <div class="flex gap-2 mb-4">
+    <div class="flex gap-2">
       <div class="relative flex-1">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <input v-model="search" @keyup.enter="onSearch" placeholder="搜索论文标题、摘要..." class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm placeholder:text-gray-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition" />
+        <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+        <Input v-model="search" @keyup.enter="onSearch" placeholder="搜索论文标题、摘要..." class="pl-9" />
       </div>
-      <div class="relative">
-        <button @click="showSortMenu = !showSortMenu" class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition whitespace-nowrap">
-          <ArrowUpDown class="h-4 w-4" />{{ store.sortBy === 'updated_at' ? '最近修改' : '添加时间' }}
-        </button>
-        <div v-if="showSortMenu" class="absolute right-0 top-full mt-1 z-10 w-32 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          <button @click="setSort('created_at')" :class="['w-full px-3 py-1.5 text-left text-sm transition', store.sortBy === 'created_at' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50']">添加时间</button>
-          <button @click="setSort('updated_at')" :class="['w-full px-3 py-1.5 text-left text-sm transition', store.sortBy === 'updated_at' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50']">最近修改</button>
-        </div>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <Button variant="outline">
+            <ArrowUpDown />{{ store.sortBy === 'updated_at' ? '最近修改' : '添加时间' }}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem @click="setSort('created_at')">添加时间</DropdownMenuItem>
+          <DropdownMenuItem @click="setSort('updated_at')">最近修改</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
 
-    <!-- Tag filter bar -->
-    <div class="mb-4">
+    <div>
       <div class="flex items-center gap-2">
-        <button @click="showTagFilter = !showTagFilter" :class="['inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition', selectedTagIds.length > 0 ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50']">
-          <Tag class="h-3.5 w-3.5" />标签筛选
-          <span v-if="selectedTagIds.length" class="ml-1 rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-medium text-white leading-none">{{ selectedTagIds.length }}</span>
-        </button>
-        <button v-if="selectedTagIds.length > 0" @click="clearTagFilter" class="text-xs text-gray-400 hover:text-gray-600 transition">清除筛选</button>
+        <Button
+          variant="outline" size="sm"
+          @click="showTagFilter = !showTagFilter"
+        >
+          <Tag />标签筛选
+          <Badge v-if="selectedTagIds.length" variant="secondary">{{ selectedTagIds.length }}</Badge>
+        </Button>
+        <Button v-if="selectedTagIds.length > 0" variant="link" size="xs" @click="clearTagFilter">清除筛选</Button>
       </div>
       <div v-if="showTagFilter" class="mt-2 flex flex-wrap gap-1.5">
-        <button
+        <Badge
           v-for="tag in tagsStore.tags.filter(t => t.visible)" :key="tag.id"
+          as="button"
+          :variant="selectedTagIds.includes(tag.id) ? 'default' : 'outline'"
+          class="cursor-pointer"
           @click="toggleTagFilter(tag.id)"
-          :class="['inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ring-1 ring-inset',
-            selectedTagIds.includes(tag.id) ? 'ring-2' : 'opacity-70 hover:opacity-100']"
-          :style="{
-            backgroundColor: (tag.color || '#6b7280') + (selectedTagIds.includes(tag.id) ? '25' : '12'),
-            color: tag.color || '#6b7280',
-            borderColor: (tag.color || '#6b7280') + '40',
-          }"
         >
           {{ tag.name }}
-          <span class="text-[10px] opacity-60">{{ tag.paper_count }}</span>
-        </button>
+          <span class="opacity-60 ml-1">{{ tag.paper_count }}</span>
+        </Badge>
       </div>
     </div>
 
-    <!-- Table -->
-    <div class="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-100 bg-gray-50/60">
-            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider">标题</th>
-            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-40">作者</th>
-            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-32">来源</th>
-            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-24">添加日期</th>
-            <th class="px-4 py-3 text-left font-medium text-gray-500 text-xs uppercase tracking-wider w-24">最近修改</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-50">
-          <tr v-for="paper in store.papers" :key="paper.id" @click="router.push(`/papers/${paper.id}`)" class="hover:bg-indigo-50/40 cursor-pointer transition-colors">
-            <td class="px-4 py-3">
-              <div class="font-medium text-gray-900 line-clamp-1">{{ paper.title }}</div>
+    <Card class="overflow-hidden gap-0 py-0">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>标题</TableHead>
+            <TableHead class="w-40">作者</TableHead>
+            <TableHead class="w-32">来源</TableHead>
+            <TableHead class="w-24">添加日期</TableHead>
+            <TableHead class="w-24">最近修改</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow
+            v-for="paper in store.papers" :key="paper.id"
+            class="cursor-pointer"
+            @click="router.push(`/papers/${paper.id}`)"
+          >
+            <TableCell>
+              <div class="font-medium line-clamp-1">{{ paper.title }}</div>
               <div v-if="(paper as any).tags?.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false).length" class="flex flex-wrap gap-1 mt-1">
                 <TagBadge v-for="t in (paper as any).tags.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false)" :key="t.id" :tag-id="t.id" :tag-name="t.name" />
               </div>
-            </td>
-            <td class="px-4 py-3 text-gray-500 truncate max-w-[10rem]">{{ formatAuthors(paper.authors) }}</td>
-            <td class="px-4 py-3">
-              <SourceTag :link="paper.link" :arxiv-id="paper.arxiv_id" />
-            </td>
-            <td class="px-4 py-3 text-gray-400 text-xs">{{ new Date(paper.created_at).toLocaleDateString() }}</td>
-            <td class="px-4 py-3 text-gray-400 text-xs">{{ new Date(paper.updated_at).toLocaleDateString() }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="store.papers.length === 0 && !store.loading" class="flex flex-col items-center justify-center py-16 text-gray-400">
+            </TableCell>
+            <TableCell class="text-muted-foreground truncate max-w-[10rem]">{{ formatAuthors(paper.authors) }}</TableCell>
+            <TableCell>
+              <div class="flex items-center gap-1 whitespace-nowrap">
+                <SourceTag :link="paper.link" :arxiv-id="paper.arxiv_id" />
+                <S2Badge :corpus-id="paper.corpus_id" :s2-url="(paper as any).metadata?.s2_url" />
+              </div>
+            </TableCell>
+            <TableCell class="text-muted-foreground text-xs">{{ new Date(paper.created_at).toLocaleDateString() }}</TableCell>
+            <TableCell class="text-muted-foreground text-xs">{{ new Date(paper.updated_at).toLocaleDateString() }}</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+      <div v-if="store.papers.length === 0 && !store.loading" class="flex flex-col items-center justify-center py-16 text-muted-foreground">
         <FileText class="h-10 w-10 mb-3 stroke-1" />
         <p class="text-sm">暂无论文</p>
       </div>
       <div v-if="store.loading" class="flex items-center justify-center py-12">
-        <div class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600"></div>
+        <Loader2 class="h-5 w-5 animate-spin text-primary" />
       </div>
+    </Card>
+
+    <div v-if="store.pagination.total_pages > 1" class="flex items-center justify-center gap-2">
+      <Button variant="outline" size="icon-sm" :disabled="store.pagination.page <= 1" @click="goToPage(store.pagination.page - 1)">
+        <ChevronLeft />
+      </Button>
+      <span class="text-xs text-muted-foreground tabular-nums">{{ store.pagination.page }} / {{ store.pagination.total_pages }}</span>
+      <Button variant="outline" size="icon-sm" :disabled="store.pagination.page >= store.pagination.total_pages" @click="goToPage(store.pagination.page + 1)">
+        <ChevronRight />
+      </Button>
     </div>
 
-    <!-- Pagination -->
-    <div v-if="store.pagination.total_pages > 1" class="flex items-center justify-center gap-2 mt-4">
-      <button :disabled="store.pagination.page <= 1" @click="goToPage(store.pagination.page - 1)" class="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 transition">
-        <ChevronLeft class="h-4 w-4" />
-      </button>
-      <span class="text-xs text-gray-500 tabular-nums">{{ store.pagination.page }} / {{ store.pagination.total_pages }}</span>
-      <button :disabled="store.pagination.page >= store.pagination.total_pages" @click="goToPage(store.pagination.page + 1)" class="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 transition">
-        <ChevronRight class="h-4 w-4" />
-      </button>
-    </div>
-
-    <!-- Add Dialog -->
-    <Teleport to="body">
-      <div v-if="showAdd" class="fixed inset-0 z-50 flex items-center justify-center">
-        <div class="fixed inset-0 bg-black/40 backdrop-blur-sm" @click="showAdd = false"></div>
-        <div class="relative w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-          <div class="flex items-center justify-between mb-5">
-            <h2 class="text-lg font-semibold text-gray-900">添加论文</h2>
-            <button @click="showAdd = false" class="text-gray-400 hover:text-gray-600"><X class="h-5 w-5" /></button>
-          </div>
-          <div class="flex gap-1 rounded-lg bg-gray-100 p-1 mb-5">
-            <button v-for="t in (['arxiv', 'corpus', 'manual'] as const)" :key="t" @click="addTab = t" :class="['flex-1 rounded-md py-1.5 text-xs font-medium transition-all', addTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700']">
-              {{ t === 'arxiv' ? 'arXiv ID' : t === 'corpus' ? 'Corpus ID' : '手动输入' }}
-            </button>
-          </div>
-          <div v-if="addTab === 'arxiv'">
-            <input v-model="addForm.arxiv_id" placeholder="例: 1706.03762" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
-          </div>
-          <div v-else-if="addTab === 'corpus'">
-            <input v-model="addForm.corpus_id" placeholder="例: 123456789" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
-          </div>
-          <div v-else class="space-y-3">
-            <input v-model="addForm.title" placeholder="标题" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
-            <input v-model="addForm.authors" placeholder="作者 (逗号分隔)" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
-            <input v-model="addForm.link" placeholder="来源链接 (可选, 例: https://example.com/paper)" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
-            <textarea v-model="addForm.content" placeholder="论文内容..." rows="4" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 resize-none"></textarea>
+    <Dialog v-model:open="showAdd">
+      <DialogContent class="max-w-md">
+        <DialogHeader>
+          <DialogTitle>添加论文</DialogTitle>
+        </DialogHeader>
+        <Tabs v-model="addTab">
+          <TabsList class="grid grid-cols-3 w-full">
+            <TabsTrigger value="arxiv">arXiv ID</TabsTrigger>
+            <TabsTrigger value="corpus">Corpus ID</TabsTrigger>
+            <TabsTrigger value="manual">手动输入</TabsTrigger>
+          </TabsList>
+          <TabsContent value="arxiv">
+            <Input v-model="addForm.arxiv_id" placeholder="例: 1706.03762" />
+          </TabsContent>
+          <TabsContent value="corpus">
+            <Input v-model="addForm.corpus_id" placeholder="例: 123456789" />
+          </TabsContent>
+          <TabsContent value="manual" class="space-y-3">
+            <Input v-model="addForm.title" placeholder="标题" />
+            <Input v-model="addForm.authors" placeholder="作者 (逗号分隔)" />
+            <Input v-model="addForm.link" placeholder="来源链接 (可选)" />
+            <Textarea v-model="addForm.content" placeholder="论文内容..." rows="4" />
             <TagSelector v-model="addForm.tags" />
-          </div>
-          <div class="flex justify-end gap-2 mt-5">
-            <button @click="showAdd = false" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">取消</button>
-            <button @click="addPaper" :disabled="adding" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
-              {{ adding ? '添加中...' : '添加' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+          </TabsContent>
+        </Tabs>
+        <DialogFooter>
+          <Button variant="ghost" @click="showAdd = false">取消</Button>
+          <Button :disabled="adding" @click="addPaper">
+            {{ adding ? '添加中...' : '添加' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

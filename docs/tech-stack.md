@@ -144,18 +144,33 @@ papers
   metadata        text      nullable          // JSON
   created_at      text      not null          // ISO 8601
 
+users
+  id              integer   primary key autoincrement
+  username        text      unique not null
+  password_hash   text      not null          // Bun.password (argon2id)
+  role            text      not null          // "admin" | "user"
+  created_at      text      not null
+
+sessions
+  id              text      primary key       // 随机不透明 token（httpOnly cookie）
+  user_id         integer   → users.id, not null
+  created_at      text      not null
+  expires_at      text      not null          // 默认 30 天
+
 tags
   id              integer   primary key autoincrement
-  name            text      unique not null
+  user_id         integer   → users.id        // 属主（标签按用户隔离）
+  name            text      not null          // 唯一性按 (user_id, name)
 
 paper_tags
   paper_id        integer   → papers.id
-  tag_id          integer   → tags.id
+  tag_id          integer   → tags.id          // 属主经 tag_id → tags.user_id 推导
   primary key (paper_id, tag_id)
 
 qa_entries
   id              integer   primary key autoincrement
   paper_id        integer   → papers.id, not null
+  user_id         integer   → users.id, nullable  // free 条目属主；template 为空（公开）
   type            text      not null          // "template" | "free"
   template_name   text      nullable          // 模板类型时作为 key
 
@@ -181,8 +196,21 @@ service_executions
 api_tokens
   id              integer   primary key autoincrement
   token           text      unique not null
+  user_id         integer   → users.id        // 归属用户（External API 按此用户操作）
   created_at      text      not null
   revoked_at      text      nullable
+
+highlights
+  id              integer   primary key autoincrement
+  user_id         integer   → users.id        // 属主（高亮按用户私有）
+  pathname        text      not null
+  content_hash    text      not null
+  start_offset    integer   not null
+  end_offset      integer   not null
+  text            text      not null
+  color           text      not null          // yellow | green | blue | pink
+  note            text      nullable
+  created_at      text      not null
 ```
 
 ---
@@ -196,12 +224,11 @@ database:
   path: ./data/paperland.db         # SQLite 时使用
   # url: postgresql://...           # PostgreSQL 时使用
 
-# 认证 (enabled: false 可完全关闭 Basic Auth)
+# 认证（会话登录；用户存于数据库 users 表，不再使用 config 凭据）
 auth:
-  enabled: true                       # true | false — 关闭后 /api/* 无需认证
-  users:
-    - username: "admin"
-      password: "your-password-here"
+  enabled: true                       # true=会话登录+三级分层；false=开发期免登录（请求视为 admin）
+  # users: 已弃用 —— 用户改存数据库。首次启动若无用户会自动创建 admin
+  #        并把随机初始密码打印到服务器日志（仅一次）。新用户由管理员在设置页添加。
 
 # 服务配置
 # 各 service 之间完全并行，互不阻塞
@@ -252,11 +279,13 @@ content_priority:
 | 依赖 | 用途 |
 |------|------|
 | fastify | Web 框架 |
+| @fastify/cookie | 会话 cookie（登录） |
 | drizzle-orm | ORM |
 | drizzle-kit | Migration 工具 |
 | better-sqlite3 | SQLite driver |
 | js-yaml | 解析 config.yml |
 | pdf-parse | Node.js PDF 解析 (可选方案) |
+| `Bun.password` (内置) | 密码哈希（argon2id），无需第三方依赖 |
 
 ### Frontend (packages/frontend)
 

@@ -2,16 +2,18 @@ import type { FastifyInstance } from 'fastify'
 import { eq, desc, isNotNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { serviceRunner } from '../services/service_runner.js'
+import { requireUser, requireAdmin } from '../auth/guards.js'
 
 export async function serviceRoutes(app: FastifyInstance): Promise<void> {
-  // List registered services
-  app.get('/api/services', async () => {
+  // List registered services (admin-only global dashboard)
+  app.get('/api/services', { preHandler: requireAdmin }, async () => {
     return { data: serviceRunner.getServiceInfo() }
   })
 
   // List service executions with pagination
   app.get<{ Querystring: { page?: string; page_size?: string; service_name?: string; status?: string } }>(
     '/api/services/executions',
+    { preHandler: requireAdmin },
     async (request) => {
       const db = getDatabase()
       const page = parseInt(request.query.page || '1', 10)
@@ -48,6 +50,7 @@ export async function serviceRoutes(app: FastifyInstance): Promise<void> {
   // Get service executions for a specific paper
   app.get<{ Params: { id: string } }>(
     '/api/papers/:id/services',
+    { preHandler: requireUser },
     async (request) => {
       const db = getDatabase()
       const paperId = parseInt(request.params.id, 10)
@@ -65,6 +68,7 @@ export async function serviceRoutes(app: FastifyInstance): Promise<void> {
   // Manually trigger all services for a paper
   app.post<{ Params: { id: string } }>(
     '/api/papers/:id/services/trigger',
+    { preHandler: requireUser },
     async (request, reply) => {
       const paperId = parseInt(request.params.id, 10)
       const db = getDatabase()
@@ -82,6 +86,7 @@ export async function serviceRoutes(app: FastifyInstance): Promise<void> {
   // Trigger a single service for a paper (useful for retrying failed services)
   app.post<{ Params: { id: string; serviceName: string } }>(
     '/api/papers/:id/services/:serviceName/trigger',
+    { preHandler: requireUser },
     async (request, reply) => {
       const paperId = parseInt(request.params.id, 10)
       const serviceName = request.params.serviceName
@@ -103,26 +108,34 @@ export async function serviceRoutes(app: FastifyInstance): Promise<void> {
     }
   )
 
-  // One-time backfill: run semantic_scholar_service for existing papers missing
-  // S2 enrichment (no citation_count) or with no citation-graph rows yet. Each run
-  // goes through the runner so the configured rate limit serializes S2 requests.
-  app.post('/api/services/backfill/semantic_scholar_service', async () => {
+  // One-time backfill: run semantic_scholar_service for existing papers that
+  // have an arxiv_id but no corpus_id yet. Each run goes through the runner so
+  // the configured rate limit serializes the S2 requests. Progress is visible
+  // in service_executions.
+  app.post('/api/services/backfill/semantic_scholar_service', { preHandler: requireAdmin }, async () => {
     const db = getDatabase()
+    // Eligible = has arxiv_id and is missing S2 enrichment (no citation_count in
+    // metadata). Keying on citation_count (not just corpus_id) also re-processes
+    // papers that were only partially enriched.
     const rows = db.select({ id: schema.papers.id, metadata: schema.papers.metadata })
       .from(schema.papers)
       .where(isNotNull(schema.papers.arxiv_id))
       .all()
+    // Papers that already have citation-graph rows captured.
     const withGraph = new Set(
       db.select({ pid: schema.paperCitations.paper_id }).from(schema.paperCitations).all().map((r) => r.pid)
     )
     const eligible = rows.filter((p) => {
       let meta: any = {}
       try { meta = p.metadata ? JSON.parse(p.metadata) : {} } catch {}
+      // Needs (re)processing if enrichment OR the citation graph is missing.
       return meta.citation_count === undefined || !withGraph.has(p.id)
     })
+
     for (const p of eligible) {
       serviceRunner.executeServiceForPaper('semantic_scholar_service', p.id).catch(() => {})
     }
+
     return { success: true, queued: eligible.length }
   })
 }

@@ -1,15 +1,23 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useQAStore } from '@/stores/qa'
+import { useAuthStore } from '@/stores/auth'
+import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { api } from '@/api/client'
-import { Send } from 'lucide-vue-next'
+import { Send, LogIn } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Card } from '@/components/ui/card'
 
 const props = withDefaults(defineProps<{ paperId: number; sticky?: boolean }>(), { sticky: true })
 const store = useQAStore()
+const auth = useAuthStore()
+const { openLogin } = useLoginPrompt()
 const question = ref('')
 const availableModels = ref<Array<{ name: string }>>([])
 
 onMounted(async () => {
+  if (!auth.isAuthenticated) return // models endpoint requires login; anon sees a login prompt
   try {
     const res = await api.get<{ models: { available: Array<{ name: string }> } }>('/api/config/models')
     availableModels.value = res.models.available
@@ -26,35 +34,61 @@ onMounted(async () => {
 })
 
 async function submit() {
+  if (!auth.isAuthenticated) { openLogin(); return }
   if (!question.value.trim() || !store.selectedModels.length) return
   await store.submitFreeQuestion(props.paperId, question.value.trim(), store.selectedModels)
   question.value = ''
 }
+
+function toggleModel(name: string) {
+  if (store.selectedModels.includes(name)) {
+    store.selectedModels = store.selectedModels.filter(x => x !== name)
+  } else {
+    store.selectedModels.push(name)
+  }
+}
 </script>
 
 <template>
-  <div :class="[props.sticky ? 'fixed bottom-0 left-0 right-0 md:sticky md:left-auto md:right-auto' : '', 'z-10 pt-3 pb-3 px-3 md:px-5 md:pt-4 md:pb-4']"
-    :style="{ background: props.sticky ? undefined : 'linear-gradient(to top, rgba(255,255,255,0.95) 60%, rgba(255,255,255,0))' }">
-    <div class="rounded-2xl border border-gray-200 bg-white/95 backdrop-blur-sm shadow-lg md:shadow-2xl p-3 md:p-4">
-      <!-- Model chips -->
-      <div class="flex items-center gap-1.5 flex-wrap mb-2">
-        <span class="text-[10px] text-gray-400 uppercase tracking-wider mr-0.5">模型</span>
-        <button v-for="m in availableModels" :key="m.name"
-          @click="store.selectedModels.includes(m.name) ? store.selectedModels = store.selectedModels.filter(x => x !== m.name) : store.selectedModels.push(m.name)"
-          :class="['rounded-full px-2 py-0.5 text-[11px] font-medium border transition-all',
-            store.selectedModels.includes(m.name) ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300']">
-          {{ m.name }}
-        </button>
-      </div>
-      <!-- Input + submit -->
-      <div class="flex gap-2 items-end">
-        <textarea v-model="question" @keydown.ctrl.enter="submit" placeholder="输入问题..." rows="2"
-          class="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm resize-none focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition max-h-32 bg-white" />
-        <button @click="submit" :disabled="!question.trim() || !store.selectedModels.length || store.submitting"
-          class="rounded-xl bg-indigo-600 px-3.5 py-2.5 text-white hover:bg-indigo-700 disabled:opacity-40 transition shrink-0">
-          <Send class="h-4 w-4" />
-        </button>
-      </div>
-    </div>
+  <div :class="[sticky ? 'fixed bottom-0 left-0 right-0 md:sticky md:left-auto md:right-auto' : '', 'z-10 px-3 md:px-5 pt-3 md:pt-4 pb-3 md:pb-4']">
+    <Card class="px-3 md:px-4 shadow-lg md:shadow-2xl">
+      <template v-if="auth.isAuthenticated">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-[10px] text-muted-foreground uppercase tracking-wider mr-0.5">模型</span>
+          <Button
+            v-for="m in availableModels" :key="m.name"
+            :variant="store.selectedModels.includes(m.name) ? 'secondary' : 'outline'"
+            size="xs"
+            @click="toggleModel(m.name)"
+          >
+            {{ m.name }}
+          </Button>
+        </div>
+        <div class="flex gap-2 items-end">
+          <Textarea
+            v-model="question"
+            @keydown.ctrl.enter="submit"
+            placeholder="输入问题..."
+            rows="2"
+            class="max-h-32 flex-1"
+          />
+          <Button
+            @click="submit"
+            :disabled="!question.trim() || !store.selectedModels.length || store.submitting"
+            size="icon"
+          >
+            <Send />
+          </Button>
+        </div>
+      </template>
+      <button
+        v-else
+        type="button"
+        class="flex w-full items-center justify-center gap-2 py-2 text-sm text-muted-foreground hover:text-foreground"
+        @click="openLogin()"
+      >
+        <LogIn class="h-4 w-4" /> 登录后可对论文提问
+      </button>
+    </Card>
   </div>
 </template>

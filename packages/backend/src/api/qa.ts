@@ -6,6 +6,7 @@ import { loadTemplates, loadTemplate } from '../services/template_loader.js'
 import { askQuestion, resolveContent } from '../services/qa_service.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { touchPaperUpdatedAt } from '../db/utils.js'
+import { requireUser } from '../auth/guards.js'
 
 function runQA(entryId: number, paperId: number, prompt: string, modelName: string) {
   const db = getDatabase()
@@ -53,18 +54,19 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     return { data: loadTemplates().map((t) => ({ name: t.name, prompt: t.prompt })) }
   })
 
-  // Get available models from config
-  app.get('/api/config/models', async () => {
+  // Get available models from config (login required — only used by the asking UI)
+  app.get('/api/config/models', { preHandler: requireUser }, async () => {
     const config = getConfig()
     return { models: { default: config.models.default, available: config.models.available } }
   })
 
-  // List all free QA entries across all papers (for /qa feed page)
-  app.get('/api/qa/free', async () => {
+  // List the current user's free QA entries across all papers (for /qa feed page)
+  app.get('/api/qa/free', { preHandler: requireUser }, async (request) => {
     const db = getDatabase()
+    const userId = request.user!.id
 
     const entries = db.select().from(schema.qaEntries)
-      .where(eq(schema.qaEntries.type, 'free'))
+      .where(and(eq(schema.qaEntries.type, 'free'), eq(schema.qaEntries.user_id, userId)))
       .orderBy(desc(schema.qaEntries.created_at))
       .all()
 
@@ -94,10 +96,11 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     return { data }
   })
 
-  // List QA entries for a paper
+  // List QA entries for a paper. Template QA is public; free QA is the current user's only.
   app.get<{ Params: { id: string } }>('/api/papers/:id/qa', async (request) => {
     const db = getDatabase()
     const paperId = parseInt(request.params.id, 10)
+    const userId = request.user?.id ?? null
 
     const entries = db.select().from(schema.qaEntries)
       .where(eq(schema.qaEntries.paper_id, paperId))
@@ -123,7 +126,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
           error: entry.error,
           results: entry.results,
         }
-      } else {
+      } else if (entry.user_id != null && entry.user_id === userId) {
+        // Free QA is private to its owner; anonymous/other users see none.
         freeEntries.push({
           entry_id: entry.id,
           status: entry.status,
@@ -138,7 +142,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Trigger all missing template Q&A
-  app.post<{ Params: { id: string } }>('/api/papers/:id/qa/template', async (request, reply) => {
+  app.post<{ Params: { id: string } }>('/api/papers/:id/qa/template', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const paperId = parseInt(request.params.id, 10)
     const config = getConfig()
@@ -193,7 +197,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Regenerate a specific template
-  app.post<{ Params: { id: string; name: string }; Body: { model?: string } }>('/api/papers/:id/qa/template/:name/regenerate', async (request, reply) => {
+  app.post<{ Params: { id: string; name: string }; Body: { model?: string } }>('/api/papers/:id/qa/template/:name/regenerate', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const paperId = parseInt(request.params.id, 10)
     const templateName = request.params.name
@@ -222,7 +226,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Submit free question
-  app.post<{ Params: { id: string }; Body: { question: string; models: string[] } }>('/api/papers/:id/qa/free', async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { question: string; models: string[] } }>('/api/papers/:id/qa/free', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const paperId = parseInt(request.params.id, 10)
     const { question, models } = request.body || {}
@@ -236,7 +240,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     const modelNames = models && models.length > 0 ? models : [config.models.default]
 
     const entry = db.insert(schema.qaEntries).values({
-      paper_id: paperId, type: 'free', status: 'pending', created_at: new Date().toISOString(),
+      paper_id: paperId, type: 'free', user_id: request.user!.id, status: 'pending', created_at: new Date().toISOString(),
     }).returning().get()
 
     touchPaperUpdatedAt(db, paperId)
@@ -249,13 +253,17 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Regenerate an existing QA entry
-  app.post<{ Params: { entryId: string }; Body: { models?: string[] } }>('/api/qa/:entryId/regenerate', async (request, reply) => {
+  app.post<{ Params: { entryId: string }; Body: { models?: string[] } }>('/api/qa/:entryId/regenerate', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const entryId = parseInt(request.params.entryId, 10)
     const { models } = request.body || {}
 
     const entry = db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, entryId)).get()
     if (!entry) { reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA entry not found' } }); return }
+    // Free QA can only be regenerated by its owner; template QA is shared.
+    if (entry.type === 'free' && entry.user_id !== request.user!.id) {
+      reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA entry not found' } }); return
+    }
 
     const config = getConfig()
     const modelNames = models && models.length > 0 ? models : [config.models.default]
@@ -281,12 +289,18 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Delete a specific QA result
-  app.delete<{ Params: { resultId: string } }>('/api/qa/results/:resultId', async (request, reply) => {
+  app.delete<{ Params: { resultId: string } }>('/api/qa/results/:resultId', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const resultId = parseInt(request.params.resultId, 10)
 
     const result = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, resultId)).get()
     if (!result) { reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } }); return }
+
+    // For free QA, only the owner may delete a result; template QA is shared.
+    const entry = db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, result.qa_entry_id)).get()
+    if (entry && entry.type === 'free' && entry.user_id !== request.user!.id) {
+      reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } }); return
+    }
 
     db.delete(schema.qaResults).where(eq(schema.qaResults.id, resultId)).run()
     return { message: 'Result deleted' }

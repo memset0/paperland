@@ -101,8 +101,26 @@ export interface ServiceExecution {
 export interface ApiToken {
   id: number
   token: string
+  user_id: number | null
   created_at: string
   revoked_at: string | null
+}
+
+// User accounts (stored in the DB; not in config.yml)
+export type UserRole = 'admin' | 'user'
+
+export interface User {
+  id: number
+  username: string
+  role: UserRole
+  created_at: string
+}
+
+/** Authenticated principal attached to a request and returned by /api/auth/me */
+export interface SessionUser {
+  id: number
+  username: string
+  role: UserRole
 }
 
 // Config
@@ -124,7 +142,8 @@ export interface AuthUser {
 
 export interface AuthConfig {
   enabled: boolean
-  users: AuthUser[]
+  /** Deprecated: website credentials now live in the `users` DB table. Kept for backward-compatible parsing. */
+  users?: AuthUser[]
 }
 
 export interface ServiceConfig {

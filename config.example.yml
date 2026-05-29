@@ -11,10 +11,12 @@ database:
 #   - localhost
 
 auth:
-  enabled: false
-  users:
-    - username: admin
-      password: changeme
+  # true  = 会话登录 + 三级访问分层（公开只读 / 登录 / 仅管理员）
+  # false = 开发期免登录（所有 /api 以 admin 身份访问）
+  enabled: true
+  # 'users' 已弃用：用户改存数据库。首次以 enabled:true 启动后端会自动创建 admin，
+  # 并把随机初始密码打印到服务器日志（仅一次）；登录后到「账户菜单」改密码。
+  # 新用户由管理员在「设置 → 用户管理」页面添加。
 
 services:
   arxiv_metadata_service:

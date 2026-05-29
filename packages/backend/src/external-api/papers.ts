@@ -7,8 +7,7 @@ import { resolveContent } from '../services/qa_service.js'
 import { loadTemplates } from '../services/template_loader.js'
 import { askQuestion } from '../services/qa_service.js'
 import { getConfig } from '../config.js'
-import { randomTagColor } from '../utils/tag-colors.js'
-import { syncPaperTagsJson } from '../utils/tags-json-sync.js'
+import { findOrCreateUserTag, userTagsForPaper } from '../utils/user-tags.js'
 
 function parsePaper(raw: any) {
   return {
@@ -19,11 +18,9 @@ function parsePaper(raw: any) {
   }
 }
 
-function getTags(db: any, paperId: number): string[] {
-  const paperTagRows = db.select().from(schema.paperTags).where(eq(schema.paperTags.paper_id, paperId)).all()
-  const tagIds = paperTagRows.map((pt: any) => pt.tag_id)
-  if (tagIds.length === 0) return []
-  return db.select().from(schema.tags).all().filter((t: any) => tagIds.includes(t.id)).map((t: any) => t.name)
+// The token user's tags for a paper (External API acts as the token's owning user).
+function getTags(db: any, paperId: number, userId: number | null): string[] {
+  return userTagsForPaper(db, paperId, userId).map((t) => t.name)
 }
 
 export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
@@ -46,14 +43,14 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
           const existing = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, arxiv_id)).get()
           if (existing) {
             if (corpus_id && !existing.corpus_id) db.update(schema.papers).set({ corpus_id }).where(eq(schema.papers.id, existing.id)).run()
-            return { ...parsePaper(existing), tags: getTags(db, existing.id), created: false }
+            return { ...parsePaper(existing), tags: getTags(db, existing.id, request.user?.id ?? null), created: false }
           }
         }
         if (corpus_id) {
           const existing = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, corpus_id)).get()
           if (existing) {
             if (arxiv_id && !existing.arxiv_id) db.update(schema.papers).set({ arxiv_id }).where(eq(schema.papers.id, existing.id)).run()
-            return { ...parsePaper(existing), tags: getTags(db, existing.id), created: false }
+            return { ...parsePaper(existing), tags: getTags(db, existing.id, request.user?.id ?? null), created: false }
           }
         }
 
@@ -63,13 +60,12 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
           title: title || 'Untitled', authors: JSON.stringify(authors || []), link: link || null, created_at: now, updated_at: now,
         }).returning().get()
 
-        if (tagNames && tagNames.length > 0) {
+        const userId = request.user?.id ?? null
+        if (userId != null && tagNames && tagNames.length > 0) {
           for (const tagName of tagNames) {
-            let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-            if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
+            const tag = findOrCreateUserTag(db, userId, tagName)
             db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
           }
-          syncPaperTagsJson(paper.id)
         }
 
         serviceRunner.triggerForPaper(paper.id).catch(() => {})
@@ -108,14 +104,14 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
       }
 
       if (Object.keys(updates).length === 0) {
-        return { ...parsePaper(paper), tags: getTags(db, paper.id) }
+        return { ...parsePaper(paper), tags: getTags(db, paper.id, request.user?.id ?? null) }
       }
 
       updates.updated_at = new Date().toISOString()
       db.update(schema.papers).set(updates).where(eq(schema.papers.id, id)).run()
 
       const updated = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
-      return { ...parsePaper(updated!), tags: getTags(db, id) }
+      return { ...parsePaper(updated!), tags: getTags(db, id, request.user?.id ?? null) }
     }
   )
 
@@ -152,7 +148,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
     const id = parseInt(request.params.id, 10)
     const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
     if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
-    return { ...parsePaper(paper), tags: getTags(db, paper.id) }
+    return { ...parsePaper(paper), tags: getTags(db, paper.id, request.user?.id ?? null) }
   })
 
   // Search paper by external ID
@@ -165,7 +161,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
     else { reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Provide arxiv_id or corpus_id' } }); return }
 
     if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
-    return { paper: { ...parsePaper(paper), tags: getTags(db, paper.id) } }
+    return { paper: { ...parsePaper(paper), tags: getTags(db, paper.id, request.user?.id ?? null) } }
   })
 
   // Full paper info
@@ -233,7 +229,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
 
       // Build response
       const parsed = parsePaper(paper)
-      const result: any = { paper: { ...parsed, tags: getTags(db, paper.id) } }
+      const result: any = { paper: { ...parsed, tags: getTags(db, paper.id, request.user?.id ?? null) } }
 
       if (excludeFields.includes('contents')) delete result.paper.contents
       if (excludeFields.includes('metadata')) delete result.paper.metadata
@@ -289,13 +285,12 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
             title: 'Untitled', authors: '[]', link: def.link || null, created_at: now, updated_at: now,
           }).returning().get()
 
-          if (def.tags) {
+          const userId = request.user?.id ?? null
+          if (userId != null && def.tags) {
             for (const tagName of def.tags) {
-              let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get()
-              if (!tag) tag = db.insert(schema.tags).values({ name: tagName, color: randomTagColor() }).returning().get()
+              const tag = findOrCreateUserTag(db, userId, tagName)
               db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
             }
-            syncPaperTagsJson(paper.id)
           }
 
           serviceRunner.triggerForPaper(paper.id).catch(() => {})

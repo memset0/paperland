@@ -1,15 +1,31 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watchEffect } from 'vue'
-import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, X, Github, Tag, Lightbulb } from 'lucide-vue-next'
-import GlobalAlert from '@/components/GlobalAlert.vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
+import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, Lightbulb, LogIn, CircleUser } from '@lucide/vue'
+import { toast } from 'vue-sonner'
 import { useEmbedMode } from '@/composables/useEmbedMode'
+import { useLoginPrompt } from '@/composables/useLoginPrompt'
+import { useAuthStore } from '@/stores/auth'
+import { onUnauthorized } from '@/lib/error-bus'
+import { Toaster } from '@/components/ui/sonner'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import LoginDialog from '@/components/LoginDialog.vue'
+import AccountDialog from '@/components/AccountDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
 const isMobile = ref(window.innerWidth < 768)
 const drawerOpen = ref(false)
+const accountOpen = ref(false)
 const { isEmbed, bgColor } = useEmbedMode()
+const { openLogin } = useLoginPrompt()
+const auth = useAuthStore()
 
 watchEffect(() => {
   if (bgColor.value) {
@@ -18,16 +34,25 @@ watchEffect(() => {
 })
 
 function onResize() { isMobile.value = window.innerWidth < 768 }
-onMounted(() => window.addEventListener('resize', onResize))
-onUnmounted(() => window.removeEventListener('resize', onResize))
+let unsub: (() => void) | null = null
+onMounted(() => {
+  window.addEventListener('resize', onResize)
+  if (!auth.loaded) auth.fetchMe()
+  unsub = onUnauthorized(() => openLogin())
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', onResize)
+  unsub?.()
+})
 
-const navItems = [
+interface NavItem { path: string; label: string; icon: any; requiresAuth?: boolean; requiresAdmin?: boolean }
+const navItems: NavItem[] = [
   { path: '/', label: '论文管理', icon: FileText },
-  { path: '/tags', label: '标签管理', icon: Tag },
-  { path: '/qa', label: 'Q&A', icon: MessageSquare },
-  { path: '/idea-forge', label: 'Idea Forge', icon: Lightbulb },
-  { path: '/services', label: '服务管理', icon: Activity },
-  { path: '/settings', label: '设置', icon: Settings },
+  { path: '/tags', label: '标签管理', icon: Tag, requiresAuth: true },
+  { path: '/qa', label: 'Q&A', icon: MessageSquare, requiresAuth: true },
+  { path: '/idea-forge', label: 'Idea Forge', icon: Lightbulb, requiresAuth: true },
+  { path: '/services', label: '服务管理', icon: Activity, requiresAdmin: true },
+  { path: '/settings', label: '设置', icon: Settings, requiresAdmin: true },
 ]
 
 function isActive(path: string) {
@@ -35,84 +60,156 @@ function isActive(path: string) {
   return route.path.startsWith(path)
 }
 
-function navigateMobile(path: string) {
-  router.push(path)
+/** Navigate to a nav item, gating restricted items behind login/admin. */
+function go(item: NavItem) {
   drawerOpen.value = false
+  if (item.requiresAdmin && !auth.isAdmin) {
+    if (!auth.isAuthenticated) openLogin()
+    else toast.error('需要管理员权限')
+    return
+  }
+  if (item.requiresAuth && !auth.isAuthenticated) {
+    openLogin()
+    return
+  }
+  if (route.path !== item.path) router.push(item.path)
+}
+
+async function doLogout() {
+  await auth.logout()
+  toast.success('已登出')
+  // Leave restricted pages on logout.
+  const meta = route.meta as { requiresAuth?: boolean; requiresAdmin?: boolean }
+  if (meta.requiresAuth || meta.requiresAdmin) router.push('/')
 }
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden" :style="bgColor ? { backgroundColor: bgColor } : {}" :class="!bgColor ? 'bg-gray-50/50' : ''">
-    <GlobalAlert />
+  <div class="flex h-screen overflow-hidden" :style="bgColor ? { backgroundColor: bgColor } : {}" :class="!bgColor ? 'bg-muted/40' : ''">
+    <Toaster position="top-center" richColors />
+    <LoginDialog />
+    <AccountDialog v-model:open="accountOpen" />
 
     <!-- ========== DESKTOP: Icon sidebar ========== -->
-    <aside v-if="!isMobile && !isEmbed" class="flex w-[52px] flex-col border-r border-gray-200 bg-white shrink-0">
-      <div class="flex h-12 items-center justify-center border-b border-gray-200">
-        <BookOpen class="h-5 w-5 text-indigo-600" />
+    <aside v-if="!isMobile && !isEmbed" class="flex w-[52px] flex-col border-r bg-background shrink-0">
+      <div class="flex h-12 items-center justify-center border-b">
+        <BookOpen class="h-5 w-5 text-primary" />
       </div>
-      <nav class="flex-1 flex flex-col items-center gap-1 pt-3">
-        <RouterLink
-          v-for="item in navItems" :key="item.path" :to="item.path"
-          :class="['group relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors duration-150',
-            isActive(item.path) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600']"
-        >
-          <component :is="item.icon" :class="['h-[16px] w-[16px]', isActive(item.path) ? 'text-indigo-600' : '']" :stroke-width="isActive(item.path) ? 2.2 : 1.8" />
-          <span class="pointer-events-none absolute left-full ml-2 z-[100] hidden whitespace-nowrap rounded-md bg-gray-800 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg group-hover:block">{{ item.label }}</span>
-        </RouterLink>
-      </nav>
-      <div class="flex items-center justify-center pb-3">
-        <a href="https://github.com/mem-research/paperland" target="_blank" rel="noopener noreferrer" class="group relative flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors duration-150 hover:bg-gray-100 hover:text-gray-600">
-          <Github class="h-[16px] w-[16px]" :stroke-width="1.8" />
-          <span class="pointer-events-none absolute left-full ml-2 z-[100] hidden whitespace-nowrap rounded-md bg-gray-800 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg group-hover:block">GitHub</span>
-        </a>
-      </div>
+      <TooltipProvider :delay-duration="100">
+        <nav class="flex-1 flex flex-col items-center gap-1 pt-3">
+          <Tooltip v-for="item in navItems" :key="item.path">
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                :class="isActive(item.path) ? 'bg-accent text-accent-foreground' : ''"
+                @click="go(item)"
+              >
+                <component :is="item.icon" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {{ item.label }}
+              <span v-if="item.requiresAdmin && !auth.isAdmin" class="opacity-70">（需管理员）</span>
+              <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="opacity-70">（需登录）</span>
+            </TooltipContent>
+          </Tooltip>
+        </nav>
+        <div class="flex flex-col items-center gap-1 pb-3">
+          <!-- Account menu / login -->
+          <Tooltip v-if="!auth.isAuthenticated">
+            <TooltipTrigger as-child>
+              <Button variant="ghost" size="icon" @click="openLogin()">
+                <LogIn />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">登录</TooltipContent>
+          </Tooltip>
+          <DropdownMenu v-else>
+            <DropdownMenuTrigger as-child>
+              <Button variant="ghost" size="icon">
+                <CircleUser />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="end" class="w-44">
+              <DropdownMenuLabel>
+                {{ auth.user?.username }}
+                <span v-if="auth.isAdmin" class="text-xs text-muted-foreground">（管理员）</span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem @click="accountOpen = true">账户设置</DropdownMenuItem>
+              <DropdownMenuItem @click="doLogout">登出</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button as-child variant="ghost" size="icon">
+                <a href="https://github.com/mem-research/paperland" target="_blank" rel="noopener noreferrer">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.55v-2.07c-3.2.69-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.27-5.24-5.66 0-1.25.44-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.17.91-.25 1.89-.38 2.86-.38.97 0 1.95.13 2.86.38 2.18-1.48 3.14-1.17 3.14-1.17.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.07 0 4.4-2.7 5.36-5.27 5.65.41.35.78 1.05.78 2.12v3.14c0 .31.21.66.8.55C20.21 21.38 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z"/>
+                  </svg>
+                </a>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">GitHub</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
     </aside>
 
     <!-- ========== MOBILE: Top navbar + Drawer ========== -->
     <template v-if="isMobile && !isEmbed">
-      <!-- Top navbar (fixed) -->
-      <div class="fixed top-0 left-0 right-0 z-40 flex h-12 items-center gap-3 border-b border-gray-200 bg-white px-3">
-        <button @click="drawerOpen = true" class="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition">
-          <Menu class="h-5 w-5" />
-        </button>
-        <BookOpen class="h-4 w-4 text-indigo-600" />
-        <span class="font-bold text-sm text-gray-900">Paperland</span>
-      </div>
-
-      <!-- Drawer backdrop -->
-      <Teleport to="body">
-        <Transition name="fade">
-          <div v-if="drawerOpen" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" @click="drawerOpen = false"></div>
-        </Transition>
-      </Teleport>
-
-      <!-- Drawer panel -->
-      <Teleport to="body">
-        <Transition name="slide">
-          <div v-if="drawerOpen" class="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-2xl">
-            <div class="flex h-12 items-center justify-between border-b border-gray-100 px-4">
-              <div class="flex items-center gap-2">
-                <BookOpen class="h-5 w-5 text-indigo-600" />
-                <span class="font-bold text-sm text-gray-900">Paperland</span>
-              </div>
-              <button @click="drawerOpen = false" class="rounded-md p-1 text-gray-400 hover:text-gray-600 transition">
-                <X class="h-5 w-5" />
-              </button>
-            </div>
-            <nav class="p-3 space-y-1">
-              <button
+      <div class="fixed top-0 left-0 right-0 z-40 flex h-12 items-center gap-3 border-b bg-background px-3">
+        <Sheet v-model:open="drawerOpen">
+          <SheetTrigger as-child>
+            <Button variant="ghost" size="icon-sm">
+              <Menu />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" class="w-64 p-0">
+            <SheetHeader class="border-b px-4 py-3">
+              <SheetTitle class="flex items-center gap-2 text-sm">
+                <BookOpen class="h-4 w-4 text-primary" />
+                Paperland
+              </SheetTitle>
+            </SheetHeader>
+            <nav class="p-2 space-y-1">
+              <Button
                 v-for="item in navItems" :key="item.path"
-                @click="navigateMobile(item.path)"
-                :class="['flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                  isActive(item.path) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900']"
+                variant="ghost"
+                size="lg"
+                :class="['w-full justify-start gap-3', isActive(item.path) ? 'bg-accent text-accent-foreground' : '']"
+                @click="go(item)"
               >
-                <component :is="item.icon" :class="['h-4 w-4 shrink-0', isActive(item.path) ? 'text-indigo-600' : '']" :stroke-width="isActive(item.path) ? 2.2 : 1.8" />
+                <component :is="item.icon" />
                 {{ item.label }}
-              </button>
+                <span v-if="item.requiresAdmin && !auth.isAdmin" class="ml-auto text-xs text-muted-foreground">需管理员</span>
+                <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="ml-auto text-xs text-muted-foreground">需登录</span>
+              </Button>
             </nav>
-          </div>
-        </Transition>
-      </Teleport>
+            <div class="border-t p-2 space-y-1">
+              <Button
+                v-if="!auth.isAuthenticated"
+                variant="ghost" size="lg" class="w-full justify-start gap-3"
+                @click="drawerOpen = false; openLogin()"
+              >
+                <LogIn /> 登录
+              </Button>
+              <template v-else>
+                <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; accountOpen = true">
+                  <CircleUser /> {{ auth.user?.username }}
+                </Button>
+                <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; doLogout()">
+                  <LogIn class="rotate-180" /> 登出
+                </Button>
+              </template>
+            </div>
+          </SheetContent>
+        </Sheet>
+        <BookOpen class="h-4 w-4 text-primary" />
+        <span class="font-bold text-sm">Paperland</span>
+      </div>
     </template>
 
     <!-- ========== Main content ========== -->
@@ -121,12 +218,3 @@ function navigateMobile(path: string) {
     </main>
   </div>
 </template>
-
-<style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-
-.slide-enter-active { transition: transform 0.25s ease-out; }
-.slide-leave-active { transition: transform 0.2s ease-in; }
-.slide-enter-from, .slide-leave-to { transform: translateX(-100%); }
-</style>

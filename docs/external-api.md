@@ -10,7 +10,7 @@ External API 是独立于前端 Internal API 的第三方接口，主要用于 Z
 
 ### 获取 Token
 
-用户在 Paperland 前端「设置」页面申请 Auth Token，复制后配置到第三方服务中。
+**管理员**在 Paperland 前端「设置」页面签发 Auth Token（Token 管理为管理员专属），复制后配置到第三方服务中。
 
 ### 使用 Token
 
@@ -20,7 +20,11 @@ External API 是独立于前端 Internal API 的第三方接口，主要用于 Z
 Authorization: Bearer <token>
 ```
 
-未携带或 Token 无效时返回 `401 Unauthorized`。
+未携带或 Token 无效 / 已撤销时返回 `401 Unauthorized`。
+
+### Token 的用户归属
+
+每个 Token 归属一个用户（签发它的管理员，或指定用户）。以该 Token 调用 External API 时，请求**按其归属用户**操作：因此通过 Token 创建 / 同步的**标签**等按用户私有的数据，归该用户所有，与其他用户的数据相互隔离。升级到用户系统前已存在的 Token 一律迁移归属到初始 `admin` 用户，**Zotero 等既有集成无需改动即可继续工作**。
 
 ---
 

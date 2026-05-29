@@ -8,7 +8,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 ## UI 技术栈
 
-- **框架**：Vue 3 + Vite，状态管理 Pinia,路由 vue-router
+- **框架**：Vue 3 + Vite，状态管理 Pinia，路由 vue-router
 - **样式**：Tailwind CSS v4（CSS-first 配置，`@tailwindcss/vite` 接管编译），无 `tailwind.config.js`、无 `postcss.config.js`
 - **主题**：OKLCH CSS 变量定义在 `src/assets/main.css` 的 `:root` / `.dark` 块；`@theme inline { ... }` 把变量映射为 Tailwind token（`bg-background` / `text-foreground` / `bg-primary` 等）
 - **组件库**：[shadcn-vue](https://shadcn-vue.com) —— 通过 `bunx shadcn-vue@latest add <name>` 把组件代码下载到 `src/components/ui/`（代码即资产，可直接编辑）。底层无样式原语来自 [reka-ui](https://reka-ui.com)（前身 radix-vue）
@@ -630,48 +630,67 @@ models:
 
 ---
 
-## 五、认证
+## 五、认证与授权
 
-### 5.1 网站登录 (HTTP Basic Auth)
+### 5.1 会话登录（取代 HTTP Basic Auth）
 
-- 访问任何页面需先通过 HTTP Basic Auth 登录
-- 允许的用户名/密码配置在 `config.yml` 的 `auth.users` 中
-- 个人使用项目，不需要复杂权限体系
+网站 `/api/*` 改用**应用内会话登录**，支持"未登录只读 + 登录后操作 + 在线改密 / 用户名 + 角色区分"。
 
-### 5.2 External API Token
+- **用户存储**：用户账户存于数据库 `users` 表（`id`、`username` 唯一、`password_hash`、`role`、`created_at`），不再使用 `config.yml` 的 `auth.users`（该字段已弃用）。密码用 `Bun.password`（argon2id）哈希。
+- **首启 seeding**：数据库无用户时，自动创建 `admin`（随机强密码），并在**服务器日志打印明文密码一次**。仅支持登录、不支持注册——新用户由管理员添加。
+- **会话**：登录成功后写 `sessions` 表（随机不透明 token + 30 天过期）并下发 httpOnly cookie `paperland_session`（`SameSite=Lax; Path=/`）。前端 `fetch` 同源自动携带；401 时自动弹出登录框。
+- **角色**：`admin` 与 `user` 两种。管理员可管理用户（增 / 改角色 / 重置密码，**不支持删除**，且不能降级最后一个 admin）。
+- **开发期免登录**：`config.yml` `auth.enabled: false` 时跳过登录，所有 `/api/*` 以 admin 身份访问（本地开发用，启动会打印警告）；`true`（默认）启用会话登录与下方分层。
 
-- 用户在「设置」页面签发 Token
-- Token 无细粒度权限控制，持有即可访问所有 External API 端点
-- 支持签发多个 Token（方便不同客户端使用）
-- 支持查看已签发的 Token 列表和撤销
+#### 接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/auth/login` | 公开。校验后建会话、下发 cookie |
+| POST | `/api/auth/logout` | 删会话、清 cookie |
+| GET | `/api/auth/me` | 公开。返回 `{ user }`（未登录为 `null`，不 401） |
+| PATCH | `/api/auth/me` | 改本人用户名 / 密码（改密需校验 `current_password`） |
+| GET/POST/PATCH | `/api/users` `/api/users/:id` | **仅 admin**。列表 / 新建 / 改角色 / 重置密码 |
+
+### 5.2 访问分层（三级矩阵）
+
+身份在请求钩子统一解析（注入 `request.user`），授权由各路由的 `requireUser` / `requireAdmin` preHandler 强制：
+
+| 层级 | 范围 |
+|------|------|
+| **公开（免登录）** | 论文列表 / 详情、模板问答（template Q&A）、PDF / 查看器、`/api/health`、`login`、`me` |
+| **公开但按属主过滤** | `GET /api/papers/:id/qa`（template 全量 + free 仅本人）、`GET /api/highlights`、`GET /api/papers/:id/tags`（匿名返回空、200） |
+| **需登录（任意用户）** | 增 / 改 / 删论文、所有问答触发与重生成、高亮增改删、标签管理、`/qa` 列表、Idea Forge、单篇论文服务状态 / 触发、改本人账户 |
+| **仅管理员** | 服务管理 Dashboard（`/api/services*`）、设置页 Token 管理（`/api/settings/tokens*`）、用户管理（`/api/users*`） |
+
+- 前端路由守卫：受限路由未登录弹登录框、非管理员访问管理员页提示无权限。
+- 侧边栏：未登录仍展示全部按钮（保持美观），点击受限项弹"需要登录"提示；登录后显示账户菜单（用户名、改名改密、登出）。
+
+### 5.3 数据归属（按用户私有）
+
+`free Q&A`、`论文标签（tag for paper）`、`文本高亮` 增加 `user_id`（外键 `users.id`）：
+
+- **标签完全按用户隔离**：每个用户拥有自己的标签（名称 / 颜色 / 可见性）与"论文↔标签"关联，唯一性按 `(user_id, name)`。论文列表 / 详情仅展示当前用户的标签，匿名用户看不到任何标签（`papers.tags_json` 全局缓存已弃用，改为按当前用户实时 JOIN 计算）。
+- **free Q&A / 高亮**：只能看见自己的；模板问答（template）为公开共享（`user_id` 为空）。
+- **迁移**：升级时把库中已有的标签、free Q&A、高亮、API token 一次性归属到新建的 admin。
+- 笔记功能尚未实现，但归属模型已为其预留（未来加 `user_id` 即可）。
+
+### 5.4 External API Token
+
+- 管理员在「设置」页面签发 / 查看 / 撤销 Token（Token 管理为**仅管理员**）。
+- 每个 Token 归属一个用户（`api_tokens.user_id`）；以该 Token 调用 External API 时按其归属用户操作，故 Zotero 等创建 / 同步的标签归该用户所有。已有 Token 迁移归属 admin。
+- Token 无细粒度权限，持有即可访问全部 External API 端点。
+
+### 5.5 认证架构
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  设置页面 - Token 管理                                │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│  [签发新 Token]                                      │
-│                                                      │
-│  已签发的 Token:                                     │
-│  ┌────────────────────────────────────────────────┐  │
-│  │ Token: sk-xxxx...xxxx   创建于 2026-03-18      │  │
-│  │                                     [撤销]    │  │
-│  ├────────────────────────────────────────────────┤  │
-│  │ Token: sk-yyyy...yyyy   创建于 2026-03-15      │  │
-│  │                                     [撤销]    │  │
-│  └────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-```
-
-### 5.3 认证架构
-
-```
-浏览器 ──[HTTP Basic Auth]──→ Internal API + 前端页面
-                                    │
-                                    ├── 设置页面可签发 Token
-                                    │
+浏览器 ──[会话 cookie paperland_session]──→ Internal API + 前端页面
+            │                                  │
+            │                                  ├── 公开只读 / 需登录 / 仅管理员 三级分层
+            │                                  └── 管理员在设置页签发 Token（归属某用户）
+            │
 第三方  ──[Bearer Token]────→ External API (/external-api/v1/...)
-(Zotero等)                    无细粒度权限，Token 有效即可访问全部端点
+(Zotero等)                    Token 解析其归属用户，数据按该用户归属
 ```
 
 ---

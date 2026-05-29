@@ -24,11 +24,10 @@ const authUserSchema = z.object({
 
 const authSchema = z.object({
   enabled: z.boolean().default(true),
-  users: z.array(authUserSchema).default([]),
-}).refine(
-  (data) => !data.enabled || data.users.length >= 1,
-  { message: 'auth.users must have at least 1 entry when auth is enabled', path: ['users'] }
-)
+  // Deprecated: website credentials now live in the `users` DB table.
+  // Kept optional for backward-compatible parsing of existing config.yml files.
+  users: z.array(authUserSchema).optional(),
+})
 
 const serviceSchema = z.object({
   max_concurrency: z.number().int().positive().default(2),

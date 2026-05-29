@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '@/api/client'
+import { useAuthStore } from './auth'
 
 export interface TagWithCount {
   id: number
@@ -27,6 +28,9 @@ export const useTagsStore = defineStore('tags', () => {
   }
 
   async function fetchTags() {
+    // Tags are per-user and require login; anonymous users have none.
+    // (Leave `loaded` false so tags are fetched after a later login.)
+    if (!useAuthStore().isAuthenticated) { tags.value = []; return }
     tags.value = await api.get<TagWithCount[]>('/api/tags')
     loaded.value = true
   }
