@@ -3,8 +3,15 @@ import { ref, computed, onMounted } from 'vue'
 import { useIdeaForgeStore } from '@/stores/idea-forge'
 import { useTagsStore } from '@/stores/tags'
 import { api } from '@/api/client'
-import { Download, X, Check, Tag, FileText, Search } from 'lucide-vue-next'
+import { Download, Check, Tag, FileText, Search } from '@lucide/vue'
 import type { ProjectConfig } from '@paperland/shared'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 interface PaperListItem {
   id: number
@@ -25,32 +32,24 @@ const emit = defineEmits<{
 const ideaForge = useIdeaForgeStore()
 const tagsStore = useTagsStore()
 
-// Tab: 'tags' | 'papers'
+const open = ref(true)
 const tab = ref<'tags' | 'papers'>('tags')
 
-// Tag mode state
 const selectedTagIds = ref<number[]>([])
 const editingFilter = ref(false)
 
-// Paper mode state
 const papers = ref<PaperListItem[]>([])
 const selectedPaperIds = ref<number[]>([])
 const paperSearch = ref('')
 const loadingPapers = ref(false)
 
-// Common state
 const dumping = ref(false)
 const dumpedCount = ref<number | null>(null)
 
 const savedTagNames = computed(() => props.projectConfig?.paper_filter?.tag_names || [])
 const hasSavedFilter = computed(() => savedTagNames.value.length > 0)
 
-// Resolve saved tag names to IDs
-const savedTagIds = computed(() => {
-  return tagsStore.tags
-    .filter(t => savedTagNames.value.includes(t.name))
-    .map(t => t.id)
-})
+const savedTagIds = computed(() => tagsStore.tags.filter(t => savedTagNames.value.includes(t.name)).map(t => t.id))
 
 const filteredPapers = computed(() => {
   if (!paperSearch.value) return papers.value
@@ -60,7 +59,6 @@ const filteredPapers = computed(() => {
 
 onMounted(async () => {
   await tagsStore.ensureLoaded()
-  // Pre-select saved tags
   if (hasSavedFilter.value) {
     selectedTagIds.value = [...savedTagIds.value]
   }
@@ -78,13 +76,8 @@ function togglePaper(id: number) {
   else selectedPaperIds.value.push(id)
 }
 
-function selectAllPapers() {
-  selectedPaperIds.value = filteredPapers.value.map(p => p.id)
-}
-
-function deselectAllPapers() {
-  selectedPaperIds.value = []
-}
+function selectAllPapers() { selectedPaperIds.value = filteredPapers.value.map(p => p.id) }
+function deselectAllPapers() { selectedPaperIds.value = [] }
 
 async function loadPapers() {
   if (papers.value.length > 0) return
@@ -98,9 +91,7 @@ async function loadPapers() {
 }
 
 async function saveTagFilter() {
-  const tagNames = tagsStore.tags
-    .filter(t => selectedTagIds.value.includes(t.id))
-    .map(t => t.name)
+  const tagNames = tagsStore.tags.filter(t => selectedTagIds.value.includes(t.id)).map(t => t.name)
   await ideaForge.updateProjectConfig(props.projectName, {
     paper_filter: tagNames.length > 0 ? { tag_names: tagNames } : undefined,
   })
@@ -124,9 +115,7 @@ async function dumpByPapers() {
   if (selectedPaperIds.value.length === 0) return
   dumping.value = true
   try {
-    const res = await ideaForge.dumpPapers(props.projectName, {
-      paper_ids: selectedPaperIds.value,
-    })
+    const res = await ideaForge.dumpPapers(props.projectName, { paper_ids: selectedPaperIds.value })
     dumpedCount.value = res.dumped_count
     emit('done', res.dumped_count)
   } finally {
@@ -134,167 +123,113 @@ async function dumpByPapers() {
   }
 }
 
-function onTabPapers() {
-  tab.value = 'papers'
-  loadPapers()
+function onTabChange(v: string) {
+  tab.value = v as 'tags' | 'papers'
+  if (v === 'papers') loadPapers()
+}
+
+function handleClose() {
+  emit('close')
 }
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" @click.self="emit('close')">
-    <div class="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col" style="max-height: 80vh">
-      <!-- Header -->
-      <div class="flex items-center justify-between px-6 pt-5 pb-3 shrink-0">
-        <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <Download class="h-5 w-5 text-indigo-600" />
+  <Dialog :open="open" @update:open="(v) => !v && handleClose()">
+    <DialogContent class="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle class="flex items-center gap-2">
+          <Download class="h-5 w-5 text-primary" />
           Dump Papers
-        </h2>
-        <button @click="emit('close')" class="rounded-md p-1 text-gray-400 hover:text-gray-600"><X class="h-5 w-5" /></button>
+        </DialogTitle>
+      </DialogHeader>
+
+      <div v-if="dumpedCount !== null" class="text-center py-10 space-y-3">
+        <Check class="h-10 w-10 mx-auto text-primary" />
+        <p class="text-lg font-medium">{{ dumpedCount }} papers dumped</p>
+        <p class="text-sm text-muted-foreground">Papers exported to project directory</p>
+        <Button @click="handleClose">Done</Button>
       </div>
 
-      <!-- Success state -->
-      <div v-if="dumpedCount !== null" class="text-center py-10 px-6">
-        <Check class="h-10 w-10 mx-auto text-green-500 mb-3" />
-        <p class="text-lg font-medium text-gray-900">{{ dumpedCount }} papers dumped</p>
-        <p class="text-sm text-gray-500 mt-1">Papers exported to project directory</p>
-        <button @click="emit('close')" class="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 transition">
-          Done
-        </button>
-      </div>
+      <Tabs v-else :model-value="tab" @update:model-value="onTabChange">
+        <TabsList class="grid grid-cols-2 w-full">
+          <TabsTrigger value="tags"><Tag />By Tags</TabsTrigger>
+          <TabsTrigger value="papers"><FileText />Select Papers</TabsTrigger>
+        </TabsList>
 
-      <!-- Main content -->
-      <template v-else>
-        <!-- Tabs -->
-        <div class="flex border-b border-gray-200 px-6 shrink-0">
-          <button
-            @click="tab = 'tags'"
-            :class="['flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition',
-              tab === 'tags' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700']"
-          >
-            <Tag class="h-3.5 w-3.5" /> By Tags
-          </button>
-          <button
-            @click="onTabPapers"
-            :class="['flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition',
-              tab === 'papers' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700']"
-          >
-            <FileText class="h-3.5 w-3.5" /> Select Papers
-          </button>
-        </div>
-
-        <!-- Tab: Tags -->
-        <div v-if="tab === 'tags'" class="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          <!-- Saved filter quick-dump -->
-          <div v-if="hasSavedFilter && !editingFilter" class="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm font-medium text-indigo-800">Saved filter</span>
-              <button @click="editingFilter = true" class="text-xs text-indigo-600 hover:text-indigo-800">Edit</button>
+        <TabsContent value="tags" class="space-y-4">
+          <Card v-if="hasSavedFilter && !editingFilter" class="p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium">Saved filter</span>
+              <Button variant="link" size="xs" @click="editingFilter = true">Edit</Button>
             </div>
-            <div class="flex flex-wrap gap-1.5 mb-3">
-              <span v-for="name in savedTagNames" :key="name" class="rounded-full bg-white px-2.5 py-0.5 text-xs text-indigo-700 border border-indigo-200">
-                {{ name }}
-              </span>
+            <div class="flex flex-wrap gap-1.5">
+              <Badge v-for="name in savedTagNames" :key="name" variant="secondary">{{ name }}</Badge>
             </div>
-            <button
-              @click="dumpByTags(savedTagIds)"
-              :disabled="dumping"
-              class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition"
-            >
+            <Button class="w-full" :disabled="dumping" @click="dumpByTags(savedTagIds)">
               {{ dumping ? 'Dumping...' : `Dump papers matching ${savedTagNames.length} tags` }}
-            </button>
-          </div>
+            </Button>
+          </Card>
 
-          <!-- Tag selection (shown if no saved filter or editing) -->
-          <div v-if="!hasSavedFilter || editingFilter">
-            <p class="text-sm text-gray-600 mb-2">
+          <div v-if="!hasSavedFilter || editingFilter" class="space-y-3">
+            <p class="text-sm text-muted-foreground">
               Select tags to filter papers. {{ hasSavedFilter ? 'This will also update the saved filter.' : 'These will be saved as the project filter.' }}
             </p>
-            <div class="flex flex-wrap gap-2 mb-3 max-h-[200px] overflow-y-auto">
-              <button
+            <div class="flex flex-wrap gap-2 max-h-[200px] overflow-y-auto">
+              <Badge
                 v-for="tag in tagsStore.tags" :key="tag.id"
+                as="button"
+                :variant="selectedTagIds.includes(tag.id) ? 'default' : 'outline'"
+                class="cursor-pointer"
                 @click="toggleTag(tag.id)"
-                :class="[
-                  'rounded-full px-3 py-1 text-xs font-medium border transition',
-                  selectedTagIds.includes(tag.id)
-                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                ]"
               >
                 {{ tag.name }}
-                <span v-if="tag.paper_count" class="ml-1 text-gray-400">({{ tag.paper_count }})</span>
-              </button>
-              <span v-if="tagsStore.tags.length === 0" class="text-sm text-gray-400">No tags available</span>
+                <span v-if="tag.paper_count" class="opacity-60 ml-1">({{ tag.paper_count }})</span>
+              </Badge>
+              <span v-if="tagsStore.tags.length === 0" class="text-sm text-muted-foreground">No tags available</span>
             </div>
             <div class="flex justify-end gap-2">
-              <button v-if="editingFilter" @click="editingFilter = false" class="rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 transition">Cancel</button>
-              <button
-                v-if="selectedTagIds.length > 0"
-                @click="saveTagFilter"
-                class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition"
-              >
-                Save filter
-              </button>
-              <button
-                @click="dumpByTags(selectedTagIds)"
-                :disabled="dumping"
-                class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition"
-              >
+              <Button v-if="editingFilter" variant="ghost" size="sm" @click="editingFilter = false">Cancel</Button>
+              <Button v-if="selectedTagIds.length > 0" variant="outline" size="sm" @click="saveTagFilter">Save filter</Button>
+              <Button size="sm" :disabled="dumping" @click="dumpByTags(selectedTagIds)">
                 {{ dumping ? 'Dumping...' : selectedTagIds.length ? `Dump (${selectedTagIds.length} tags)` : 'Dump All' }}
-              </button>
+              </Button>
             </div>
           </div>
-        </div>
+        </TabsContent>
 
-        <!-- Tab: Papers -->
-        <div v-else class="flex-1 overflow-hidden flex flex-col px-6 py-4">
-          <div v-if="loadingPapers" class="text-center py-10 text-sm text-gray-400">Loading papers...</div>
+        <TabsContent value="papers" class="flex flex-col">
+          <div v-if="loadingPapers" class="text-center py-10 text-sm text-muted-foreground">Loading papers...</div>
           <template v-else>
-            <!-- Search + select all -->
-            <div class="flex items-center gap-2 mb-3 shrink-0">
+            <div class="flex items-center gap-2 mb-3">
               <div class="relative flex-1">
-                <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-                <input
-                  v-model="paperSearch"
-                  placeholder="Search papers..."
-                  class="w-full rounded-lg border border-gray-200 pl-8 pr-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                />
+                <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input v-model="paperSearch" placeholder="Search papers..." class="pl-8" />
               </div>
-              <button @click="selectAllPapers" class="text-xs text-indigo-600 hover:text-indigo-800 whitespace-nowrap">Select all</button>
-              <button @click="deselectAllPapers" class="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap">Clear</button>
+              <Button variant="link" size="xs" @click="selectAllPapers">Select all</Button>
+              <Button variant="ghost" size="xs" @click="deselectAllPapers">Clear</Button>
             </div>
 
-            <!-- Paper list -->
-            <div class="flex-1 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+            <div class="overflow-y-auto rounded-md border divide-y max-h-[300px]">
               <label
                 v-for="p in filteredPapers" :key="p.id"
-                class="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer transition"
+                class="flex items-center gap-3 px-3 py-2 hover:bg-muted/40 cursor-pointer transition"
               >
-                <input
-                  type="checkbox"
-                  :checked="selectedPaperIds.includes(p.id)"
-                  @change="togglePaper(p.id)"
-                  class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span class="text-sm text-gray-900 truncate">{{ p.title }}</span>
+                <Checkbox :model-value="selectedPaperIds.includes(p.id)" @update:model-value="togglePaper(p.id)" />
+                <span class="text-sm truncate">{{ p.title }}</span>
               </label>
-              <div v-if="filteredPapers.length === 0" class="text-center py-8 text-sm text-gray-400">
+              <div v-if="filteredPapers.length === 0" class="text-center py-8 text-sm text-muted-foreground">
                 {{ paperSearch ? 'No papers match your search' : 'No papers in database' }}
               </div>
             </div>
 
-            <!-- Dump button -->
-            <div class="flex justify-end mt-3 shrink-0">
-              <button
-                @click="dumpByPapers"
-                :disabled="dumping || selectedPaperIds.length === 0"
-                class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition"
-              >
+            <div class="flex justify-end mt-3">
+              <Button :disabled="dumping || selectedPaperIds.length === 0" @click="dumpByPapers">
                 {{ dumping ? 'Dumping...' : `Dump ${selectedPaperIds.length} selected papers` }}
-              </button>
+              </Button>
             </div>
           </template>
-        </div>
-      </template>
-    </div>
-  </div>
+        </TabsContent>
+      </Tabs>
+    </DialogContent>
+  </Dialog>
 </template>

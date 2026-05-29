@@ -2,7 +2,11 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useIdeaForgeStore } from '@/stores/idea-forge'
-import { Lightbulb, Plus, FolderOpen, FileText } from 'lucide-vue-next'
+import { Lightbulb, Plus, FolderOpen, FileText } from '@lucide/vue'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 
 const store = useIdeaForgeStore()
 const router = useRouter()
@@ -37,48 +41,38 @@ async function createProject() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-6 py-8">
-    <div class="flex items-center justify-between mb-8">
+  <div class="mx-auto max-w-5xl px-6 py-8 space-y-6">
+    <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <Lightbulb class="h-6 w-6 text-amber-500" />
-        <h1 class="text-2xl font-bold text-gray-900">Idea Forge</h1>
+        <Lightbulb class="h-6 w-6 text-primary" />
+        <h1 class="text-2xl font-bold">Idea Forge</h1>
       </div>
-      <button
-        @click="showDialog = true"
-        class="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition"
-      >
-        <Plus class="h-4 w-4" />
+      <Button @click="showDialog = true">
+        <Plus />
         New Project
-      </button>
+      </Button>
     </div>
 
-    <!-- Loading -->
-    <div v-if="store.loading" class="text-center py-20 text-gray-400">Loading projects...</div>
+    <div v-if="store.loading" class="text-center py-20 text-muted-foreground">Loading projects...</div>
 
-    <!-- Empty state -->
-    <div v-else-if="store.projects.length === 0" class="text-center py-20">
-      <FolderOpen class="h-12 w-12 mx-auto text-gray-300 mb-4" />
-      <p class="text-gray-500 mb-4">No projects yet</p>
-      <button
-        @click="showDialog = true"
-        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition"
-      >
-        Create your first project
-      </button>
+    <div v-else-if="store.projects.length === 0" class="text-center py-20 space-y-4">
+      <FolderOpen class="h-12 w-12 mx-auto text-muted-foreground/40" />
+      <p class="text-muted-foreground">No projects yet</p>
+      <Button @click="showDialog = true">Create your first project</Button>
     </div>
 
-    <!-- Project grid -->
     <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <button
+      <Card
         v-for="p in store.projects" :key="p.name"
+        as="button"
+        class="text-left p-5 hover:shadow-md transition group"
         @click="openProject(p.name)"
-        class="text-left rounded-xl border border-gray-200 bg-white p-5 hover:border-indigo-300 hover:shadow-md transition group"
       >
-        <div class="flex items-start justify-between mb-3">
-          <h3 class="font-semibold text-gray-900 group-hover:text-indigo-700 transition">{{ p.name }}</h3>
-          <FolderOpen class="h-4 w-4 text-gray-300 group-hover:text-indigo-400 transition shrink-0" />
+        <div class="flex items-start justify-between">
+          <h3 class="font-semibold">{{ p.name }}</h3>
+          <FolderOpen class="h-4 w-4 text-muted-foreground shrink-0" />
         </div>
-        <div class="flex gap-4 text-xs text-gray-500">
+        <div class="flex gap-4 text-xs text-muted-foreground">
           <span class="flex items-center gap-1">
             <Lightbulb class="h-3.5 w-3.5" />
             {{ p.idea_count }} ideas
@@ -88,31 +82,31 @@ async function createProject() {
             {{ p.paper_count }} papers
           </span>
         </div>
-      </button>
+      </Card>
     </div>
 
-    <!-- Create dialog -->
-    <Teleport to="body">
-      <div v-if="showDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" @click.self="showDialog = false">
-        <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-          <h2 class="text-lg font-semibold text-gray-900 mb-4">New Project</h2>
-          <input
+    <Dialog v-model:open="showDialog">
+      <DialogContent class="max-w-md">
+        <DialogHeader>
+          <DialogTitle>New Project</DialogTitle>
+          <DialogDescription>Lowercase letters, numbers, hyphens, underscores</DialogDescription>
+        </DialogHeader>
+        <div class="space-y-1.5">
+          <Input
             v-model="newName"
             placeholder="project-name"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-            @keydown.enter="createProject"
             autofocus
+            @keydown.enter="createProject"
           />
-          <p v-if="nameError" class="mt-1 text-xs text-red-500">{{ nameError }}</p>
-          <p class="mt-1 text-xs text-gray-400">Lowercase letters, numbers, hyphens, underscores</p>
-          <div class="mt-4 flex justify-end gap-2">
-            <button @click="showDialog = false" class="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 transition">Cancel</button>
-            <button @click="createProject" :disabled="creating" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition">
-              {{ creating ? 'Creating...' : 'Create' }}
-            </button>
-          </div>
+          <p v-if="nameError" class="text-xs text-destructive">{{ nameError }}</p>
         </div>
-      </div>
-    </Teleport>
+        <DialogFooter>
+          <Button variant="ghost" @click="showDialog = false">Cancel</Button>
+          <Button :disabled="creating" @click="createProject">
+            {{ creating ? 'Creating...' : 'Create' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

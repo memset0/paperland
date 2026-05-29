@@ -264,7 +264,16 @@ content_priority:
 | vue | UI 框架 |
 | vue-router | 路由 |
 | pinia | 状态管理 |
-| vite | 构建工具 |
+| vite + @tailwindcss/vite | 构建工具 + Tailwind v4 集成 |
+| tailwindcss@4 | 样式系统（v4，CSS-first 配置，OKLCH 主题变量） |
+| shadcn-vue | 组件库（代码即资产，组件落在 `src/components/ui/`） |
+| reka-ui | shadcn-vue 底层无样式原语（前身 radix-vue） |
+| @lucide/vue | 图标库 |
+| @fontsource-variable/noto-sans, /noto-sans-mono | 正文与等宽字体 |
+| tw-animate-css | Tailwind v4 动画工具（替代 v3 的 tailwindcss-animate） |
+| class-variance-authority + clsx + tailwind-merge | cn() 与变体管理 |
+| vue-sonner | Toast 通知（由 `<Toaster>` 组件包装） |
+| vuedraggable | 拖拽（idea-forge Kanban） |
 | pdfjs-dist | PDF 在线阅读 |
 
 ### Python (scripts/)

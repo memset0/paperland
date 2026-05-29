@@ -91,26 +91,22 @@ function onDocumentTap(e: Event) {
 onMounted(() => { document.addEventListener('click', onDocumentTap) })
 onUnmounted(() => { document.removeEventListener('click', onDocumentTap) })
 
-function collapseKey(entryKey: string) {
-  return `qa-collapse-${props.paperId}-${entryKey}`
-}
-
 function navigateTo(entry: { key: string }, index: number) {
   if (!props.scrollContainer) return
-  const target = props.scrollContainer.querySelector<HTMLDetailsElement>(
+  const trigger = props.scrollContainer.querySelector<HTMLButtonElement>(
     `[data-qa-entry="${entry.key}"]`
   )
-  if (!target) return
+  if (!trigger) return
 
-  // Immediately highlight the clicked item
   setActive(index)
 
-  if (target.tagName === 'DETAILS' && !target.open) {
-    target.open = true
-    localStorage.setItem(collapseKey(entry.key), '1')
+  // Open via click if currently closed; the Collapsible's @update:open
+  // handler in QAList persists the new state to localStorage.
+  if (trigger.getAttribute('data-state') === 'closed') {
+    trigger.click()
   }
 
-  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  trigger.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 </script>
 
@@ -175,14 +171,14 @@ function navigateTo(entry: { key: string }, index: number) {
   top: -8px;
   bottom: -8px;
   right: -8px;
-  left: -40px;
+  left: -20px;
 }
 
 
 .nav-track.is-expanded {
   width: 260px;
   opacity: 1;
-  background: rgba(255, 255, 255, 0.96);
+  background: color-mix(in oklch, var(--popover) 96%, transparent);
   backdrop-filter: blur(8px);
   box-shadow: 0 1px 8px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.08);
   padding: 6px 8px;
@@ -210,24 +206,24 @@ function navigateTo(entry: { key: string }, index: number) {
 }
 
 .is-expanded .nav-item:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--accent);
 }
 
 .dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #d1d5db;
+  background: color-mix(in oklch, var(--foreground) 25%, transparent);
   flex-shrink: 0;
   transition: background 0.2s ease, transform 0.15s ease;
 }
 
 .nav-item.visible .dot {
-  background: #9ca3af;
+  background: color-mix(in oklch, var(--foreground) 60%, transparent);
 }
 
 .nav-item.active .dot {
-  background: #6366f1;
+  background: var(--primary);
   transform: scale(1.3);
 }
 
@@ -235,12 +231,14 @@ function navigateTo(entry: { key: string }, index: number) {
   display: none;
   font-size: 11px;
   line-height: 1.3;
-  color: #6b7280;
+  color: var(--foreground);
+  opacity: 0.4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1;
+  transition: opacity 0.2s ease, color 0.2s ease;
 }
 
 .is-expanded .label {
@@ -248,11 +246,12 @@ function navigateTo(entry: { key: string }, index: number) {
 }
 
 .nav-item.visible .label {
-  color: #4b5563;
+  opacity: 0.85;
 }
 
 .nav-item.active .label {
-  color: #4338ca;
+  color: var(--primary);
+  opacity: 1;
   font-weight: 500;
 }
 </style>

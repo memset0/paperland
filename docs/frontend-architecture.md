@@ -6,6 +6,25 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 数据库使用 SQLite。全站配置统一在 `config.yml` 中管理。
 
+## UI 技术栈
+
+- **框架**：Vue 3 + Vite，状态管理 Pinia,路由 vue-router
+- **样式**：Tailwind CSS v4（CSS-first 配置，`@tailwindcss/vite` 接管编译），无 `tailwind.config.js`、无 `postcss.config.js`
+- **主题**：OKLCH CSS 变量定义在 `src/assets/main.css` 的 `:root` / `.dark` 块；`@theme inline { ... }` 把变量映射为 Tailwind token（`bg-background` / `text-foreground` / `bg-primary` 等）
+- **组件库**：[shadcn-vue](https://shadcn-vue.com) —— 通过 `bunx shadcn-vue@latest add <name>` 把组件代码下载到 `src/components/ui/`（代码即资产，可直接编辑）。底层无样式原语来自 [reka-ui](https://reka-ui.com)（前身 radix-vue）
+- **图标**：`@lucide/vue`（`Github` brand 图标因商标原因被 lucide v1 下架，App.vue 用 inline SVG 替代）
+- **字体**：`Noto Sans Variable`（正文）+ `Noto Sans Mono Variable`（等宽），通过 `@fontsource-variable` 加载
+- **Toast 通知**：`vue-sonner`（`<Toaster>` 在 `App.vue` 根挂一次；调用 `import { toast } from 'vue-sonner'` 触发）；项目内通过 `lib/error-bus.ts` 的 `dispatchApiError` 包装
+
+### 组件迁移约定
+
+- 所有 button / input / textarea / dialog / sheet / select / tabs / badge / card / popover / tooltip / dropdown-menu / table / alert / scroll-area / sonner / command / checkbox / label / collapsible 都来自 `@/components/ui/*`
+- 折叠 disclosure 用 `<Collapsible>` 而非 HTML `<details>`；展开状态用 reactive `openMap`（如 `Record<string, boolean>`）管理
+- 单个 `.vue` 文件中的 Tailwind utility **主要承担布局**（grid/flex/spacing/responsive），不再用 utility 模仿按钮 / 输入框 / 卡片视觉
+- 颜色用语义 token：`bg-primary`、`text-muted-foreground`、`text-destructive` 等。**不**使用 `text-indigo-600`、`bg-emerald-50` 之类的具体色阶
+- Tag 显示统一走 `<Badge variant="secondary">`，不再使用每标签自定义颜色（`tagsStore.getTagColor` 后端仍然保留，前端展示层暂不渲染）
+- idea-forge 的类别映射（`IDEA_CATEGORIES` / `IDEA_CATEGORY_LABELS` / `IDEA_CATEGORY_VARIANT`）集中在 `src/lib/idea-categories.ts`，组件统一从这里导入
+
 ---
 
 ## 全局导航结构

@@ -7,8 +7,12 @@ import InboxView from '@/components/idea-forge/InboxView.vue'
 import KanbanView from '@/components/idea-forge/KanbanView.vue'
 import ListView from '@/components/idea-forge/ListView.vue'
 import PaperDumpDialog from '@/components/idea-forge/PaperDumpDialog.vue'
-import { ArrowLeft, Inbox, LayoutGrid, List, Download, Search } from 'lucide-vue-next'
-import type { IdeaCategory } from '@paperland/shared'
+import { ArrowLeft, Inbox, LayoutGrid, List, Download, Search } from '@lucide/vue'
+import { IDEA_CATEGORIES } from '@/lib/idea-categories'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,7 +22,6 @@ const ideaForgeStore = useIdeaForgeStore()
 const currentProject = computed(() => ideaForgeStore.projects.find(p => p.name === projectName.value))
 const projectConfig = computed(() => currentProject.value?.config || {})
 
-// Ensure projects are loaded for config
 onMounted(() => {
   if (ideaForgeStore.projects.length === 0) ideaForgeStore.fetchProjects()
 })
@@ -33,9 +36,6 @@ const filterCategories = ref<string[]>([])
 const showDumpDialog = ref(false)
 const inboxRef = ref<InstanceType<typeof InboxView> | null>(null)
 
-const categories: IdeaCategory[] = ['unreviewed', 'under-review', 'validating', 'archived']
-
-// Compute effective category filter: inbox defaults to unreviewed if no explicit filter
 const effectiveCategoryFilter = computed(() => {
   if (filterCategories.value.length > 0) return filterCategories.value.join(',')
   if (view.value === 'inbox') return 'unreviewed'
@@ -75,116 +75,79 @@ function toggleSort(field: string) {
 }
 
 function goToInboxWithIdea(category: string, dirName: string) {
-  // Switch to inbox view and select the idea
   if (view.value !== 'inbox') {
     router.replace({ query: { ...route.query, view: 'inbox' } })
   }
-  // Clear category filter to show all, so the idea is visible
   filterCategories.value = [category]
   setTimeout(() => {
     inboxRef.value?.selectByKey(category, dirName)
   }, 100)
 }
 
-function onDumpDone(count: number) {
-  // Refresh after dump (papers don't affect ideas, but project stats may)
-}
+function onDumpDone(_count: number) {}
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <!-- Top bar -->
-    <div class="shrink-0 border-b border-gray-200 bg-white px-4 py-3">
-      <div class="flex items-center justify-between mb-3">
+    <div class="shrink-0 border-b bg-background px-4 py-3 space-y-3">
+      <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <button @click="router.push('/idea-forge')" class="rounded-md p-1 text-gray-400 hover:text-gray-600 transition">
-            <ArrowLeft class="h-5 w-5" />
-          </button>
-          <h1 class="text-lg font-bold text-gray-900">{{ projectName }}</h1>
+          <Button variant="ghost" size="icon-sm" @click="router.push('/idea-forge')">
+            <ArrowLeft />
+          </Button>
+          <h1 class="text-lg font-bold">{{ projectName }}</h1>
         </div>
-        <div class="flex items-center gap-2">
-          <button
-            @click="showDumpDialog = true"
-            class="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 transition"
-          >
-            <Download class="h-3.5 w-3.5" /> Dump Papers
-          </button>
-        </div>
+        <Button variant="outline" size="sm" @click="showDumpDialog = true">
+          <Download />Dump Papers
+        </Button>
       </div>
 
-      <!-- Controls row -->
       <div class="flex items-center gap-3 flex-wrap">
-        <!-- View toggles -->
-        <div class="flex rounded-lg border border-gray-200 overflow-hidden">
-          <button
-            @click="setView('inbox')"
-            :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition',
-              view === 'inbox' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50']"
-          >
-            <Inbox class="h-3.5 w-3.5" /> Inbox
-          </button>
-          <button
-            @click="setView('kanban')"
-            :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition border-x border-gray-200',
-              view === 'kanban' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50']"
-          >
-            <LayoutGrid class="h-3.5 w-3.5" /> Kanban
-          </button>
-          <button
-            @click="setView('list')"
-            :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition',
-              view === 'list' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50']"
-          >
-            <List class="h-3.5 w-3.5" /> List
-          </button>
-        </div>
+        <Tabs :model-value="view" @update:model-value="setView">
+          <TabsList>
+            <TabsTrigger value="inbox"><Inbox />Inbox</TabsTrigger>
+            <TabsTrigger value="kanban"><LayoutGrid />Kanban</TabsTrigger>
+            <TabsTrigger value="list"><List />List</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-        <!-- Tag filter -->
         <div class="relative">
-          <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-          <input
-            v-model="filterTag"
-            placeholder="Filter by tag..."
-            class="rounded-lg border border-gray-200 pl-8 pr-3 py-1.5 text-xs w-40 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-          />
+          <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input v-model="filterTag" placeholder="Filter by tag..." class="pl-8 w-40" />
         </div>
 
-        <!-- Category filter chips -->
         <div class="flex gap-1.5 flex-wrap">
-          <button
-            v-for="cat in categories" :key="cat"
+          <Badge
+            v-for="cat in IDEA_CATEGORIES" :key="cat"
+            as="button"
+            :variant="filterCategories.includes(cat) ? 'default' : 'outline'"
+            class="cursor-pointer"
             @click="toggleCategoryFilter(cat)"
-            :class="[
-              'rounded-full px-2.5 py-1 text-[11px] font-medium transition border',
-              filterCategories.includes(cat)
-                ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
-                : 'border-gray-200 text-gray-500 hover:border-gray-300'
-            ]"
           >
             {{ cat }}
-          </button>
+          </Badge>
         </div>
 
-        <!-- Sort -->
-        <div class="flex items-center gap-1 text-[11px] text-gray-500 ml-auto">
+        <div class="flex items-center gap-1 text-xs text-muted-foreground ml-auto">
           <span>Sort:</span>
-          <button
+          <Button
+            variant="ghost" size="xs"
+            :class="sortField === 'update_time' ? 'bg-muted' : ''"
             @click="toggleSort('update_time')"
-            :class="['px-1.5 py-0.5 rounded transition', sortField === 'update_time' ? 'bg-gray-200 text-gray-800 font-medium' : 'hover:bg-gray-100']"
           >
             Updated {{ sortField === 'update_time' ? (sortOrder === 'desc' ? '↓' : '↑') : '' }}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost" size="xs"
+            :class="sortField === 'create_time' ? 'bg-muted' : ''"
             @click="toggleSort('create_time')"
-            :class="['px-1.5 py-0.5 rounded transition', sortField === 'create_time' ? 'bg-gray-200 text-gray-800 font-medium' : 'hover:bg-gray-100']"
           >
             Created {{ sortField === 'create_time' ? (sortOrder === 'desc' ? '↓' : '↑') : '' }}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
 
-    <!-- View content -->
     <div class="flex-1 overflow-hidden">
       <InboxView
         v-if="view === 'inbox'"
@@ -209,15 +172,12 @@ function onDumpDone(count: number) {
       />
     </div>
 
-    <!-- Dump dialog -->
-    <Teleport to="body">
-      <PaperDumpDialog
-        v-if="showDumpDialog"
-        :project-name="projectName"
-        :project-config="projectConfig"
-        @close="showDumpDialog = false"
-        @done="onDumpDone"
-      />
-    </Teleport>
+    <PaperDumpDialog
+      v-if="showDumpDialog"
+      :project-name="projectName"
+      :project-config="projectConfig"
+      @close="showDumpDialog = false"
+      @done="onDumpDone"
+    />
   </div>
 </template>

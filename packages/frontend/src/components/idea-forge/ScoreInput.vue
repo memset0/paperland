@@ -19,15 +19,16 @@ function setScore(n: number) {
   <div class="flex items-center gap-0.5" :class="readonly ? 'opacity-70' : ''">
     <button
       v-for="n in 5" :key="n"
-      @click="setScore(n)"
+      type="button"
       :disabled="readonly"
       :class="[
         'transition-colors',
         size === 'sm' ? 'text-sm' : 'text-base',
         readonly ? 'cursor-default' : 'cursor-pointer hover:scale-110',
-        n <= modelValue ? 'text-amber-400' : 'text-gray-300',
+        n <= modelValue ? 'text-foreground' : 'text-muted-foreground/30',
       ]"
       :title="readonly ? undefined : (n === modelValue ? 'Clear score' : `Score ${n}`)"
+      @click="setScore(n)"
     >
       ★
     </button>

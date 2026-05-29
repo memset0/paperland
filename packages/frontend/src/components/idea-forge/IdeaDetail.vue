@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useIdeasStore } from '@/stores/ideas'
 import ScoreInput from './ScoreInput.vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
-import { Save, RotateCcw, AlertTriangle } from 'lucide-vue-next'
+import { Save, RotateCcw, AlertTriangle } from '@lucide/vue'
 import type { IdeaCategory } from '@paperland/shared'
+import { IDEA_CATEGORIES, IDEA_CATEGORY_LABELS } from '@/lib/idea-categories'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 const props = defineProps<{
   projectName: string
@@ -18,13 +25,6 @@ const emit = defineEmits<{
 }>()
 
 const store = useIdeasStore()
-const categories: IdeaCategory[] = ['unreviewed', 'under-review', 'validating', 'archived']
-const categoryLabels: Record<string, string> = {
-  'unreviewed': 'Unreviewed',
-  'under-review': 'Under Review',
-  'validating': 'Validating',
-  'archived': 'Archived',
-}
 
 const editing = ref(false)
 const editBody = ref('')
@@ -87,20 +87,6 @@ function onScoreChange(val: number) {
   immediateSave()
 }
 
-function onCommentInput() {
-  scheduleSave()
-}
-
-function onBodyInput(e: Event) {
-  editBody.value = (e.target as HTMLTextAreaElement).value
-  scheduleSave()
-}
-
-function onSummaryInput(e: Event) {
-  editSummary.value = (e.target as HTMLInputElement).value
-  scheduleSave()
-}
-
 async function moveToCategory(cat: IdeaCategory) {
   if (!detail.value || cat === props.category) return
   const result = await store.moveIdea(
@@ -129,121 +115,89 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="!detail" class="flex items-center justify-center h-full text-gray-400 text-sm">
+  <div v-if="!detail" class="flex items-center justify-center h-full text-muted-foreground text-sm">
     Select an idea to view details
   </div>
   <div v-else class="flex flex-col h-full">
-    <!-- Fixed top: actions -->
-    <div class="shrink-0 border-b border-gray-200 bg-white p-4 space-y-3">
-      <!-- Conflict warning -->
-      <div v-if="hasConflict" class="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-        <AlertTriangle class="h-4 w-4 shrink-0" />
-        <span class="flex-1">File has been modified externally.</span>
-        <button @click="reload" class="flex items-center gap-1 rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700">
-          <RotateCcw class="h-3 w-3" /> Reload
-        </button>
-      </div>
+    <div class="shrink-0 border-b bg-background p-4 space-y-3">
+      <Alert v-if="hasConflict" variant="destructive">
+        <AlertTriangle />
+        <AlertDescription class="flex items-center justify-between gap-2 w-full">
+          <span>File has been modified externally.</span>
+          <Button size="xs" variant="destructive" @click="reload">
+            <RotateCcw />Reload
+          </Button>
+        </AlertDescription>
+      </Alert>
 
-      <!-- Score + save -->
       <div class="flex items-center justify-between gap-4">
         <div class="flex items-center gap-4">
           <div class="flex items-center gap-2">
-            <span class="text-xs text-gray-500">My Score</span>
+            <span class="text-xs text-muted-foreground">My Score</span>
             <ScoreInput :model-value="editScore" @update:model-value="onScoreChange" />
           </div>
-          <div class="flex items-center gap-2" v-if="detail.frontmatter.llm_score">
-            <span class="text-xs text-gray-500">LLM</span>
+          <div v-if="detail.frontmatter.llm_score" class="flex items-center gap-2">
+            <span class="text-xs text-muted-foreground">LLM</span>
             <ScoreInput :model-value="detail.frontmatter.llm_score" readonly size="sm" />
           </div>
-          <div v-if="detail.frontmatter.author" class="text-xs text-gray-400">
+          <div v-if="detail.frontmatter.author" class="text-xs text-muted-foreground">
             by {{ detail.frontmatter.author }}
           </div>
         </div>
-        <button
-          v-if="!hasConflict"
-          @click="immediateSave"
-          :disabled="saving"
-          class="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition"
-        >
-          <Save class="h-3.5 w-3.5" />
-          {{ saving ? 'Saving...' : 'Save' }}
-        </button>
+        <Button v-if="!hasConflict" size="sm" :disabled="saving" @click="immediateSave">
+          <Save />{{ saving ? 'Saving...' : 'Save' }}
+        </Button>
       </div>
 
-      <!-- Category buttons -->
       <div class="flex gap-1.5 flex-wrap">
-        <button
-          v-for="cat in categories" :key="cat"
+        <Button
+          v-for="cat in IDEA_CATEGORIES" :key="cat"
+          size="xs"
+          :variant="cat === detail.category ? 'secondary' : 'outline'"
           @click="moveToCategory(cat)"
-          :class="[
-            'rounded-full px-3 py-1 text-xs font-medium transition',
-            cat === detail.category
-              ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          ]"
         >
-          {{ categoryLabels[cat] }}
-        </button>
+          {{ IDEA_CATEGORY_LABELS[cat] }}
+        </Button>
       </div>
 
-      <!-- Comment -->
-      <textarea
+      <Textarea
         v-model="editComment"
-        @input="onCommentInput"
         placeholder="Your review comment..."
         rows="3"
-        class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm resize-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-        style="max-height: 50vh; overflow-y: auto"
+        class="max-h-[50vh]"
+        @input="scheduleSave"
       />
     </div>
 
-    <!-- Scrollable bottom: content -->
     <div class="flex-1 overflow-y-auto p-4 space-y-4">
-      <!-- Summary -->
-      <div>
-        <label class="block text-xs font-medium text-gray-500 mb-1">Summary</label>
-        <input
-          :value="editSummary"
-          @input="onSummaryInput"
-          class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-          placeholder="One-line summary..."
-        />
+      <div class="space-y-1.5">
+        <Label>Summary</Label>
+        <Input v-model="editSummary" placeholder="One-line summary..." @input="scheduleSave" />
       </div>
 
-      <!-- Tags -->
       <div v-if="detail.frontmatter.tags?.length" class="flex flex-wrap gap-1.5">
-        <span
-          v-for="tag in detail.frontmatter.tags" :key="tag"
-          class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600"
-        >
-          {{ tag }}
-        </span>
+        <Badge v-for="tag in detail.frontmatter.tags" :key="tag" variant="secondary">{{ tag }}</Badge>
       </div>
 
-      <!-- Timestamps -->
-      <div class="flex gap-4 text-xs text-gray-400">
+      <div class="flex gap-4 text-xs text-muted-foreground">
         <span>Created: {{ detail.frontmatter.create_time?.slice(0, 19) }}</span>
         <span>Updated: {{ detail.frontmatter.update_time?.slice(0, 19) }}</span>
       </div>
 
-      <!-- Body editor / preview -->
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <label class="text-xs font-medium text-gray-500">Content</label>
-          <button
-            @click="editing = !editing"
-            class="text-xs text-indigo-600 hover:text-indigo-800"
-          >
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <Label>Content</Label>
+          <Button variant="link" size="xs" @click="editing = !editing">
             {{ editing ? 'Preview' : 'Edit' }}
-          </button>
+          </Button>
         </div>
-        <textarea
+        <Textarea
           v-if="editing"
-          :value="editBody"
-          @input="onBodyInput"
-          class="w-full min-h-[300px] rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-y"
+          v-model="editBody"
+          class="min-h-[300px] font-mono resize-y"
+          @input="scheduleSave"
         />
-        <div v-else class="prose prose-sm max-w-none rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+        <div v-else class="rounded-md border bg-muted/40 p-4">
           <MarkdownContent :content="editBody" />
         </div>
       </div>

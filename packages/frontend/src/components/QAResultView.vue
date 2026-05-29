@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { type QAResult } from '@/stores/qa'
-import { RefreshCw, Copy, Check, Trash2, Pin } from 'lucide-vue-next'
+import { RefreshCw, Copy, Check, Trash2, Pin } from '@lucide/vue'
 import MarkdownContent from './MarkdownContent.vue'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 const props = defineProps<{
   results: QAResult[]
@@ -18,7 +21,6 @@ const emit = defineEmits<{
 
 const copiedId = ref<number | null>(null)
 
-// --- Time formatting ---
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const seconds = Math.floor(diff / 1000)
@@ -31,7 +33,6 @@ function timeAgo(iso: string): string {
   return `${days}天前`
 }
 
-// --- Pin persistence ---
 function pinKey(entryKey: string) { return `qa-pin-${props.paperId}-${entryKey}` }
 function getPinnedModel(): string | null { return localStorage.getItem(pinKey(props.entryKey)) }
 function pinResult(modelName: string) {
@@ -43,7 +44,6 @@ function pinResult(modelName: string) {
   }
 }
 
-// --- Sort results: pinned first, then by completed_at ascending ---
 function sortedResults(): QAResult[] {
   const pinned = getPinnedModel()
   return [...props.results].sort((a, b) => {
@@ -55,8 +55,7 @@ function sortedResults(): QAResult[] {
   })
 }
 
-// --- Tab state ---
-const activeTabIdx = ref(0)
+const activeTab = ref<string>('')
 
 function copyAnswer(resultId: number, text: string) {
   navigator.clipboard.writeText(text)
@@ -66,59 +65,59 @@ function copyAnswer(resultId: number, text: string) {
 </script>
 
 <template>
-  <!-- Multi-model tabs -->
-  <div v-if="results.length > 1">
-    <div class="flex gap-1 mb-3 overflow-x-auto pb-1">
-      <button v-for="(r, idx) in sortedResults()" :key="r.id"
-        @click="activeTabIdx = idx"
-        :class="['flex flex-col items-start rounded-lg px-3 py-1.5 text-xs border transition-all shrink-0',
-          activeTabIdx === idx
-            ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-            : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300']">
-        <span class="font-medium">{{ r.model_name }}</span>
-        <span class="text-[10px] opacity-70">{{ timeAgo(r.completed_at) }}</span>
-      </button>
-    </div>
-    <template v-for="(r, idx) in sortedResults()" :key="r.id">
-      <div v-if="activeTabIdx === idx">
-        <MarkdownContent :content="r.answer" :highlight-pathname="highlightPathname" class="text-sm text-gray-600" />
-        <div class="flex items-center gap-1 mt-3 pt-2 border-t border-gray-50">
-          <button @click="pinResult(r.model_name)" :title="getPinnedModel() === r.model_name ? '取消置顶' : '置顶'"
-            :class="['rounded-md px-1.5 py-1 text-xs transition', getPinnedModel() === r.model_name ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400 hover:text-gray-600']">
-            <Pin class="h-3 w-3" />
-          </button>
-          <button @click="copyAnswer(r.id, r.answer)" class="rounded-md px-1.5 py-1 text-xs text-gray-400 hover:text-gray-600 transition">
-            <Check v-if="copiedId === r.id" class="h-3 w-3 text-emerald-500" /><Copy v-else class="h-3 w-3" />
-          </button>
-          <button @click="emit('regenerate', r.model_name)" class="rounded-md px-1.5 py-1 text-xs text-gray-400 hover:text-gray-600 transition">
-            <RefreshCw class="h-3 w-3" />
-          </button>
-          <button @click="emit('deleteResult', r.id)" class="rounded-md px-1.5 py-1 text-xs text-gray-400 hover:text-red-500 transition">
-            <Trash2 class="h-3 w-3" />
-          </button>
-        </div>
+  <Tabs v-if="results.length > 1" v-model="activeTab" :default-value="String(sortedResults()[0].id)">
+    <TabsList class="w-full justify-start overflow-x-auto">
+      <TabsTrigger v-for="r in sortedResults()" :key="r.id" :value="String(r.id)">
+        <span class="flex flex-col items-start">
+          <span>{{ r.model_name }}</span>
+          <span class="text-[10px] opacity-70">{{ timeAgo(r.completed_at) }}</span>
+        </span>
+      </TabsTrigger>
+    </TabsList>
+    <TabsContent v-for="r in sortedResults()" :key="r.id" :value="String(r.id)">
+      <MarkdownContent :content="r.answer" :highlight-pathname="highlightPathname" class="text-sm" />
+      <div class="flex items-center gap-1 mt-3 pt-2 border-t">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          :title="getPinnedModel() === r.model_name ? '取消置顶' : '置顶'"
+          :class="getPinnedModel() === r.model_name ? 'text-primary' : ''"
+          @click="pinResult(r.model_name)"
+        >
+          <Pin />
+        </Button>
+        <Button variant="ghost" size="icon-xs" @click="copyAnswer(r.id, r.answer)">
+          <Check v-if="copiedId === r.id" />
+          <Copy v-else />
+        </Button>
+        <Button variant="ghost" size="icon-xs" @click="emit('regenerate', r.model_name)">
+          <RefreshCw />
+        </Button>
+        <Button variant="ghost" size="icon-xs" @click="emit('deleteResult', r.id)" class="hover:text-destructive">
+          <Trash2 />
+        </Button>
       </div>
-    </template>
-  </div>
+    </TabsContent>
+  </Tabs>
 
-  <!-- Single result -->
   <div v-else-if="results.length === 1">
-    <MarkdownContent :content="results[0].answer" :highlight-pathname="highlightPathname" class="text-sm text-gray-600" />
-    <div class="flex items-center justify-between mt-3 pt-2 border-t border-gray-50">
+    <MarkdownContent :content="results[0].answer" :highlight-pathname="highlightPathname" class="text-sm" />
+    <div class="flex items-center justify-between mt-3 pt-2 border-t">
       <div class="flex items-center gap-2">
-        <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500">{{ results[0].model_name }}</span>
-        <span class="text-[10px] text-gray-400">{{ timeAgo(results[0].completed_at) }}</span>
+        <Badge variant="secondary">{{ results[0].model_name }}</Badge>
+        <span class="text-[10px] text-muted-foreground">{{ timeAgo(results[0].completed_at) }}</span>
       </div>
       <div class="flex items-center gap-1">
-        <button @click="copyAnswer(results[0].id, results[0].answer)" class="rounded-md px-1.5 py-1 text-xs text-gray-400 hover:text-gray-600 transition">
-          <Check v-if="copiedId === results[0].id" class="h-3 w-3 text-emerald-500" /><Copy v-else class="h-3 w-3" />
-        </button>
-        <button @click="emit('regenerate', results[0].model_name)" class="rounded-md px-1.5 py-1 text-xs text-gray-400 hover:text-gray-600 transition">
-          <RefreshCw class="h-3 w-3" />
-        </button>
-        <button @click="emit('deleteResult', results[0].id)" class="rounded-md px-1.5 py-1 text-xs text-gray-400 hover:text-red-500 transition">
-          <Trash2 class="h-3 w-3" />
-        </button>
+        <Button variant="ghost" size="icon-xs" @click="copyAnswer(results[0].id, results[0].answer)">
+          <Check v-if="copiedId === results[0].id" />
+          <Copy v-else />
+        </Button>
+        <Button variant="ghost" size="icon-xs" @click="emit('regenerate', results[0].model_name)">
+          <RefreshCw />
+        </Button>
+        <Button variant="ghost" size="icon-xs" @click="emit('deleteResult', results[0].id)" class="hover:text-destructive">
+          <Trash2 />
+        </Button>
       </div>
     </div>
   </div>
