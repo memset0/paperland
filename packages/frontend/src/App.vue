@@ -63,8 +63,23 @@ function isActive(path: string) {
   return route.path.startsWith(path)
 }
 
-/** Navigate to a nav item, gating restricted items behind login/admin. */
-function go(item: NavItem) {
+/** Whether the current user may navigate to this item without gating. */
+function isAccessible(item: NavItem) {
+  if (item.requiresAdmin && !auth.isAdmin) return false
+  if (item.requiresAuth && !auth.isAuthenticated) return false
+  return true
+}
+
+/** Real href for accessible items so the browser can open them in a new tab; undefined for gated items. */
+function navHref(item: NavItem) {
+  return isAccessible(item) ? router.resolve(item.path).href : undefined
+}
+
+/** Navigate to a nav item, gating restricted items behind login/admin.
+ *  Modifier-click on an accessible item is left to the browser (open in new tab). */
+function onNavClick(e: MouseEvent, item: NavItem) {
+  if (isAccessible(item) && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return
+  e.preventDefault()
   drawerOpen.value = false
   if (item.requiresAdmin && !auth.isAdmin) {
     if (!auth.isAuthenticated) openLogin()
@@ -94,7 +109,7 @@ async function doLogout() {
     <AccountDialog v-model:open="accountOpen" />
 
     <!-- ========== DESKTOP: Icon sidebar ========== -->
-    <aside v-if="!isMobile && !isEmbed" class="flex w-[52px] flex-col border-r bg-background shrink-0">
+    <aside v-if="!isMobile && !isEmbed" class="flex w-[52px] flex-col border-r bg-background shrink-0 [&_button]:active:translate-y-0! [&_a]:active:translate-y-0!">
       <div class="flex h-12 items-center justify-center border-b">
         <BookOpen class="h-5 w-5 text-primary" />
       </div>
@@ -103,12 +118,14 @@ async function doLogout() {
           <Tooltip v-for="item in navItems" :key="item.path">
             <TooltipTrigger as-child>
               <Button
+                as-child
                 variant="ghost"
                 size="icon"
                 :class="isActive(item.path) ? 'bg-accent text-accent-foreground' : ''"
-                @click="go(item)"
               >
-                <component :is="item.icon" />
+                <a :href="navHref(item)" @click="onNavClick($event, item)">
+                  <component :is="item.icon" />
+                </a>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -170,7 +187,7 @@ async function doLogout() {
               <Menu />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" class="w-64 p-0">
+          <SheetContent side="left" class="w-64 p-0 [&_button]:active:translate-y-0! [&_a]:active:translate-y-0!">
             <SheetHeader class="border-b px-4 py-3">
               <SheetTitle class="flex items-center gap-2 text-sm">
                 <BookOpen class="h-4 w-4 text-primary" />
@@ -180,15 +197,17 @@ async function doLogout() {
             <nav class="p-2 space-y-1">
               <Button
                 v-for="item in navItems" :key="item.path"
+                as-child
                 variant="ghost"
                 size="lg"
                 :class="['w-full justify-start gap-3', isActive(item.path) ? 'bg-accent text-accent-foreground' : '']"
-                @click="go(item)"
               >
-                <component :is="item.icon" />
-                {{ item.label }}
-                <span v-if="item.requiresAdmin && !auth.isAdmin" class="ml-auto text-xs text-muted-foreground">需管理员</span>
-                <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="ml-auto text-xs text-muted-foreground">需登录</span>
+                <a :href="navHref(item)" @click="onNavClick($event, item)">
+                  <component :is="item.icon" />
+                  {{ item.label }}
+                  <span v-if="item.requiresAdmin && !auth.isAdmin" class="ml-auto text-xs text-muted-foreground">需管理员</span>
+                  <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="ml-auto text-xs text-muted-foreground">需登录</span>
+                </a>
               </Button>
             </nav>
             <div class="border-t p-2 space-y-1">

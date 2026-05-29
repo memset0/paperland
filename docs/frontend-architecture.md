@@ -50,6 +50,8 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 断点统一以 Tailwind `md`（768px）为界，`App.vue` 用 `isMobile = window.innerWidth < 768` 切换全局外壳：
 
 - **外壳**：桌面端（≥ md）左侧 52px 图标侧边栏；移动端（< md）顶部 `fixed` navbar + 汉堡抽屉（`Sheet`），主内容加 `pt-12` 避让 navbar。
+- **侧边栏导航为真实链接（支持新标签页 + 门禁）**：桌面图标栏与移动抽屉的导航项均用 `Button as-child` 包一个 `<a :href>`，`href` 由 `navHref(item)` 给出——当前用户**可访问**的项取 `router.resolve(item.path).href`，**受限项**（未登录的需登录项、非管理员的管理员项）返回 `undefined`（即不渲染 `href`）。点击经 `onNavClick(e, item)`：可访问项 + 修饰键（⌘/Ctrl/Shift/Alt）时直接 `return` 交给浏览器原生「在新标签页打开」（中键由原生 `<a>` 处理）；否则 `preventDefault` 后跑登录/管理员门禁，通过则关抽屉并 `router.push`。受限项无 `href`，故修饰键/中键不开新标签页，普通点击仍触发门禁提示——门禁逻辑不变。
+- **侧边栏无按压位移**：共享 `Button` 基类带全局 `active:not-aria-[haspopup]:translate-y-px`（按下整体下移 1px）。侧边栏 `<aside>` 与抽屉 `SheetContent` 在容器层用 `[&_button]:active:translate-y-0! [&_a]:active:translate-y-0!` 覆盖，**仅**取消侧边栏内按钮/链接的按压位移；基类不动，应用内其余按钮保留该效果。
 - **全局横向溢出兜底**：`<main>` 为 `overflow-y-auto overflow-x-hidden`——内容区**永不**整页横向滚动；真正需要横向滚动的内容（数据表、代码块 `<pre>`、看板）各自包在带 `overflow-x-auto` 的内部滚动容器里，不受影响。新增布局若可能超宽，应自带内部滚动容器或在移动端折行/堆叠，**不要**依赖整页横向滚动。
 - **列表表格**：移动端用 `hidden md:table-cell` 隐藏次要列（如作者、添加/修改日期），只保留关键列（标题 + 来源），避免窄屏出现横向滚动。
 - **工具栏**：搜索 + 下拉等控件行用 `flex flex-wrap`，搜索框移动端 `w-full`（独占一行）、桌面端 `md:flex-1`。
