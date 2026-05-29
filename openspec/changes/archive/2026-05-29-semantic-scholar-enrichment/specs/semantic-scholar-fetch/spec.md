@@ -1,8 +1,5 @@
-# semantic-scholar-fetch Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change semantic-scholar-service. Update Purpose after archive.
-## Requirements
 ### Requirement: Fetch Semantic Scholar data
 The semantic_scholar_service SHALL fetch paper data from the Semantic Scholar Graph API using the paper's `arxiv_id` via the `ARXIV:{id}` path identifier, resolving citation metadata in a single request. It SHALL be a paper-bound service with `depends_on=["arxiv_id"]`. The service SHALL write back every external ID present in the response `externalIds` that the paper is missing (notably `corpus_id`); when only the original ID is available it SHALL keep it unchanged and SHALL NOT fail.
 
@@ -31,6 +28,8 @@ The Semantic Scholar integration SHALL register a single paper-bound service wit
 #### Scenario: Skip when enrichment already present
 - **WHEN** a paper already has corpus_id and all declared enrichment keys in metadata
 - **THEN** the service SHALL be skipped and marked done (no S2 request issued)
+
+## ADDED Requirements
 
 ### Requirement: Enrichment field set
 The service SHALL persist a defined set of Semantic Scholar fields, storing whatever is available and skipping anything missing. `corpus_id` SHALL be stored on the top-level paper column; `citation_count`, `influential_citation_count`, `references` (each with `paper_id`, `title`, `year`), `tldr` (text), `venue`, `year`, `doi`, `fields_of_study`, and `s2_url` SHALL be stored in `metadata` using snake_case keys. Basic fields (title, abstract, authors) SHALL only be filled when empty and SHALL NOT overwrite values already set by arxiv_service.
@@ -113,4 +112,3 @@ The paper detail view SHALL display `citation_count`, `influential_citation_coun
 #### Scenario: Hidden when absent
 - **WHEN** a paper's metadata has no S2 fields
 - **THEN** the paper detail view SHALL NOT render the citation/tldr section
-

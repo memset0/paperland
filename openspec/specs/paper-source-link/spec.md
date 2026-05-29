@@ -2,9 +2,7 @@
 
 ## Purpose
 论文来源链接功能 — 包括 link 字段的存储、自动生成、数据回填、前端来源标签展示。
-
 ## Requirements
-
 ### Requirement: Paper link field storage
 The system SHALL store an optional `link` field on each paper, containing the full URL to the paper's original source.
 
@@ -77,3 +75,19 @@ The `POST /external-api/v1/papers` and `POST /external-api/v1/papers/batch` endp
 #### Scenario: Batch create papers with link
 - **WHEN** a client sends `POST /external-api/v1/papers/batch` with papers containing `link` fields
 - **THEN** each created paper SHALL have its respective link stored
+
+### Requirement: Semantic Scholar source tag
+The paper list and the paper detail view SHALL display a clickable Semantic Scholar source tag when the paper has a `corpus_id`, shown alongside the arXiv source tag. The tag SHALL link to the paper's Semantic Scholar page (using the stored `metadata.s2_url` when present, otherwise `https://www.semanticscholar.org/paper/CorpusID:{corpus_id}`) and open in a new tab.
+
+#### Scenario: Paper with corpus_id shows S2 tag in the list
+- **WHEN** a paper in the list has a non-null corpus_id
+- **THEN** the list SHALL render a clickable Semantic Scholar tag next to the arXiv source tag, linking to the paper's S2 page
+
+#### Scenario: Paper with corpus_id shows S2 tag in detail
+- **WHEN** the paper detail view is shown for a paper with a non-null corpus_id
+- **THEN** the detail view SHALL render a clickable Semantic Scholar tag (replacing the previous non-clickable "Corpus: {id}" badge)
+
+#### Scenario: Paper without corpus_id
+- **WHEN** a paper has no corpus_id
+- **THEN** no Semantic Scholar tag SHALL be rendered
+

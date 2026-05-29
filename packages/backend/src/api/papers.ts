@@ -101,6 +101,30 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
+  // Semantic Scholar citation graph: references (this paper cites) + citations (cite this paper)
+  app.get<{ Params: { id: string }; Querystring: { direction?: string } }>(
+    '/api/papers/:id/citations',
+    async (request) => {
+      const db = getDatabase()
+      const paperId = parseInt(request.params.id, 10)
+      const dir = request.query.direction
+      let rows = db.select().from(schema.paperCitations).where(eq(schema.paperCitations.paper_id, paperId)).all()
+      if (dir === 'reference' || dir === 'citation') rows = rows.filter((r) => r.direction === dir)
+      const parse = (r: any) => ({
+        ...r,
+        authors: r.authors ? JSON.parse(r.authors) : [],
+        contexts: r.contexts ? JSON.parse(r.contexts) : [],
+        intents: r.intents ? JSON.parse(r.intents) : [],
+        is_influential: !!r.is_influential,
+      })
+      const all = rows.map(parse)
+      return {
+        references: all.filter((r) => r.direction === 'reference'),
+        citations: all.filter((r) => r.direction === 'citation'),
+      }
+    }
+  )
+
   // Update paper
   app.patch<{ Params: { id: string }; Body: { title?: string; authors?: string[]; link?: string; content?: string } }>(
     '/api/papers/:id',
@@ -167,6 +191,8 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       db.delete(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).run()
       // 3. Delete service_executions
       db.delete(schema.serviceExecutions).where(eq(schema.serviceExecutions.paper_id, id)).run()
+      // 3b. Delete S2 citation graph
+      db.delete(schema.paperCitations).where(eq(schema.paperCitations.paper_id, id)).run()
       // 4. Delete paper_tags
       db.delete(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).run()
       // 5. Delete highlights by pdf_path pattern

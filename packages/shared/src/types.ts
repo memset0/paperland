@@ -28,6 +28,26 @@ export interface PaperTag {
   tag_id: number
 }
 
+// Semantic Scholar citation graph edge
+export interface PaperCitation {
+  id: number
+  paper_id: number
+  direction: 'reference' | 'citation'
+  s2_paper_id: string | null
+  corpus_id: string | null
+  arxiv_id: string | null
+  doi: string | null
+  title: string | null
+  authors: string[]
+  year: number | null
+  venue: string | null
+  url: string | null
+  contexts: string[]
+  intents: string[]
+  is_influential: boolean
+  created_at: string
+}
+
 // QA
 export type QAEntryStatus = 'pending' | 'running' | 'done' | 'failed'
 
@@ -112,6 +132,8 @@ export interface ServiceConfig {
   rate_limit_interval?: number
   method?: string
   python_script?: string
+  api_key?: string
+  api_key_env?: string
 }
 
 export interface ModelConfig {

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core'
 
 export const papers = sqliteTable('papers', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -80,3 +80,26 @@ export const apiTokens = sqliteTable('api_tokens', {
   created_at: text('created_at').notNull(),
   revoked_at: text('revoked_at'),
 })
+
+// Semantic Scholar citation graph: one row per citation edge.
+// direction = 'reference' (this paper cites the other) | 'citation' (the other cites this paper)
+export const paperCitations = sqliteTable('paper_citations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  paper_id: integer('paper_id').notNull().references(() => papers.id),
+  direction: text('direction').notNull(),
+  s2_paper_id: text('s2_paper_id'),
+  corpus_id: text('corpus_id'),
+  arxiv_id: text('arxiv_id'),
+  doi: text('doi'),
+  title: text('title'),
+  authors: text('authors'), // JSON array of author names
+  year: integer('year'),
+  venue: text('venue'),
+  url: text('url'),
+  contexts: text('contexts'), // JSON array of citation-context snippets (where the citation occurs)
+  intents: text('intents'),   // JSON array of intent labels (background / methodology / result)
+  is_influential: integer('is_influential').notNull().default(0),
+  created_at: text('created_at').notNull(),
+}, (table) => [
+  index('paper_citations_paper_dir_idx').on(table.paper_id, table.direction),
+])

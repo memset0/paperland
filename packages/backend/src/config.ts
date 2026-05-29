@@ -35,6 +35,8 @@ const serviceSchema = z.object({
   rate_limit_interval: z.number().optional(),
   method: z.string().optional(),
   python_script: z.string().optional(),
+  api_key: z.string().optional(),
+  api_key_env: z.string().optional(),
 })
 
 const modelSchema = z.object({

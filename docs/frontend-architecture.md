@@ -72,8 +72,8 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - 系统查找是否已有匹配论文
   - 已存在 → 绑定（补充缺失 id）
   - 不存在 → 创建新记录
-- 通过 semantic scholar 获取对应的 arxiv_id（如有）并自动关联
-- 自动触发依赖 corpus_id 和 arxiv_id（如已关联）的 fetch services
+- 仅凭 corpus_id 添加的论文保持该 id，**不再**自动反查 arxiv_id（单 id 即保留）；如需进入 arxiv PDF/解析链请补充 arxiv_id
+- 自动触发依赖 arxiv_id 的 fetch services（若该论文有 arxiv_id）
 
 #### 方式三：手动输入创建
 
@@ -419,8 +419,10 @@ content_priority:
 
 ```typescript
 semantic_scholar_service:
-  depends_on: [corpus_id]
-  produces:   [arxiv_id, citation_count, references, ...]
+  depends_on: [arxiv_id]
+  produces:   [corpus_id, citation_count, influential_citation_count, references]
+  # 用 ARXIV:{id} 查询 S2，单次拿到 corpus_id + 引用富化；
+  # tldr/venue/year/doi/fields_of_study/s2_url 等存入 metadata（不纳入 produces，可能缺失）
 
 arxiv_service:
   depends_on: [arxiv_id]
@@ -435,7 +437,8 @@ pdf_parse_service:
 #### 依赖图（前端可视化展示）
 
 ```
-corpus_id ──→ semantic_scholar_service ──→ arxiv_id ──→ arxiv_service ──→ pdf_path ──→ pdf_parse_service ──→ contents.pdf_parsed
+arxiv_id ──┬─→ semantic_scholar_service ──→ corpus_id + 引用富化 (citation_count / references / tldr ...)
+           └─→ arxiv_service ──→ pdf_path ──→ pdf_parse_service ──→ contents.pdf_parsed
 ```
 
 #### 自动调度逻辑
@@ -489,9 +492,9 @@ corpus_id ──→ semantic_scholar_service ──→ arxiv_id ──→ arxiv_
 │    ┌─┐ ┌─┐ ┌─┐           rate_limit_interval: 3s           │
 │    └─┘ └─┘ └─┘                                             │
 │                                                             │
-│  semantic_scholar_service: max_concurrency: 5               │
-│    ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐  rate_limit_interval: 1s           │
-│    └─┘ └─┘ └─┘ └─┘ └─┘                                    │
+│  semantic_scholar_service: max_concurrency: 1               │
+│    ┌─┐                  rate_limit_interval: 1s            │
+│    └─┘                  (带 key 1 RPS；无 key 建议 3s)      │
 │                                                             │
 │  pdf_parse_service:       max_concurrency: 2                │
 │    ┌─┐ ┌─┐                (本地操作，无需限流)               │
@@ -586,9 +589,10 @@ services:
   arxiv:
     max_concurrency: 3
     rate_limit_interval: 3     # 两次请求最小间隔 (秒)
-  semantic_scholar:
-    max_concurrency: 5
-    rate_limit_interval: 1
+  semantic_scholar_service:    # 服务名须与代码注册名一致，否则并发/限流不生效
+    max_concurrency: 1         # S2 带 key 默认 1 RPS（所有端点）
+    rate_limit_interval: 1     # 无 key 建议 3；S2 强制指数退避
+    # api_key_env: SEMANTIC_SCHOLAR_API_KEY   # 或 api_key: <key>（config.yml 已 gitignore），经 x-api-key 头发送
   pdf_parse:
     max_concurrency: 2
     method: python             # python | nodejs
@@ -686,7 +690,7 @@ models:
 | abstract | text (nullable) | 摘要 |
 | contents | text (JSON, nullable) | 论文内容字典，详见下方 |
 | pdf_path | text (nullable) | 本地 PDF 文件路径 |
-| metadata | text (JSON, nullable) | 各服务抓取的其他元数据 |
+| metadata | text (JSON, nullable) | 各服务抓取的其他元数据（S2: citation_count / influential_citation_count / references / tldr / venue / year / doi / fields_of_study / s2_url） |
 | tags_json | text (JSON, nullable) | 冗余标签数据 `[{id, name}]`，自动同步 |
 | created_at | datetime | 创建时间 |
 

@@ -163,7 +163,7 @@ Base URL: `/external-api/v1`
 | `exclude` | (无) | 排除指定字段，逗号分隔。如 `exclude=contents,services` |
 
 **注意事项：**
-- `auto_create=true` 时，通过 corpus_id 可能解析出 arxiv_id，如果该 arxiv_id 已存在则合并到已有条目（不会重复创建）
+- `auto_create=true` 时按所提供的 arxiv_id / corpus_id 创建并触发抓取；带 arxiv_id 的论文会经 `semantic_scholar_service` 补全 corpus_id 与引用富化。**仅凭 corpus_id 创建的论文不再自动反查 arxiv_id**（单 id 即保留）
 - `auto_template_qa=true` 时，仅执行缺失的模板提问（和前端"一键生成"行为一致）
 - 该接口设有较长 timeout，等待所有抓取和提问完成后返回完整数据
 
@@ -183,7 +183,17 @@ Base URL: `/external-api/v1`
       "pdf_parsed": "We propose a new simple network architecture..."
     },
     "pdf_path": "/data/pdfs/2401.12345.pdf",
-    "metadata": {},
+    "metadata": {
+      "citation_count": 178090,
+      "influential_citation_count": 19901,
+      "tldr": "A new simple network architecture, the Transformer, based solely on attention...",
+      "references": [{ "paper_id": "...", "title": "...", "year": 2015 }],
+      "venue": "Neural Information Processing Systems",
+      "year": 2017,
+      "doi": "10.48550/arXiv.2401.12345",
+      "fields_of_study": ["Computer Science"],
+      "s2_url": "https://www.semanticscholar.org/paper/<paperId>"
+    },
     "tags": ["transformer", "attention"],
     "created_at": "2026-03-18T10:00:00Z",
     "updated_at": "2026-03-18T12:30:00Z"

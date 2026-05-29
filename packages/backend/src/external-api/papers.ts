@@ -134,6 +134,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
       }
       db.delete(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).run()
       db.delete(schema.serviceExecutions).where(eq(schema.serviceExecutions.paper_id, id)).run()
+      db.delete(schema.paperCitations).where(eq(schema.paperCitations.paper_id, id)).run()
       db.delete(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).run()
       if (paper.pdf_path) {
         db.delete(schema.highlights).where(like(schema.highlights.pathname, `%${paper.pdf_path}%`)).run()

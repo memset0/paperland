@@ -210,9 +210,10 @@ services:
   arxiv:
     max_concurrency: 3
     rate_limit_interval: 3          # 两次请求最小间隔 (秒)
-  semantic_scholar:
-    max_concurrency: 5
-    rate_limit_interval: 1
+  semantic_scholar_service:         # 服务名须与代码注册名一致
+    max_concurrency: 1              # S2 带 key 默认 1 RPS
+    rate_limit_interval: 1          # 无 key 建议 3；强制指数退避
+    # api_key_env: SEMANTIC_SCHOLAR_API_KEY   # 或 api_key: <key>，经 x-api-key 头发送
   pdf_parse:
     max_concurrency: 2
     method: python                  # python | nodejs

@@ -256,12 +256,20 @@ class ServiceRunner {
       if (result && Object.keys(result).length > 0) {
         const updates: Record<string, any> = {}
 
+        // Read the paper ONCE and accumulate metadata/contents across all keys.
+        // (Re-reading per key would make each metadata/contents write clobber the
+        // previous one, so only the last key would survive.)
+        const currentPaper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
+        const metadataObj: Record<string, any> = currentPaper?.metadata ? JSON.parse(currentPaper.metadata) : {}
+        const contentsObj: Record<string, any> = currentPaper?.contents ? JSON.parse(currentPaper.contents) : {}
+        let metadataChanged = false
+        let contentsChanged = false
+
         for (const [key, value] of Object.entries(result)) {
           if (value === undefined || value === null) continue
 
           if (key === 'title' || key === 'abstract' || key === 'authors') {
             // Basic fields: only fill if empty
-            const currentPaper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
             if (key === 'title' && (!currentPaper?.title || currentPaper.title === 'Untitled')) {
               updates.title = value
             } else if (key === 'abstract' && !currentPaper?.abstract) {
@@ -273,22 +281,31 @@ class ServiceRunner {
               }
             }
           } else if (key === 'arxiv_id' || key === 'corpus_id' || key === 'pdf_path' || key === 'link') {
+            // corpus_id is UNIQUE: if another paper already holds it, skip writing
+            // it (keeping the rest of the enrichment) instead of failing the run.
+            if (key === 'corpus_id') {
+              const conflict = db.select().from(schema.papers)
+                .where(eq(schema.papers.corpus_id, String(value)))
+                .get()
+              if (conflict && conflict.id !== paperId) {
+                console.warn(`Skipping corpus_id ${value} for paper ${paperId}: already held by paper ${conflict.id}`)
+                continue
+              }
+            }
             updates[key] = value
           } else if (key.startsWith('contents.')) {
-            // Update contents JSON
             const contentKey = key.replace('contents.', '')
-            const currentPaper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
-            const currentContents = currentPaper?.contents ? JSON.parse(currentPaper.contents) : {}
-            currentContents[contentKey] = value
-            updates.contents = JSON.stringify(currentContents)
+            contentsObj[contentKey] = value
+            contentsChanged = true
           } else {
-            // Store in metadata
-            const currentPaper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
-            const currentMetadata = currentPaper?.metadata ? JSON.parse(currentPaper.metadata) : {}
-            currentMetadata[key] = value
-            updates.metadata = JSON.stringify(currentMetadata)
+            // Accumulate into a single metadata object, written once below.
+            metadataObj[key] = value
+            metadataChanged = true
           }
         }
+
+        if (metadataChanged) updates.metadata = JSON.stringify(metadataObj)
+        if (contentsChanged) updates.contents = JSON.stringify(contentsObj)
 
         if (Object.keys(updates).length > 0) {
           db.update(schema.papers)

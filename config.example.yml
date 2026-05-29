@@ -23,9 +23,16 @@ services:
   arxiv_pdf_service:
     max_concurrency: 2
     rate_limit_interval: 3
-  semantic_scholar:
-    max_concurrency: 5
-    rate_limit_interval: 1
+  # Service name MUST match the code's registered name (semantic_scholar_service),
+  # otherwise the configured concurrency/rate-limit is never bound to the service.
+  semantic_scholar_service:
+    max_concurrency: 1          # S2 default API key = 1 RPS across all endpoints
+    rate_limit_interval: 1      # seconds between requests; without a key, use 3
+    # Optional Semantic Scholar API key for higher rate limits, sent as the
+    # `x-api-key` header. Prefer api_key_env to avoid committing secrets; or set
+    # api_key directly since config.yml is gitignored.
+    # api_key_env: SEMANTIC_SCHOLAR_API_KEY
+    # api_key: s2k-xxxxxxxxxxxxxxxx
   pdf_parse:
     max_concurrency: 2
     method: nodejs

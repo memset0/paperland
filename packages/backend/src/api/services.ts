@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, isNotNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { serviceRunner } from '../services/service_runner.js'
 
@@ -102,4 +102,27 @@ export async function serviceRoutes(app: FastifyInstance): Promise<void> {
       return { success: true, message: `Service ${serviceName} triggered for paper ${paperId}` }
     }
   )
+
+  // One-time backfill: run semantic_scholar_service for existing papers missing
+  // S2 enrichment (no citation_count) or with no citation-graph rows yet. Each run
+  // goes through the runner so the configured rate limit serializes S2 requests.
+  app.post('/api/services/backfill/semantic_scholar_service', async () => {
+    const db = getDatabase()
+    const rows = db.select({ id: schema.papers.id, metadata: schema.papers.metadata })
+      .from(schema.papers)
+      .where(isNotNull(schema.papers.arxiv_id))
+      .all()
+    const withGraph = new Set(
+      db.select({ pid: schema.paperCitations.paper_id }).from(schema.paperCitations).all().map((r) => r.pid)
+    )
+    const eligible = rows.filter((p) => {
+      let meta: any = {}
+      try { meta = p.metadata ? JSON.parse(p.metadata) : {} } catch {}
+      return meta.citation_count === undefined || !withGraph.has(p.id)
+    })
+    for (const p of eligible) {
+      serviceRunner.executeServiceForPaper('semantic_scholar_service', p.id).catch(() => {})
+    }
+    return { success: true, queued: eligible.length }
+  })
 }
