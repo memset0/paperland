@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Paperland">
+  <path d="M7 0 H21 L27 6 V30 a2 2 0 0 1 -2 2 H7 a2 2 0 0 1 -2 -2 V2 a2 2 0 0 1 2 -2 Z" fill="#0069A8"/>
+  <path d="M21 0 L27 6 H21 Z" fill="#004F7E"/>
+  <g fill="#FFFFFF">
+    <rect x="8" y="9.5" width="16" height="3" rx="1.5"/>
+    <rect x="8" y="14.5" width="16" height="3" rx="1.5"/>
+    <rect x="8" y="19.5" width="10" height="3" rx="1.5"/>
+  </g>
+</svg>
