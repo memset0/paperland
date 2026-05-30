@@ -11,6 +11,44 @@ This project follows the **OpenSpec** workflow. All changes must go through:
 
 **Every code change must also update the corresponding docs in `docs/`** (frontend-architecture.md, external-api.md, tech-stack.md).
 
+### Keep the spec in sync during apply
+
+If, **after** `/opsx:apply`, you make small bug fixes or feature tweaks beyond what the change originally described, promptly fold them back into the current change's spec (its `proposal.md`, delta specs under `openspec/changes/<name>/specs/`, and `tasks.md` as needed). Don't let the implementation drift ahead of the spec — the spec must reflect what was actually built before the change is archived.
+
+### Sync delta specs to main specs when archiving
+
+When `/opsx:archive` prompts about delta spec sync, **default to syncing** — i.e. choose "Sync now (recommended)" so the change's delta specs under `openspec/changes/<name>/specs/` are merged into the main specs under `openspec/specs/<capability>/spec.md`. Only skip syncing if the user explicitly asks to archive without syncing.
+
+### Auto-commit after archiving
+
+After running `/opsx:archive` **and** the change is archived successfully (including the spec sync above), automatically commit the files involved in that change to git, then push to `main`:
+
+1. Stage **only the files your change touched**, by explicit path (its archived openspec artifacts, the synced main specs, plus the code/docs it modified). **Never** `git add -A` / `git add .` / `git add -u` — that would sweep up other agents' work-in-progress.
+2. If a file was modified by both this change and another agent concurrently, it's fine to commit the whole file (including a little of the other agent's work) — the on-disk state is the one that runs. Just confirm the final file list before committing.
+3. Commit, then push to `main` using the concurrency-safe protocol below.
+
+Do **not** auto-commit if the archive step failed.
+
+#### Concurrent agents: rebase onto the live `main` before pushing
+
+Multiple agents may be editing this shared working tree and pushing to `main` at the same time. Their combined uncommitted changes are known to run fine together; the only real hazard is a push conflict on `main`. To avoid it, **never assume your local `main` (the HEAD scanned at session start) is current** — always re-sync onto the live remote tip immediately before pushing:
+
+```bash
+git add <only the files your change touched>     # explicit paths, never -A / . / -u
+git commit -m "<message>"
+git fetch origin main
+git rebase origin/main                            # replay your commit onto the latest tip
+git push origin HEAD:main
+```
+
+Retry on contention (a few times, with a short backoff):
+- **Push rejected (non-fast-forward)** — another agent pushed between your `fetch` and `push`. Re-run `git fetch origin main && git rebase origin/main && git push origin HEAD:main`.
+- **`index.lock` / `*.lock` already exists** — another agent's git command is mid-flight in the shared repo. This is a *safe* abort (git won't corrupt anything); wait ~2s and retry the same command.
+
+Because each agent stages only its own files and the on-disk content already runs as a whole, the rebase almost always replays cleanly. Do **not** reach for tree-wide operations to "fix" a snag — no `git stash` / `git pull --autostash` / `git checkout .` / `git reset --hard` / `git clean`. They would clobber files other agents are still editing. If a rebase aborts complaining about *unstaged changes to files you don't own*, an agent is mid-edit: wait and retry, and if it stays blocked, stop and report rather than disturbing their work.
+
+> Cleanest isolation (optional): run each concurrent agent in its own `git worktree`, so indexes and working files can't collide and the rebase is always clean — only `origin/main` is shared. The retry protocol above is what makes in-place, shared-tree work safe when worktrees aren't used.
+
 ## Commands
 
 ```bash
