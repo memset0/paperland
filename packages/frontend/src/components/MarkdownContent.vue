@@ -13,15 +13,21 @@ import { useHighlightStore } from '@/stores/highlights'
 import { useAuthStore } from '@/stores/auth'
 import { applyHighlights, clearHighlights, getSelectionOffsets } from '@/composables/useHighlight'
 import { useBlockAnchor, type AnchorRange } from '@/composables/useBlockAnchor'
+import { usePdfNavigation } from '@/composables/usePdfNavigation'
 import type { HighlightColor } from '@paperland/shared'
 
-const props = defineProps<{ content: string; highlightPathname?: string; paperId?: number }>()
+// `disableHighlights` renders the markdown read-only: no selection toolbar, no stored
+// highlights, no highlight click-menu. Anchor-link and KaTeX-copy clicks still work.
+// Used by the walkthrough view, whose dynamically-assembled content is incompatible with
+// the content-hash-keyed highlight model.
+const props = defineProps<{ content: string; highlightPathname?: string; paperId?: number; disableHighlights?: boolean }>()
 
 const highlightStore = useHighlightStore()
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const { locateBlock } = useBlockAnchor()
+const { requestPdfNavigation } = usePdfNavigation()
 const containerRef = ref<HTMLElement | null>(null)
 
 // Touch device detection (same approach as QAPanelNav.vue)
@@ -54,6 +60,7 @@ const contentHash = computed(() => {
 
 /** Get highlights for this specific content from the store */
 const myHighlights = computed(() => {
+  if (props.disableHighlights) return []
   if (!contentHash.value) return []
   return highlightStore.getForHash(contentHash.value)
 })
@@ -176,17 +183,29 @@ async function createHighlight(color: HighlightColor) {
 
 // ---- paperland:// anchor links ----
 
-/** Parse `paperland://paper/<id>?h=<hash>&s=<start>&e=<end>` (h/s/e all optional). */
-function parsePaperlandUrl(href: string): { paperId: number; hash: string | null; range: AnchorRange | null } | null {
+interface PdfAnchor { page: number; ts: number | null; te: number | null }
+
+/**
+ * Parse a `paperland://paper/<id>` anchor. Supports a Markdown-block target
+ * (`?h=<hash>&s=<start>&e=<end>`) or a PDF target (`?pdf=<page>&ts=<start>&te=<end>`).
+ * `pdf` takes precedence when both `h` and `pdf` are present; all sub-params optional.
+ */
+function parsePaperlandUrl(href: string): { paperId: number; hash: string | null; range: AnchorRange | null; pdf: PdfAnchor | null } | null {
   const m = href.match(/^paperland:\/\/paper\/(\d+)(?:\?(.*))?$/)
   if (!m) return null
   const params = new URLSearchParams(m[2] || '')
   const s = params.get('s')
   const e = params.get('e')
+  const pdf = params.get('pdf')
+  const ts = params.get('ts')
+  const te = params.get('te')
   return {
     paperId: parseInt(m[1], 10),
     hash: params.get('h'),
     range: s != null && e != null ? { start: parseInt(s, 10), end: parseInt(e, 10) } : null,
+    pdf: pdf != null
+      ? { page: parseInt(pdf, 10), ts: ts != null ? parseInt(ts, 10) : null, te: te != null ? parseInt(te, 10) : null }
+      : null,
   }
 }
 
@@ -199,6 +218,20 @@ function onAnchorLinkClick(e: MouseEvent | Event) {
   const target = parsePaperlandUrl(a.getAttribute('href') || '')
   if (!target) return
   const onSamePaper = route.name === 'paper-detail' && parseInt(route.params.id as string, 10) === target.paperId
+
+  // PDF target → embedded viewer (takes precedence over a block target).
+  if (target.pdf) {
+    const { page, ts, te } = target.pdf
+    if (onSamePaper) {
+      requestPdfNavigation(ts != null && te != null ? { page, ts, te } : { page })
+    } else {
+      const query: Record<string, string> = { pdf: String(page) }
+      if (ts != null && te != null) { query.ts = String(ts); query.te = String(te) }
+      router.push({ path: `/papers/${target.paperId}`, query })
+    }
+    return
+  }
+
   if (onSamePaper) {
     locateBlock(target.paperId, target.hash, target.range)
   } else {
@@ -369,6 +402,7 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: 'Yellow', green: 
 
 onMounted(() => {
   renderAndHighlight()
+  if (props.disableHighlights) return // read-only: no toolbar/menu listeners
   // Selection detection via selectionchange (works on both desktop and mobile)
   document.addEventListener('selectionchange', onSelectionChange)
   // Popup dismissal — both mouse and touch
@@ -474,6 +508,7 @@ onBeforeUnmount(() => {
 .markdown-content :deep(th) { background: #f9fafb; font-weight: 600; }
 .markdown-content :deep(strong) { font-weight: 600; }
 .markdown-content :deep(a) { color: var(--primary); text-decoration: underline; word-break: break-all; }
+.markdown-content :deep(img) { max-width: 100%; height: auto; border-radius: 0.375rem; margin: 0.5em 0; }
 .markdown-content :deep(hr) { border: none; border-top: 1px solid #e5e7eb; margin: 0.75em 0; }
 /* KaTeX display math: center and handle overflow */
 .markdown-content :deep(.katex-display) {

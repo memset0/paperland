@@ -1,9 +1,4 @@
-# paper-viewer-modes Specification
-
-## Purpose
-Multi-mode paper viewing in the detail page left panel, supporting PDF and translation iframe modes with tab-based switching.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Multi-mode viewer in wide layout
 The paper detail page left panel SHALL support multiple viewing modes via a tab bar. Each mode renders different content in the same viewer area.
@@ -28,19 +23,7 @@ The paper detail page left panel SHALL support multiple viewing modes via a tab 
 - **WHEN** a paper has neither `pdf_path` nor `arxiv_id`
 - **THEN** the viewer area SHALL show a placeholder message indicating no viewer content is available
 
-### Requirement: Narrow layout hides viewer
-In single-column (narrow) layout, the viewer panel SHALL be hidden entirely.
-
-#### Scenario: Narrow screen
-- **WHEN** the screen width is below 900px
-- **THEN** the viewer panel SHALL not be rendered and only paper info and Q&A content SHALL be shown
-
-### Requirement: Viewer mode extensibility
-The viewer mode system SHALL be data-driven so that new modes can be added by defining a mode object with name, availability condition, and content renderer.
-
-#### Scenario: Adding a new mode
-- **WHEN** a developer adds a new entry to the viewer modes array
-- **THEN** the tab bar and mode switching SHALL automatically support the new mode without changes to the tab/switching logic
+## ADDED Requirements
 
 ### Requirement: Viewer panel activates the PDF tab on a PDF anchor
 When an in‑app PDF anchor navigation is requested (from a clicked `paperland://…?pdf=…` link or from route query on cross‑paper navigation), the viewer panel SHALL switch the active tab to "PDF 原文" if it is not already active, and forward the page/region navigation request to the embedded pdf.js viewer.

@@ -347,7 +347,7 @@ content_priority:
 | class-variance-authority + clsx + tailwind-merge | cn() 与变体管理 |
 | vue-sonner | Toast 通知（由 `<Toaster>` 组件包装） |
 | vuedraggable | 拖拽（idea-forge Kanban） |
-| pdfjs-dist | PDF 在线阅读 |
+| pdfjs-dist | 嵌入式 PDF 查看器（替代浏览器原生插件）：canvas 渲染 + 文本层选区，支撑 `paperland://…?pdf=…` 页面/选区锚点。**版本精确 pin**（`ts/te` 为 pdf.js 文本偏移，需跨版本稳定）；动态 `import()` code-split，worker 经 `pdf.worker.min.mjs?url` 注册到 `GlobalWorkerOptions.workerSrc` |
 | turndown + turndown-plugin-gfm | 选区 HTML→Markdown 还原（「复制为锚点链接」：GFM 表格、数学按 `$`/`$$` 还原） |
 
 ### Python (scripts/)
