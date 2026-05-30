@@ -57,6 +57,13 @@ const qaTemplateSchema = z.object({
   prompt: z.string(),
 })
 
+const imageHostSchema = z.object({
+  dir: z.string().default('./data/images'),
+  max_size_mb: z.number().positive().default(18),
+  allowed_types: z.array(z.string()).default(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+  public_base_url: z.string().default(''),
+})
+
 const configSchema = z.object({
   database: databaseSchema,
   auth: authSchema,
@@ -65,6 +72,7 @@ const configSchema = z.object({
   content_priority: z.array(z.string()).default(['user_input', 'pdf_parsed']),
   system_prompt: z.string(),
   qa: z.array(qaTemplateSchema).min(1),
+  image_host: imageHostSchema.default({}),
 })
 
 let _config: AppConfig | null = null

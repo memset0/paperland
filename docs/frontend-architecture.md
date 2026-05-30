@@ -10,7 +10,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 - **框架**：Vue 3 + Vite，状态管理 Pinia，路由 vue-router
 - **样式**：Tailwind CSS v4（CSS-first 配置，`@tailwindcss/vite` 接管编译），无 `tailwind.config.js`、无 `postcss.config.js`
-- **主题**：OKLCH CSS 变量定义在 `src/assets/main.css` 的 `:root` / `.dark` 块；`@theme inline { ... }` 把变量映射为 Tailwind token（`bg-background` / `text-foreground` / `bg-primary` 等）
+- **主题**：OKLCH CSS 变量定义在 `src/assets/main.css` 的 `:root` / `.dark` 块；`@theme inline { ... }` 把变量映射为 Tailwind token（`bg-background` / `text-foreground` / `bg-primary` 等）。明暗切换由 `stores/theme.ts` 驱动（见下文「主题切换（夜间模式）」），开关只在 `<html>` 上加/去 `.dark` 类，全站 token 随之生效，组件无需逐个改色
 - **组件库**：[shadcn-vue](https://shadcn-vue.com) —— 通过 `bunx shadcn-vue@latest add <name>` 把组件代码下载到 `src/components/ui/`（代码即资产，可直接编辑）。底层无样式原语来自 [reka-ui](https://reka-ui.com)（前身 radix-vue）
 - **图标**：`@lucide/vue`（`Github` brand 图标因商标原因被 lucide v1 下架，App.vue 用 inline SVG 替代）
 - **Favicon / 品牌图标**：`packages/frontend/public/favicon.svg`（Vite 把 `public/` 原样拷到 `dist/` 根）——**主题色文档图标**（`#0069A8` = `--primary = oklch(0.5 0.134 242.749)`，竖版页面铺满画布高度/保持竖版比例不拉伸/水平居中，右上折角 dog-ear `#004F7E`，文档内 3 条**白色文字线镂空**）置于**透明背景**，与「论文管理」的 `FileText` 母题一致；`index.html` 以 `<link rel="icon" type="image/svg+xml" href="/favicon.svg">` 引用。颜色硬编码自 `--primary`（favicon 独立渲染、无法用 CSS 变量），**改主题色需重生成 favicon**。仅 SVG（常青浏览器 + Safari ≥16.4）；本机无 SVG→PNG 工具时未生成 `apple-touch-icon.png` 等光栅回退
@@ -61,6 +61,15 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - **PaperDetail 根高度**：用 `h-full`（贴合 `main` 内容盒高度）而非 `h-screen`，以正确扣除移动端 navbar 的 `pt-12`，避免 100vh + 48px 造成的纵向溢出与双滚动条。
 - **QAPanelNav**：滚动定位条（scroll-spy 竖向小圆点）是桌面悬浮态交互，< 768px 直接 `display: none`，避免在窄屏右缘压住正文。
 
+### 主题切换（夜间模式）
+
+左下角一键切换的明暗主题，在**白天 / 夜间 / 跟随系统**三态间循环（点击依次 Light → Dark → System → Light）。
+
+- **Store**（`stores/theme.ts`）：`mode: 'light' | 'dark' | 'system'`，初值读自 `localStorage['paperland_theme']`（缺失/非法/不可用时回退 `system`）；派生 `resolved: 'light' | 'dark'`（`system` 时按 `matchMedia('(prefers-color-scheme: dark)')` 折叠为实际明暗）。唯一副作用集中在 store：`watch(resolved)` 在 `document.documentElement` 上加/去 `.dark` 类。`cycle()` 推进三态并持久化；并注册 `matchMedia` 的 `change` 监听，使 `system` 模式实时跟随系统切换。
+- **防白闪（FOUC）**：`index.html` `<head>` 内联一段极小脚本，在主 bundle 加载前读取同一 `paperland_theme` 键并预先给 `<html>` 加 `.dark`，避免夜间模式刷新时先闪一下白天主题；store 挂载后为权威源（两者用同一键/逻辑，必然收敛）。
+- **入口位置**：桌面侧边栏底部（账号/GitHub 旁，ghost 图标按钮 + tooltip 显示当前模式）、移动端抽屉 footer（整行按钮，带文字）。图标 `Sun`/`Moon`/`Monitor`（`@lucide/vue`）即当前态指示。embed 模式下整个外壳隐藏，故开关自然不出现。
+- **PDF 内容随主题变色**：见上文「嵌入式 pdf.js 查看器」的「主题感知渲染」——夜间用 pdf.js 原生 `pageColors` 灰底白字重渲染。
+
 ### 页面布局（`AppPage` 统一管理页布局）
 
 各「XX 管理」页通过共享组件 `components/AppPage.vue` 统一页面标题与内容宽度，不再各自手写页头 / 宽度容器：
@@ -74,8 +83,10 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 各路由归类：
 
 - **全宽（`full`）**：论文管理 `/`（表格需要整页宽）。
-- **收窄管理布局（`max-w-5xl`）**：`/tags`、`/qa`（`fill`）、`/notes`、`/conferences`、`/conferences/:id`（标题固定为 `Conferences`，会议名 + 返回按钮置于内容区）、`/services`、`/settings`、`/idea-forge`。
+- **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/images`（图床画廊）、`/conferences`、`/conferences/:id`（标题固定为 `Conferences`，会议名 + 返回按钮置于内容区）、`/services`、`/settings`、`/idea-forge`。
 - **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`、Idea 工作区 `/idea-forge/:projectName`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
+
+> **新建管理页 checklist**：① 在 `router/index.ts` 给路由加 `meta.title`（英文，与侧边栏/标签一致）+ `meta.icon`（`@lucide/vue` 图标）；② 在 `App.vue` 加侧边栏导航项（同图标 + 英文标签）；③ 视图根用 `<AppPage>` 包裹，**不要再手写 `<h1>` 或宽度容器**——标题/图标由 `AppPage` 从 `meta` 自动渲染；画廊/看板/表格类传 `full`，自管内部滚动类传 `fill`，右上角按钮放 `#actions` 插槽。详情页除外。
 
 > 标题「随滚动固定」（sticky header）暂未实现，仍维持滚动后标题滑出视口的现状。
 
@@ -250,6 +261,8 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 - **加载**：`lib/pdfjs.ts` 的 `loadPdfjs()` 动态 `import('pdfjs-dist')`（被 Vite code-split 成独立 chunk，只有打开 PDF Tab 才拉取），worker 以 `pdf.worker.min.mjs?url` 注册到 `GlobalWorkerOptions.workerSrc`。`pdfjs-dist` 版本在 package.json 中**精确 pin**——`ts/te` 是 pdf.js 提取文本的字符偏移，需跨部署版本稳定。
 - **渲染**：连续纵向滚动，每页一个按宽高比预留的占位 `.pdf-page`；`IntersectionObserver`（`rootMargin 200%`）在临近视口时把该页渲染到 canvas（HiDPI 用 `transform:[dpr,…]`）+ pdf.js 文本层（透明、可原生选中），远离视口时卸载 canvas 以省内存。
+- **主题感知渲染（夜间模式）**：读 `stores/theme.ts` 的 `resolved`，夜间时给 `page.render({ pageColors })` 传 pdf.js **原生** `pageColors`（灰底 `#3a3a3a` / 近白字 `#e8e8e8`，与 `.pdf-page` 的 `.dark` 背景一致），由 pdf.js 在栅格内重新着色——比 CSS `invert()` 更准（可独立设灰底/白字），且选区高亮、`pdf-region-flash` 在 canvas 之上、仍走 UI token 不被反色。`pageColors` 烤进 canvas 无法原地变色，故 `watch(theme.resolved)` 在主题切换时对当前已渲染（可见/邻近）页用新配色重渲染（`rendered`/`renderTasks` 项带 `dark` 标记，使「同尺度已渲染」判断在仅主题变化时也重渲染），离屏页滚动到时再渲染。pdf.js 无现成「夜间模式」开关，`pageColors`（原为高对比/forced-colors 设计）是其支持的着色原语。
+- **无白闪渲染**：pdf.js 在每次 render **开始**时把 canvas 填白（`background || "#ffffff"`），夜间的 `pageColors`（HCM 滤镜）要到 render **结束**才套上。若 canvas 先挂进 DOM 再渲染，浏览器会画出「白底→黑字→暗色滤镜」的中间帧 → 闪白。故每页渲染到**离屏新建 canvas**，待 `renderTask.promise` 完成（已是暗色）后再 `appendChild`/`replaceWith` 换入；旧 canvas 保留到换入瞬间。这样首帧即暗色不闪白，主题切换/缩放重栅格期间也不空屏不闪。
 - **当前页 / 跳转 / 缩放 / 适配模式**：滚动时按页矩形与视口中线判定「当前页」；工具栏含 上/下一页、页码跳转输入、缩放、**适配模式切换**（宽度铺满 ↔ 高度铺满，`MoveHorizontal`/`MoveVertical` 图标，**仅当前打开有效、不记忆**，默认宽度铺满；切换会把 zoom 重置为 1 使适配精确）。`effectiveScale = fitScale × zoom`，`fitScale` 由 `fitMode` 取「容器宽 / 首页宽」或「容器高 / 首页高」；缩放/适配后 canvas + 文本层按新尺度重渲染并保持对齐，文本层设 `--scale-factor`。
 - **拖动分屏不卡**：宽度变化时只即时缩放占位页与 CSS 填充的 canvas，昂贵的重栅格化（canvas + 文本层）去抖 ~320ms（`RE_RASTER_DEBOUNCE_MS`），待尺度真正稳定后只做一次；期间页面保持 CSS 缩放（略软）直到落定（高度铺满模式下拖动分屏宽度不改变 `fitScale`，更不触发重渲染）。
 - **选区 → 链接**：文本层支持原生选区；落定后用 `getSelectionOffsets`（复用 `useHighlight`）算出该页 `ts/te` 偏移，弹出「复制选区链接」浮钮，复制 `<选区文本> [#](paperland://paper/<id>?pdf=<page>&ts=<ts>&te=<te>)`；工具栏「复制本页链接」复制 `[PDF p.N](paperland://paper/<id>?pdf=N)`。
@@ -345,10 +358,10 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 ### 1A.3 页面
 
 - **`/conferences`（ConferenceList.vue）**：会议列表。支持按 name 模糊搜索 + 按 `year` 筛选。每张卡片显示 `paper_count` + 各状态计数。「新建会议」按钮弹出对话框（仅 `name` 必填）。
-- **`/conferences/:id`（ConferenceDetail.vue）**：会议详情。按 `topic` 分组展示候选论文（`null` topic 归入「未分类」）。每条候选是一张**筛选卡片**：标题 → 元信息行（作者 · 引用数 · 领域）→ S2 **TL;DR** → **abstract**（`line-clamp` 截断 + 展开/收起）→ **统一外链行**（arXiv chip + `S2Badge` + OpenReview/原文 chip，只显示存在的）+ 可编辑 `#主题`。右侧为**状态药丸**（待添加 / 仅元数据 / 已在库）+ 主操作（仅元数据 → 加入；已在库 → 打开）+ `⋯` 菜单（编辑主题、删除）。顶栏「导入」对话框支持上传 JSON 文件或粘贴 JSON（接受 `{ papers: [...] }` 或裸数组）。
+- **`/conferences/:id`（ConferenceDetail.vue）**：会议详情。按 `topic` 分组展示候选论文（`null` topic 归入「未分类」）。每条候选是一张**筛选卡片**：标题 → 元信息行（作者 · 引用数 · 领域）→ S2 **TL;DR** → **abstract**（`line-clamp` 截断 + 展开/收起）→ **统一外链行**（按源着色、与论文详情页一致：arXiv 红色 `Badge`（`destructive`）+ 蓝色 `S2Badge` + OpenReview/原文 灰色 `Badge`（`secondary`），只显示存在的）。候选已按 `topic` 分组，**行内不再重复 `#主题` 标签**；改主题走 `⋯` 菜单的「编辑主题」（点开后在外链行就地显示输入框 + 确认）。右侧为**状态药丸**（待添加 / 仅元数据 / 已在库）+ 主操作（仅元数据 → 加入；已在库 → 打开）+ `⋯` 菜单（编辑主题、删除）。顶栏「导入」对话框支持上传 JSON 文件或粘贴 JSON（接受 `{ papers: [...] }` 或裸数组）。
   - **三态生命周期（派生）**：`待添加`（无 `paper_id`）→ `仅元数据`（有 `paper_id` 且 `paper_listed === false`）→ `已在库`（`paper_listed === true` 或 `status === 'ingested'`）。UI **不再**呈现 `pending/candidate` 的「确认 / 退回」工作流与「本次会议一键添加」（DB `status` 列保留但前端不用）。
   - **复选框 = 选择以「加入列表」**：`仅元数据` 行可勾选；`已在库` 行默认勾选且锁定（不计入选择集合）；`待添加` 行禁用（需先「解析」）。「全选本组」只选 `仅元数据` 行。批量栏「加入选中到列表 (N)」→ `POST /api/conferences/:id/papers/promote { ids }`（对每条关联论文翻 `listed=1` 并触发完整管线，返回 `{ promoted, skipped, errors }`）。
-  - **筛选字段 & 外链**：卡片的 abstract / TL;DR / 引用数 / 领域来自关联论文（`GET /api/conferences/:id/papers` 附带 `paper_abstract` / `paper_tldr` / `paper_citation_count` / `paper_fields_of_study`）。外链 id 取值优先级：关联论文 `paper_arxiv_id` / `paper_corpus_id` > 候选自身 `source`/`external_id` > 缓存 `metadata.s2_match`；arXiv 用显式 chip（不走 `SourceTag`，避免无 link 时渲染成 `-`）。**配图暂不显示**（S2 Graph API 不提供论文 figures）。
+  - **筛选字段 & 外链**：卡片的 abstract / TL;DR / 引用数 / 领域来自关联论文（`GET /api/conferences/:id/papers` 附带 `paper_abstract` / `paper_tldr` / `paper_citation_count` / `paper_fields_of_study`）。外链 id 取值优先级：关联论文 `paper_arxiv_id` / `paper_corpus_id` > 候选自身 `source`/`external_id` > 缓存 `metadata.s2_match`；arXiv / OpenReview 用显式 `Badge`（按源着色——arXiv 红 `destructive`、OpenReview/原文 灰 `secondary`、S2 蓝 `S2Badge`），**不走 `SourceTag`**（避免无 link 时渲染成 `-`，并保留 `OpenReview`/`原文` 友好标签而非主机名）。**配图暂不显示**（S2 Graph API 不提供论文 figures）。
 
 ### 1A.4 入库链路（复用 `papers` ingest pipeline）
 

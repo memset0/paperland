@@ -116,6 +116,7 @@ Each service has `max_concurrency` and `rate_limit_interval` config. Services ar
 - **Q&A context priority** — `content_priority` in config.yml determines which text source to use (user_input > pdf_parsed)
 - **Paper basic fields** (title, abstract, authors) — not managed by service dependency graph; any fetch service fills them if empty
 - **Templates** — Q&A prompt templates are defined in `config.yml` via `system_prompt` (paper+question assembly template using `{PAPER}` and `{PROMPT}` placeholders) and `qa` (ordered list of template questions with `name` and `prompt`)
+- **Unified page layout (`AppPage`)** — every top-level "management" page (anything reachable from the sidebar that isn't a detail page) MUST wrap its content in `components/AppPage.vue` instead of hand-writing its own page header / width container. `AppPage` owns the page title + icon (taken from the route's `meta.title` / `meta.icon`, so set those on the route) and the centered content width. Put top-right buttons in the `#actions` slot; pass `full` for wide list/gallery/board pages, `fill` for pages that manage their own internal scroll (e.g. Q&A). Do NOT add a second `<h1>` inside — the header is the component's job. Detail pages (`/papers/:id`, `/idea-forge/:projectName`) intentionally do NOT use it. **When you create a new page, register its route with `meta.title`+`meta.icon`, add the sidebar entry in `App.vue`, and wrap the view in `<AppPage>`.** See `docs/frontend-architecture.md` → "页面布局".
 
 ## Critical: Backend Must Run from Project Root
 

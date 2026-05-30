@@ -122,6 +122,23 @@ export const notes = sqliteTable('notes', {
   uniqueIndex('notes_root_unq').on(table.user_id, table.paper_id).where(sql`${table.kind} = 'root'`),
 ])
 
+// Per-user, per-paper reference links: a flat list of external resources (blog posts,
+// project pages, discussions, …) the user manually attaches to a paper. Private to the
+// owning user (like notes/tags); ordered by created_at (insertion order). `description`
+// is optional.
+export const paperReferenceLinks = sqliteTable('paper_reference_links', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  user_id: integer('user_id').notNull().references(() => users.id), // owner
+  paper_id: integer('paper_id').notNull().references(() => papers.id),
+  title: text('title').notNull(),
+  url: text('url').notNull(),
+  description: text('description'), // optional
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_paper_reference_links_paper_user').on(table.paper_id, table.user_id),
+])
+
 export const apiTokens = sqliteTable('api_tokens', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   token: text('token').notNull().unique(),
@@ -164,6 +181,24 @@ export const conferencePapers = sqliteTable('conference_papers', {
   updated_at: text('updated_at').notNull(),
 }, (table) => [
   index('conference_papers_conf_status_idx').on(table.conference_id, table.status),
+])
+
+// Image host: one row per uploaded image, content-addressed by the SHA-256 hash of its
+// bytes (the primary key). Identical bytes dedupe to a single row/file/URL. The file lives
+// on disk at `<image_host.dir>/<path>` and is served publicly at `/image/<path>`.
+export const images = sqliteTable('images', {
+  hash: text('hash').primaryKey(),                                  // SHA-256 hex of the bytes
+  ext: text('ext').notNull(),                                       // png | jpg | gif | webp
+  mime: text('mime').notNull(),
+  size: integer('size').notNull(),                                  // bytes
+  width: integer('width'),                                          // px; null if undetectable
+  height: integer('height'),                                        // px; null if undetectable
+  path: text('path').notNull(),                                     // YYYY/MM/DD/{hash}.{ext}
+  original_name: text('original_name'),                             // client filename, if any
+  uploaded_by: integer('uploaded_by').references(() => users.id),   // uploader; nullable
+  created_at: text('created_at').notNull(),
+}, (table) => [
+  index('idx_images_created').on(table.created_at),
 ])
 
 // Semantic Scholar citation graph: one row per citation edge.

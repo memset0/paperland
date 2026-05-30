@@ -12,3 +12,4 @@ config.yml
 *.pdf
 data/idea-forge/*
 !data/idea-forge/demo-project/
+data/images/
