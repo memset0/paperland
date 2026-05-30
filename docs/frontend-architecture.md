@@ -213,8 +213,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 │  │                       │  │  ┌── Free Q&A ───────────────────┐   │
 │  │                       │  │  │  自由提问历史记录...             │   │
 │  │                       │  │  └────────────────────────────────┘   │
-│  │                       │  ├───────────────────────────────────────┤
-│  │                       │  │       (悬浮提问框)                    │
+│  │                       │  │  (右上角「提问」入口→按需浮动面板)    │
 │  └───────────────────────┘  │                                       │
 └─────────────────────────────┴───────────────────────────────────────┘
 ```
@@ -252,10 +251,22 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 单栏布局（<900px）下，左侧查看器面板隐藏，仅显示论文信息和 Q&A 内容。
 
-#### 浮动提问框定位
+#### 按需浮动提问面板（QAInput）+ 功能入口（PaperActionLauncher）
 
-- **移动端**（< md）：`fixed bottom-0 left-0 right-0`，固定在视口底部，不随内容滚动
-- **桌面端**（≥ md）：`sticky bottom-0`，固定在滚动容器底部，配合增强阴影（`shadow-2xl`）和更大间距
+提问框不再常驻遮挡视野，改为**点击功能入口后才弹出的浮动面板**。面板**就是 `QAInput` 卡片本身（单层）**——不套额外窗口外壳/标题栏，外圈即卡片自身边框，避免"窗口套卡片"的双层边框。
+
+- **功能入口（`PaperActionLauncher.vue`）**：渲染调用方（`PaperDetail`）按页面功能顺序（引用 → 笔记 → 提问）注入的有序功能项，当前仅"提问"（`Bot` 图标）。
+  - **桌面端**（≥ md）：在论文详情页 header **右侧内联直接平铺**功能按钮（图标 + 文字），无下拉菜单。
+  - **移动端**（< md）：右下角**圆形悬浮按钮（FAB）**，点击展开竖直功能列表，选中即触发并收起。
+- **面板状态（`composables/useQAWindow.ts`）**：模块级单例，`isOpen` + top-left 锚定几何 `left/top/width/height`（可缩放）。与笔记窗口不同，**不记忆/不持久化**上次位置大小，每次 `open()` 用调用方按当前布局算好的默认几何覆盖。
+- **默认几何（由 `PaperDetail.openQA()` 计算）**：默认放在内容区左下角，默认高 `QA_DEFAULT_HEIGHT`（约 2 行输入框）。
+  - 双栏：贴左下角，宽 = 左侧（PDF）栏当前宽度（`#split-container` 实测 × `leftWidth`），`top = 容器底 − height`。
+  - 单栏：贴底部，占内容区完整横向宽度（`narrowScrollRef` 实测）。
+  - 移动端：`inset-0` 全屏浮层。
+- **面板内布局**：顶部一行自左至右为 **提交按钮（左）→ 模型选择 → 关闭按钮（右上角）**；其下为占满整行的输入框（`rows="2"` 默认两行、`flex-1` 随面板增高填充、`resize-none` 去掉自身缩放手柄）。
+- **拖动 / 缩放分工（桌面端）**：面板**右下角有缩放手柄**（对角线 SVG，`@pointerdown.stop`，改 `width/height`）；**移动**则在卡片**空白处**（非输入框 / 非按钮 / 非手柄，`onCardDown` 用 `closest(...)` 排除）按下拖动，改 `left/top`。移动端全屏，二者均不提供。
+- **提交按钮**：图标 + "Submit" 文字（不再仅图标）。
+- 切换论文 / 组件卸载时 `qaWin.close()`，避免浮动面板跨论文残留。
 
 #### QA 快速导航（QAPanelNav）
 
@@ -1238,13 +1249,14 @@ paperland://paper/<id>?pdf=<page>&ts=<start>&te=<end>  // 跳到该页并高亮�
 `components/notes/NoteWalkthrough.vue`：把整棵笔记树渲染成一篇连续的阅读视图，作为左侧面板的「Walk-through」查看模式（见上方「多模式查看器」）。组装逻辑是 `stores/notes.ts` 的纯函数 `flattenWalkthrough(root): WalkthroughSection[]`——返回**结构化的 section 列表**（而非单个 Markdown 字符串），这样每个标题能携带 `noteId` 与编号、支持交互：
 
 - **顺序**：按思维导图深度优先遍历，同级按 `sort_order`（复用 `tree` computed 已排好序的 children）。每个节点先出自身 section，再递归子节点。
-- **层级**：根笔记**不出标题**，其 body（若非空）作为开篇引言 section；根的直接子节点起始为 **H2**，每深入一层 +1（`level = min(2 + depth, 6)`，封顶 H6）。层级**仅由思维导图深度决定**，与节点 body 内部用户写的 heading 无关（body 原样渲染）。
-- **自动编号**：每个标题前缀一个层级编号 `number`（`counters.join('.') + '.'`，带尾点，如 `1.`、`1.2.`、`1.2.3.`），**只看走查里 heading 的层级与顺序**，与笔记自身标题无关；根的引言不编号。
-- **点击进入编辑**：每个标题对应一个笔记，组件里用 `<component :is="'h'+level">` 渲染并挂 `@click`，点击经 `windows.open({ kind:'note', paperId, noteId, title })` 打开该笔记的浮动编辑器（与思维导图同一套窗口模型）；标题带可点击提示（hover 下划线 + 末尾铅笔图标）。
-- **正文渲染 + 关高亮**：每个 section 的 body 用 `MarkdownContent` 渲染，并传 `:disable-highlights="true"`——走查内容是动态拼接的，与基于内容哈希的高亮模型不兼容，故关掉划线工具条/已存高亮/点击菜单（锚点链接、KaTeX 复制仍可用）。该 prop 在 `MarkdownContent` 内通过：`myHighlights` 直接返回 `[]`、`onMounted` 跳过 selection/dismiss 监听 实现。
+- **层级**：根笔记**不出标题**，其 body（若非空）作为开篇引言 section（原样渲染、不编号）；根的直接子节点起始为 **H2**，每深入一层 +1（`level = min(2 + depth, 6)`，封顶 H6）。笔记标题层级仅由思维导图深度决定。
+- **正文内标题重排**：节点 body 里用户自己写的 markdown 标题会被**重排到该笔记标题之下**——body 中最浅的标题落在比该笔记深一级处，更深的保留相对嵌套（distinct 层级映射成连续 rank）；代码围栏内的 `#` 不当标题。
+- **自动编号（含正文标题）**：用一个贯穿全程的计数器 `outlineNumberer()`，给**所有标题**（笔记标题 + body 内部标题）统一编号 `1.`、`1.2.`、`1.2.3.`（带尾点）。`numberBodyHeadings` 把 body 标题穿插进同一套大纲：一个笔记自身的子小节标题与它的子笔记在文档顺序里共享一层（如笔记 `1.` 的 body 标题 `1.1.`、其第一个子笔记 `1.2.`）。编号**只看走查里 heading 的层级与顺序**，与笔记自身标题文字无关；根引言不编号。编号为黑色（继承标题色）。
+- **点击进入编辑**：**笔记标题**用 `<component :is="'h'+level">` 渲染并挂 `@click`，经 `windows.open({ kind:'note', paperId, noteId, title })` 打开该笔记浮动编辑器（与思维导图同一套窗口模型）；标题带**常驻**铅笔图标 + hover 下划线提示。**body 内部标题不对应单个笔记，故有编号但不可点、无铅笔**。
+- **正文渲染 + 关高亮**：每个 section 的 body 用 `MarkdownContent` 渲染并传 `:disable-highlights="true"`——走查内容是动态拼接的，与基于内容哈希的高亮模型不兼容，故关掉划线工具条/已存高亮/点击菜单（锚点链接、KaTeX 复制仍可用）。该 prop 在 `MarkdownContent` 内通过 `myHighlights` 直接返回 `[]`、`onMounted` 跳过 selection/dismiss 监听 实现。
 - **空节点**：无标题用 `(untitled)` 占位；body 为空只出标题并继续递归子节点。
 - **实时重渲染**：`sections = computed(() => flattenWalkthrough(store.tree))`，故笔记内容编辑、节点改父/重排都会自动重新组装并渲染，无需手动刷新。无内容时显示「No notes yet」。
-- **阅读型字号（仅本视图）**：走查是阅读视图，正文用紧凑阅读字号（`.nw-content { font-size: 0.9rem }`）；编号标题用**绝对 rem**（h2 1.7rem → h6 1.05rem），不随正文缩放而变；只作用于走查，不影响 Q&A / 论文正文等处 Markdown 字号。
+- **阅读型字号（仅本视图）**：正文用紧凑阅读字号（`.nw-content { font-size: 0.9rem }`）；标题用**绝对 rem**（h2 1.7rem → h6 1.05rem），不随正文缩放而变。笔记标题（`.wt-heading`）与 body 标题（`MarkdownContent` 渲染，经 `.nw-content :deep(.markdown-content hN)` 同级同尺寸）保持一致；只作用于走查，不影响 Q&A / 论文正文等处 Markdown 字号。
 
 ### 入口与归属
 

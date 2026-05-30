@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
 import { useBlockAnchor } from '@/composables/useBlockAnchor'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save, Loader2 } from '@lucide/vue'
+import { usePdfNavigation } from '@/composables/usePdfNavigation'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
@@ -18,6 +19,8 @@ import QAList from '@/components/QAList.vue'
 import PaperNotesCard from '@/components/PaperNotesCard.vue'
 import PaperCitations from '@/components/PaperCitations.vue'
 import QAInput from '@/components/QAInput.vue'
+import PaperActionLauncher, { type LauncherAction } from '@/components/PaperActionLauncher.vue'
+import { useQAWindow, QA_DEFAULT_HEIGHT } from '@/composables/useQAWindow'
 import QAPanelNav from '@/components/QAPanelNav.vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useHighlightStore } from '@/stores/highlights'
@@ -38,6 +41,7 @@ const highlightStore = useHighlightStore()
 const tagsStore = useTagsStore()
 const { isEmbed } = useEmbedMode()
 const { locateBlock } = useBlockAnchor()
+const { requestPdfNavigation } = usePdfNavigation()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
 
 // Browser tab title follows the paper; shows a placeholder until it loads.
@@ -93,8 +97,67 @@ function toggleCollapse() {
   }
 }
 
-/** Jump to a `?h=<hash>` deep-link target once the paper + Q&A data are present. */
+// ---- Paper-detail function launcher (top-right list / mobile FAB) + QA window ----
+const qaWin = useQAWindow()
+
+/**
+ * Open the "提问" panel with a default geometry computed fresh from the current
+ * layout (default-placed at the content's bottom-left; never remembered, unlike
+ * the notes window). The panel is then movable (drag empty areas) and resizable
+ * (bottom-right grip). Mobile opens fullscreen, so its geometry is a placeholder.
+ */
+function openQA() {
+  if (window.innerWidth < 768) {
+    qaWin.open({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight })
+    return
+  }
+  const height = QA_DEFAULT_HEIGHT
+  const m = 12 // small inset so the default panel sits a bit smaller within the area
+  if (showSplitView.value) {
+    // Double-column: bottom-left within the left (PDF) column (sticking to the
+    // previous QAInput placement rule; "一半" was loose wording).
+    const rect = document.getElementById('split-container')?.getBoundingClientRect()
+    const leftColW = rect ? (rect.width * leftWidth.value) / 100 : 0
+    qaWin.open({
+      left: (rect ? rect.left : 12) + m,
+      top: Math.max(0, (rect ? rect.bottom : window.innerHeight) - height - m),
+      width: Math.max(300, (Math.round(leftColW) || 460) - m * 2),
+      height,
+    })
+  } else {
+    // Single-column: bottom strip across the content area.
+    const rect = narrowScrollRef.value?.getBoundingClientRect()
+    qaWin.open({
+      left: (rect ? rect.left : 0) + m,
+      top: Math.max(0, (rect ? rect.bottom : window.innerHeight) - height - m),
+      width: Math.max(300, (rect ? rect.width : window.innerWidth) - m * 2),
+      height,
+    })
+  }
+}
+
+// Ordered per the paper-detail function order (引用 → 笔记 → 提问); only 提问 today.
+const paperActions = computed<LauncherAction[]>(() => [
+  { key: 'ask', label: '提问', icon: Bot, onSelect: openQA },
+])
+
+/** Jump to a `?h=<hash>` or `?pdf=<page>` deep-link target once the paper is present. */
 function handleAnchorFromRoute() {
+  // PDF page/region anchor takes precedence and routes to the embedded viewer.
+  const pdf = route.query.pdf
+  if (typeof pdf === 'string' && pdf) {
+    const page = parseInt(pdf, 10)
+    if (!Number.isNaN(page)) {
+      const ts = route.query.ts
+      const te = route.query.te
+      requestPdfNavigation(
+        typeof ts === 'string' && typeof te === 'string'
+          ? { page, ts: parseInt(ts, 10), te: parseInt(te, 10) }
+          : { page },
+      )
+    }
+    return
+  }
   const h = route.query.h
   if (typeof h !== 'string' || !h) return
   const s = route.query.s
@@ -123,8 +186,11 @@ onMounted(async () => {
 
 // Anchor deep-links (`/papers/:id?h=`) and cross-paper anchor jumps. RouterView is not
 // keyed, so navigating paper→paper reuses this component — reload data on id change.
-watch(() => [route.params.id, route.query.h, route.query.s, route.query.e], async (next, prev) => {
-  if (next[0] !== prev[0]) await loadPaperData()
+watch(() => [route.params.id, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te], async (next, prev) => {
+  if (next[0] !== prev[0]) {
+    qaWin.close() // don't carry an open QA window across papers
+    await loadPaperData()
+  }
   await nextTick()
   handleAnchorFromRoute()
 })
@@ -163,6 +229,7 @@ async function saveTags() {
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   qaStore.stopPolling()
+  qaWin.close()
 })
 
 const summaryFaqs = computed(() => {
@@ -314,6 +381,7 @@ async function promote() {
       <div class="min-w-0 flex-1">
         <h1 class="text-sm font-semibold truncate">{{ store.currentPaper?.title || '加载中...' }}</h1>
       </div>
+      <PaperActionLauncher v-if="store.currentPaper" :actions="paperActions" />
     </div>
 
     <!-- Wide screen: split view -->
@@ -323,10 +391,7 @@ async function promote() {
         class="shrink-0 overflow-hidden relative"
         :class="{ 'transition-[width] duration-300 ease-in-out': !dragging }"
       >
-        <PaperViewerPanel :pdf-path="store.currentPaper?.pdf_path || null" :arxiv-id="store.currentPaper?.arxiv_id || null" />
-        <div v-if="store.currentPaper" class="absolute bottom-0 left-0 right-0 z-10">
-          <QAInput :paper-id="paperId" :sticky="false" />
-        </div>
+        <PaperViewerPanel :pdf-path="store.currentPaper?.pdf_path || null" :arxiv-id="store.currentPaper?.arxiv_id || null" :paper-id="paperId" />
       </div>
 
       <div
@@ -653,8 +718,9 @@ async function promote() {
         <QAList :paper-id="paperId" />
       </div>
       <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="narrowScrollRef" :paper-id="paperId" />
-      <QAInput v-if="store.currentPaper" :paper-id="paperId" />
     </div>
+
+    <QAInput v-if="store.currentPaper" :paper-id="paperId" />
 
     <Dialog v-model:open="showDeleteDialog">
       <DialogContent class="max-w-md">

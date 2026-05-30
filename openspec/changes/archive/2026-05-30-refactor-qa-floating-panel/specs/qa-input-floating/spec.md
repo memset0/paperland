@@ -1,14 +1,4 @@
-# qa-input-floating Specification
-
-## Purpose
-QAInput（给论文提问的输入框）的呈现方式与定位规格。
-## Requirements
-### Requirement: Responsive behavior consistency
-QAInput SHALL 在移动端和桌面端均可正常使用，功能（模型选择、输入、提交）不受定位方式影响。
-
-#### Scenario: Submit works on mobile with fixed positioning
-- **WHEN** 用户在移动端的 fixed 提问框中输入问题并提交
-- **THEN** 问题正常提交，行为与桌面端一致
+## ADDED Requirements
 
 ### Requirement: On-demand floating panel presentation
 QAInput 卡片本身 SHALL 作为浮动面板，仅在用户通过功能入口触发"提问"后弹出，而非常驻显示；默认（页面加载时）不显示，浮于页面内容之上、可关闭。面板 SHALL NOT 被额外的窗口外壳（独立标题栏 / 第二层边框）包裹——浮动面板就是 QAInput 卡片本身（单层，外圈即卡片自身的边框，保持其原有大小），不得出现"窗口套卡片"的双层结构。
@@ -100,3 +90,12 @@ QAInput 卡片本身 SHALL 作为浮动面板，仅在用户通过功能入口�
 - **WHEN** 面板表单可用（已登录、可提交）
 - **THEN** 提交按钮显示发送图标加 "Submit" 文字
 
+## REMOVED Requirements
+
+### Requirement: Mobile fixed bottom positioning
+**Reason**: 提问框不再常驻显示。移动端不再用 `fixed` 钉在视口底部，改为通过功能入口（圆形 FAB）按需打开的全屏浮层面板。
+**Migration**: 移动端用户点击页面右下角圆形悬浮按钮（FAB）展开功能列表，选择"提问"即以全屏浮层打开面板。常驻底部输入框及其内容底部 padding 一并移除。
+
+### Requirement: Desktop enhanced visual styling
+**Reason**: 桌面端提问框不再 sticky 在内容区域内常驻；改为按需弹出的浮动卡片面板（卡片本身带边框与阴影）。
+**Migration**: 桌面端用户点击右上角功能入口中的"提问"按钮打开浮动面板；原 sticky 定位与额外间距样式不再适用。
