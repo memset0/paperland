@@ -61,6 +61,24 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - **PaperDetail 根高度**：用 `h-full`（贴合 `main` 内容盒高度）而非 `h-screen`，以正确扣除移动端 navbar 的 `pt-12`，避免 100vh + 48px 造成的纵向溢出与双滚动条。
 - **QAPanelNav**：滚动定位条（scroll-spy 竖向小圆点）是桌面悬浮态交互，< 768px 直接 `display: none`，避免在窄屏右缘压住正文。
 
+### 页面布局（`AppPage` 统一管理页布局）
+
+各「XX 管理」页通过共享组件 `components/AppPage.vue` 统一页面标题与内容宽度，不再各自手写页头 / 宽度容器：
+
+- **标题**：固定置于内容区顶部，统一 `text-xl font-semibold`，左侧带**对应图标**、**无描述副标题**。标题文字默认取 `route.meta.title`（英文，与侧边栏标签、浏览器标签一致），可用 `title` prop 覆盖。
+- **标题图标**：默认取 `route.meta.icon`（在 `router/index.ts` 为每个管理路由声明，与侧边栏导航图标一致：Papers→FileText、Conferences→CalendarDays、Tags→Tag、Q&A→MessageSquare、Notes→NotebookPen、Idea Forge→Lightbulb、Services→Activity、Settings→Settings），可用 `icon` prop 覆盖。图标只在 `meta` 里定义一处，避免与侧边栏图标漂移。
+- **宽度**：默认居中收窄 `mx-auto max-w-5xl`；传 `full` 则全宽、无最大宽度限制。
+- **`fill` 模式**：用于自管内部滚动的页面（如 Q&A）——外层 `h-full flex flex-col`，标题头 `shrink-0` 不随滚动，内容区为 `flex-1 min-h-0 overflow-hidden`，页面内部的 `overflow-y-auto` 子元素照常滚动。非 `fill` 时页面随 `<main>` 整体滚动。
+- **操作按钮**：经 `#actions` 具名插槽渲染在标题右侧（如「添加论文」「新建会议」「New Project」、服务管理「回填 S2」、会议详情「刷新 / 解析 / 导入」）。
+
+各路由归类：
+
+- **全宽（`full`）**：论文管理 `/`（表格需要整页宽）。
+- **收窄管理布局（`max-w-5xl`）**：`/tags`、`/qa`（`fill`）、`/notes`、`/conferences`、`/conferences/:id`（标题固定为 `Conferences`，会议名 + 返回按钮置于内容区）、`/services`、`/settings`、`/idea-forge`。
+- **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`、Idea 工作区 `/idea-forge/:projectName`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
+
+> 标题「随滚动固定」（sticky header）暂未实现，仍维持滚动后标题滑出视口的现状。
+
 ---
 
 ## 一、论文管理
@@ -207,14 +225,28 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 | 模式 | 条件 | 内容 |
 |------|------|------|
-| PDF 原文 | 论文有 `pdf_path` | 嵌入 PDF iframe（PdfViewer 组件） |
+| PDF 原文 | 论文有 `pdf_path` | 嵌入式 **pdf.js** 查看器（PdfViewer 组件，见下方「嵌入式 pdf.js 查看器」） |
 | 幻觉翻译 | 论文有 `arxiv_id` | 嵌入 `https://hjfy.top/arxiv/{arxiv_id}` iframe |
-| 走查 | 该 (用户, 论文) 有非空笔记（`store.noteCount > 0`） | 把整棵笔记树渲染为一篇连续 Markdown 文档（见下方「走查视图」） |
+| Walk-through | 该 (用户, 论文) 有非空笔记（`store.noteCount > 0`） | 把整棵笔记树渲染为一篇连续 Markdown 文档（见下方「Walk-through 视图」） |
 
-- 自动选中第一个可用模式（走查排在 modes 数组末位，PDF/幻觉翻译优先；笔记加载后走查 Tab 才出现，且不抢占当前选中）
+- 自动选中第一个可用模式（Walk-through 排在 modes 数组末位，PDF/幻觉翻译优先；笔记加载后该 Tab 才出现，且不抢占当前选中）
 - 无可用模式时显示占位提示
 - 模式系统可扩展：添加新模式只需在 modes 数组中增加条目
-- 走查 Tab 的可用性来自 `useNotesStore().noteCount`，故 `PaperViewerPanel` 直接读 notes store（笔记由始终挂载的 `PaperNotesCard` 拉取）
+- Walk-through Tab 的可用性来自 `useNotesStore().noteCount`，故 `PaperViewerPanel` 直接读 notes store（笔记由始终挂载的 `PaperNotesCard` 拉取）
+- `PaperViewerPanel` 还监听 `usePdfNavigation` 的 `requestedPdfTarget`：一旦有 PDF 锚点跳转请求且 PDF 可用，自动把 active Tab 切到「PDF 原文」
+
+#### 嵌入式 pdf.js 查看器（PdfViewer）
+
+不再用浏览器原生 PDF 插件（`<iframe type="application/pdf">`），改为用 **pdfjs-dist** 自建轻量查看器，从而可编程跳页、读当前页、在页面上画高亮——这是支持 `paperland://…?pdf=…` 页面/选区锚点的前提。
+
+- **加载**：`lib/pdfjs.ts` 的 `loadPdfjs()` 动态 `import('pdfjs-dist')`（被 Vite code-split 成独立 chunk，只有打开 PDF Tab 才拉取），worker 以 `pdf.worker.min.mjs?url` 注册到 `GlobalWorkerOptions.workerSrc`。`pdfjs-dist` 版本在 package.json 中**精确 pin**——`ts/te` 是 pdf.js 提取文本的字符偏移，需跨部署版本稳定。
+- **渲染**：连续纵向滚动，每页一个按宽高比预留的占位 `.pdf-page`；`IntersectionObserver`（`rootMargin 200%`）在临近视口时把该页渲染到 canvas（HiDPI 用 `transform:[dpr,…]`）+ pdf.js 文本层（透明、可原生选中），远离视口时卸载 canvas 以省内存。
+- **当前页 / 跳转 / 缩放 / 适配模式**：滚动时按页矩形与视口中线判定「当前页」；工具栏含 上/下一页、页码跳转输入、缩放、**适配模式切换**（宽度铺满 ↔ 高度铺满，`MoveHorizontal`/`MoveVertical` 图标，**仅当前打开有效、不记忆**，默认宽度铺满；切换会把 zoom 重置为 1 使适配精确）。`effectiveScale = fitScale × zoom`，`fitScale` 由 `fitMode` 取「容器宽 / 首页宽」或「容器高 / 首页高」；缩放/适配后 canvas + 文本层按新尺度重渲染并保持对齐，文本层设 `--scale-factor`。
+- **拖动分屏不卡**：宽度变化时只即时缩放占位页与 CSS 填充的 canvas，昂贵的重栅格化（canvas + 文本层）去抖 ~320ms（`RE_RASTER_DEBOUNCE_MS`），待尺度真正稳定后只做一次；期间页面保持 CSS 缩放（略软）直到落定（高度铺满模式下拖动分屏宽度不改变 `fitScale`，更不触发重渲染）。
+- **选区 → 链接**：文本层支持原生选区；落定后用 `getSelectionOffsets`（复用 `useHighlight`）算出该页 `ts/te` 偏移，弹出「复制选区链接」浮钮，复制 `<选区文本> [#](paperland://paper/<id>?pdf=<page>&ts=<ts>&te=<te>)`；工具栏「复制本页链接」复制 `[PDF p.N](paperland://paper/<id>?pdf=N)`。
+- **跳转 + 高亮**：监听 `requestedPdfTarget`，`{page}` 滚动到该页；`{page,ts,te}` 先确保该页渲染，再用 `buildTextSegments` 把偏移映射为 `Range.getClientRects()`，在页面上叠加临时高亮 div（`pdf-region-flash`，2.2s 淡出，不落库）并滚动到选区中心；偏移越界则退化为仅跳页 + toast 提示。
+- **失败兜底**：pdf.js 加载/解析失败时显示错误态并给出原始文件链接 `/api/files/<pdf_path>`；无 `pdf_path` 时保留「暂无 PDF」占位。
+- **未来图床前向兼容**：选区除偏移外还能算出归一化页内包围矩形；组件 `defineExpose` 了 `cropRegionToImage({page,x,y,w,h})`（离屏重渲染该页并裁剪为 PNG dataURL），供未来内部图床直接复用，本次不接 UI。
 
 #### 窄屏布局
 
@@ -1174,13 +1206,17 @@ Idea Forge 是集成在 Paperland 中的研究想法管理系统。数据存储�
 paperland://paper/<id>                       // 仅跳论文页
 paperland://paper/<id>?h=<content_hash>       // 定位某个 MarkdownContent 块
 paperland://paper/<id>?h=<hash>&s=<start>&e=<end>  // 块内文本范围
+paperland://paper/<id>?pdf=<page>            // 跳到 PDF 第 page 页（1 起）
+paperland://paper/<id>?pdf=<page>&ts=<start>&te=<end>  // 跳到该页并高亮某段选区
 ```
 
+- 目标分两类且互斥：**Markdown 块**（`h`/`s`/`e`）或 **PDF 页/选区**（`pdf`/`ts`/`te`）。同时带 `h` 和 `pdf` 时 **`pdf` 优先**。
 - 定位基于**块的 `content_hash`**（与高亮同一指纹），不依赖问题/回答的 id 或下标——多模型多回答、重新生成、重排序都不会跑偏。
 - `MarkdownContent` 给渲染容器挂 `data-content-hash`，并拦截 `paperland://` 链接点击：本页直接 `locateBlock`，跨页 `router.push('/papers/:id?h=...')`。
 - `composables/useBlockAnchor.ts` 的 **`locateBlock(paperId, hash, range?)`**：① DOM 命中 → 滚动 + 闪烁；② 未命中（折叠 / 未激活 tab）→ 遍历 Q&A store 现算 hash 反查归属，展开 `Collapsible` + 激活对应 result tab（`requestedResultId`）后再定位；③ 找不到 → toast 失效、不跳转。有 `s`/`e` 时在块内按 offset 高亮该片段（复用 `useHighlight` 的 segment 逻辑）。
 - 选区浮动工具栏（登录态）的「复制为锚点链接」：把**整段选区还原成 Markdown** 后，再追加一个紧凑的 `[#](paperland://...)` 锚点链接（形如 `<选区 Markdown> [#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`）。还原用 `turndown` + `turndown-plugin-gfm`（整表→GFM 管道表）；数学公式从各 KaTeX 元素的 `x-tex` annotation 还原为 `$…$`（行内）/独立成行的 `$$…$$`（行间），并用占位符在 turndown 转义后再回填，保证 LaTeX 不被破坏；选区内的高亮 `<mark>` 会被剥离。锚点的 `s`/`e` 仍取渲染态偏移，跳转逻辑不变。
-- 锚定面仅限 `MarkdownContent` 渲染文本（Q&A 回答、摘要/FAQ、笔记自身）；论文正文为 PDF/iframe，不可锚定。
+- **PDF 目标**走嵌入式 pdf.js 查看器（见 1.4「嵌入式 pdf.js 查看器」）：`MarkdownContent` 解析出 `pdf`/`ts`/`te` 后，本页直接调 `requestPdfNavigation(...)`（`composables/usePdfNavigation.ts` 的模块级 `requestedPdfTarget` ref，仿 `requestedResultId`），跨页 `router.push('/papers/:id?pdf=...&ts=...&te=...')`；`PaperDetail.handleAnchorFromRoute` 加载后读 query 设置同一 ref。`PaperViewerPanel` 监听该 ref 自动切到「PDF 原文」Tab，`PdfViewer` 监听后滚动到该页、把 `ts/te` 偏移映射回文本层矩形并画**临时高亮**（不落库，类似块锚点的闪烁）。`ts`/`te` 是该页**文本内容的字符偏移**（pdf.js `getTextContent()` 顺序，与高亮同一偏移模型），缩放无关。
+- 锚定面覆盖 `MarkdownContent` 渲染文本（Q&A 回答、摘要/FAQ、笔记自身）**与 PDF 正文页/选区**；外部翻译 iframe 不可锚定。
 
 ### 浮动编辑窗口
 
@@ -1197,14 +1233,18 @@ paperland://paper/<id>?h=<hash>&s=<start>&e=<end>  // 块内文本范围
 
 **节点字符数徽章**：body 非空（`body.trim()` 不为空）的节点在标题后显示一个灰色括号字符数 `(N)`（`.nn-count`，`var(--muted-foreground)`、`pointer-events:none`），N 为 `node.body.trim().length`；空节点不显示。徽章随节点 body 编辑实时更新（`node` 来自响应式 tree）。
 
-### 走查视图（Walkthrough）
+### Walk-through 视图
 
-`components/notes/NoteWalkthrough.vue`：把整棵笔记树拼成一篇连续 Markdown 文档，作为左侧面板的「走查」查看模式（见上方「多模式查看器」）。组装逻辑是 `stores/notes.ts` 的纯函数 `assembleWalkthrough(root)`：
+`components/notes/NoteWalkthrough.vue`：把整棵笔记树渲染成一篇连续的阅读视图，作为左侧面板的「Walk-through」查看模式（见上方「多模式查看器」）。组装逻辑是 `stores/notes.ts` 的纯函数 `flattenWalkthrough(root): WalkthroughSection[]`——返回**结构化的 section 列表**（而非单个 Markdown 字符串），这样每个标题能携带 `noteId` 与编号、支持交互：
 
-- **顺序**：按思维导图深度优先遍历，同级按 `sort_order`（复用 `tree` computed 已排好序的 children）。每个节点先输出自身内容，再递归拼接其子节点。
-- **标题重排**：根笔记**不输出标题**，其 body（若非空）作为开篇引言块；根的直接子节点起始为 **H2**，每深入一层 +1（`min(2 + depth, 6)`，封顶 H6）。标题层级**仅由思维导图深度决定**，与节点 body 内部用户自己写的 heading 无关（body 原样输出）。
-- **空节点**：无标题用 `(untitled)` 占位；body 为空只输出标题并继续递归子节点。
-- **实时重渲染**：`document = computed(() => assembleWalkthrough(store.tree))` 经 `MarkdownContent`（watch `content`）渲染，故笔记内容编辑、节点改父/重排都会自动重新组装并渲染，无需手动刷新。无内容时显示「暂无笔记内容」。
+- **顺序**：按思维导图深度优先遍历，同级按 `sort_order`（复用 `tree` computed 已排好序的 children）。每个节点先出自身 section，再递归子节点。
+- **层级**：根笔记**不出标题**，其 body（若非空）作为开篇引言 section；根的直接子节点起始为 **H2**，每深入一层 +1（`level = min(2 + depth, 6)`，封顶 H6）。层级**仅由思维导图深度决定**，与节点 body 内部用户写的 heading 无关（body 原样渲染）。
+- **自动编号**：每个标题前缀一个层级编号 `number`（`counters.join('.') + '.'`，带尾点，如 `1.`、`1.2.`、`1.2.3.`），**只看走查里 heading 的层级与顺序**，与笔记自身标题无关；根的引言不编号。
+- **点击进入编辑**：每个标题对应一个笔记，组件里用 `<component :is="'h'+level">` 渲染并挂 `@click`，点击经 `windows.open({ kind:'note', paperId, noteId, title })` 打开该笔记的浮动编辑器（与思维导图同一套窗口模型）；标题带可点击提示（hover 下划线 + 末尾铅笔图标）。
+- **正文渲染 + 关高亮**：每个 section 的 body 用 `MarkdownContent` 渲染，并传 `:disable-highlights="true"`——走查内容是动态拼接的，与基于内容哈希的高亮模型不兼容，故关掉划线工具条/已存高亮/点击菜单（锚点链接、KaTeX 复制仍可用）。该 prop 在 `MarkdownContent` 内通过：`myHighlights` 直接返回 `[]`、`onMounted` 跳过 selection/dismiss 监听 实现。
+- **空节点**：无标题用 `(untitled)` 占位；body 为空只出标题并继续递归子节点。
+- **实时重渲染**：`sections = computed(() => flattenWalkthrough(store.tree))`，故笔记内容编辑、节点改父/重排都会自动重新组装并渲染，无需手动刷新。无内容时显示「No notes yet」。
+- **阅读型字号（仅本视图）**：走查是阅读视图，正文用紧凑阅读字号（`.nw-content { font-size: 0.9rem }`）；编号标题用**绝对 rem**（h2 1.7rem → h6 1.05rem），不随正文缩放而变；只作用于走查，不影响 Q&A / 论文正文等处 Markdown 字号。
 
 ### 入口与归属
 

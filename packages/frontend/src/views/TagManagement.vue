@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import AppPage from '@/components/AppPage.vue'
 
 const tagsStore = useTagsStore()
 const loading = ref(true)
@@ -103,15 +104,7 @@ async function setColor(tagId: number, color: string) {
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-    <div class="mb-6">
-      <h1 class="flex items-center gap-2 text-xl font-bold">
-        <Tag class="h-5 w-5 text-primary" />
-        标签管理
-      </h1>
-      <p class="mt-1 text-sm text-muted-foreground">管理所有标签 — 重命名、合并、删除、修改颜色</p>
-    </div>
-
+  <AppPage>
     <div v-if="loading" class="flex items-center justify-center py-16">
       <Loader2 class="h-6 w-6 animate-spin text-primary" />
     </div>
@@ -235,5 +228,5 @@ async function setColor(tagId: number, color: string) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  </div>
+  </AppPage>
 </template>

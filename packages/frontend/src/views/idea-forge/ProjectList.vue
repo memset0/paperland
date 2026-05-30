@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import AppPage from '@/components/AppPage.vue'
 
 const store = useIdeaForgeStore()
 const router = useRouter()
@@ -41,18 +42,14 @@ async function createProject() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-6 py-8 space-y-6">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <Lightbulb class="h-6 w-6 text-primary" />
-        <h1 class="text-2xl font-bold">Idea Forge</h1>
-      </div>
+  <AppPage>
+    <template #actions>
       <Button @click="showDialog = true">
         <Plus />
         New Project
       </Button>
-    </div>
-
+    </template>
+    <div class="space-y-6">
     <div v-if="store.loading" class="text-center py-20 text-muted-foreground">Loading projects...</div>
 
     <div v-else-if="store.projects.length === 0" class="text-center py-20 space-y-4">
@@ -108,5 +105,6 @@ async function createProject() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  </div>
+    </div>
+  </AppPage>
 </template>

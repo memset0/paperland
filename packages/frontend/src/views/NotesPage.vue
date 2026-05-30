@@ -6,7 +6,8 @@ import type { NoteWithPaper } from '@paperland/shared'
 import { usePageTitle } from '@/composables/usePageTitle'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Loader2, NotebookPen, FileText } from '@lucide/vue'
+import { Loader2, FileText } from '@lucide/vue'
+import AppPage from '@/components/AppPage.vue'
 
 const router = useRouter()
 const all = ref<NoteWithPaper[]>([])
@@ -58,12 +59,8 @@ function openNote(n: NoteWithPaper) {
 </script>
 
 <template>
-  <div class="max-w-3xl mx-auto p-5 space-y-4">
-    <div class="flex items-center gap-2">
-      <NotebookPen class="h-5 w-5 text-primary" />
-      <h1 class="text-lg font-semibold">Notes</h1>
-    </div>
-
+  <AppPage>
+    <div class="space-y-4">
     <Input v-model="query" placeholder="Search notes…" />
 
     <div v-if="loading" class="flex justify-center py-16">
@@ -94,5 +91,6 @@ function openNote(n: NoteWithPaper) {
         </Card>
       </div>
     </div>
-  </div>
+    </div>
+  </AppPage>
 </template>

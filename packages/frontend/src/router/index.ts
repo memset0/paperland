@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { FileText, MessageSquare, Activity, Settings, Tag, Lightbulb, CalendarDays, NotebookPen } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
@@ -9,7 +10,7 @@ const routes = [
     path: '/',
     name: 'papers',
     component: () => import('@/views/PaperList.vue'),
-    meta: { title: 'Papers' },
+    meta: { title: 'Papers', icon: FileText },
   },
   {
     path: '/papers/:id',
@@ -22,49 +23,49 @@ const routes = [
     path: '/qa',
     name: 'qa',
     component: () => import('@/views/QAPage.vue'),
-    meta: { requiresAuth: true, title: 'Q&A' },
+    meta: { requiresAuth: true, title: 'Q&A', icon: MessageSquare },
   },
   {
     path: '/notes',
     name: 'notes',
     component: () => import('@/views/NotesPage.vue'),
-    meta: { requiresAuth: true, title: 'Notes' },
+    meta: { requiresAuth: true, title: 'Notes', icon: NotebookPen },
   },
   {
     path: '/tags',
     name: 'tags',
     component: () => import('@/views/TagManagement.vue'),
-    meta: { requiresAuth: true, title: 'Tags' },
+    meta: { requiresAuth: true, title: 'Tags', icon: Tag },
   },
   {
     path: '/services',
     name: 'services',
     component: () => import('@/views/ServiceDashboard.vue'),
-    meta: { requiresAdmin: true, title: 'Services' },
+    meta: { requiresAdmin: true, title: 'Services', icon: Activity },
   },
   {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/Settings.vue'),
-    meta: { requiresAdmin: true, title: 'Settings' },
+    meta: { requiresAdmin: true, title: 'Settings', icon: Settings },
   },
   {
     path: '/conferences',
     name: 'conferences',
     component: () => import('@/views/ConferenceList.vue'),
-    meta: { title: 'Conferences' },
+    meta: { title: 'Conferences', icon: CalendarDays },
   },
   {
     path: '/conferences/:id',
     name: 'conference-detail',
     component: () => import('@/views/ConferenceDetail.vue'),
-    meta: { title: 'Conference Detail' },
+    meta: { title: 'Conference Detail', icon: CalendarDays },
   },
   {
     path: '/idea-forge',
     name: 'idea-forge',
     component: () => import('@/views/idea-forge/ProjectList.vue'),
-    meta: { requiresAuth: true, title: 'Idea Forge' },
+    meta: { requiresAuth: true, title: 'Idea Forge', icon: Lightbulb },
   },
   {
     path: '/idea-forge/:projectName',

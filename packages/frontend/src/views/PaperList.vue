@@ -11,6 +11,7 @@ import S2Badge from '@/components/S2Badge.vue'
 import CountCell from '@/components/CountCell.vue'
 import TagBadge from '@/components/TagBadge.vue'
 import TagSelector from '@/components/TagSelector.vue'
+import AppPage from '@/components/AppPage.vue'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -142,17 +143,13 @@ async function addPaper() {
 </script>
 
 <template>
-  <div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-xl font-semibold">论文管理</h1>
-        <p class="text-sm text-muted-foreground mt-0.5">管理你的学术论文库</p>
-      </div>
+  <AppPage full>
+    <template #actions>
       <Button @click="onAddClick">
         <Plus />添加论文
       </Button>
-    </div>
-
+    </template>
+    <div class="space-y-4">
     <div class="flex flex-wrap gap-2">
       <div class="relative w-full md:w-auto md:flex-1">
         <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
@@ -315,5 +312,6 @@ async function addPaper() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  </div>
+    </div>
+  </AppPage>
 </template>

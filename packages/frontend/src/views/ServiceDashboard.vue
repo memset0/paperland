@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import AppPage from '@/components/AppPage.vue'
 
 interface ServiceInfo { name: string; type: string; running: number; pending: number; max_concurrency: number }
 interface Execution { id: number; service_name: string; paper_id: number; status: string; progress: number; created_at: string; finished_at: string | null; error: string | null }
@@ -88,12 +89,8 @@ async function retryExecution(e: Execution) {
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
-    <div class="flex items-start justify-between gap-3">
-      <div>
-        <h1 class="text-xl font-semibold">服务管理</h1>
-        <p class="text-sm text-muted-foreground mt-0.5">监控数据抓取和处理服务</p>
-      </div>
+  <AppPage>
+    <template #actions>
       <div class="flex flex-col items-end gap-1">
         <Button variant="outline" size="sm" :disabled="backfilling" @click="backfillS2">
           <Loader2 v-if="backfilling" class="animate-spin" /><RefreshCw v-else />
@@ -101,8 +98,8 @@ async function retryExecution(e: Execution) {
         </Button>
         <span v-if="backfillMsg" class="text-xs text-muted-foreground">{{ backfillMsg }}</span>
       </div>
-    </div>
-
+    </template>
+    <div class="space-y-6">
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       <Card v-for="svc in services" :key="svc.name" class="p-4">
         <div class="flex items-center gap-2">
@@ -193,5 +190,6 @@ async function retryExecution(e: Execution) {
         </Button>
       </div>
     </Card>
-  </div>
+    </div>
+  </AppPage>
 </template>

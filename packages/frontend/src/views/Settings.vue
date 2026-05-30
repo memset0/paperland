@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import AppPage from '@/components/AppPage.vue'
 
 const store = useSettingsStore()
 const newToken = ref<string | null>(null)
@@ -83,12 +84,8 @@ function copyToken() {
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
-    <div>
-      <h1 class="text-xl font-semibold">设置</h1>
-      <p class="text-sm text-muted-foreground mt-0.5">管理用户、API Token 和全局配置</p>
-    </div>
-
+  <AppPage>
+    <div class="space-y-6">
     <!-- ── User management (admin only) ── -->
     <Card class="overflow-hidden gap-0 py-0">
       <div class="flex items-center justify-between border-b px-5 py-3">
@@ -236,5 +233,6 @@ function copyToken() {
         </form>
       </DialogContent>
     </Dialog>
-  </div>
+    </div>
+  </AppPage>
 </template>

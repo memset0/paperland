@@ -5,6 +5,7 @@ import { useConferencesStore } from '@/stores/conferences'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { CalendarDays, Plus, Search, ChevronLeft, ChevronRight, Loader2 } from '@lucide/vue'
+import AppPage from '@/components/AppPage.vue'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -78,17 +79,11 @@ function goToPage(p: number) { fetch(p) }
 </script>
 
 <template>
-  <div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="flex items-center gap-2 text-xl font-semibold">
-          <CalendarDays class="h-5 w-5 text-primary" />会议
-        </h1>
-        <p class="text-sm text-muted-foreground mt-0.5">按会议组织候选论文，确认后一键入库</p>
-      </div>
+  <AppPage>
+    <template #actions>
       <Button @click="openCreate"><Plus />新建会议</Button>
-    </div>
-
+    </template>
+    <div class="space-y-4">
     <div class="flex gap-2">
       <div class="relative flex-1">
         <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
@@ -185,5 +180,6 @@ function goToPage(p: number) { fetch(p) }
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  </div>
+    </div>
+  </AppPage>
 </template>

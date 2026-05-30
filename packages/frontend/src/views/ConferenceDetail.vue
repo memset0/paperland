@@ -6,7 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { toast } from 'vue-sonner'
 import {
-  ArrowLeft, CalendarDays, Upload, Plus, Check, Trash2, Pencil,
+  ArrowLeft, Upload, Plus, Check, Trash2, Pencil,
   Loader2, RefreshCw, FileText, FileJson, MoreVertical, ChevronDown, ChevronUp,
 } from '@lucide/vue'
 import { Card } from '@/components/ui/card'
@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import S2Badge from '@/components/S2Badge.vue'
+import AppPage from '@/components/AppPage.vue'
 import type { ConferencePaper } from '@paperland/shared'
 
 const route = useRoute()
@@ -234,30 +235,30 @@ async function submitImport() {
 </script>
 
 <template>
-  <div class="p-6 space-y-4">
-    <!-- Header -->
+  <AppPage title="Conferences">
+    <template #actions>
+      <Button variant="outline" size="sm" @click="refresh">
+        <RefreshCw />刷新
+      </Button>
+      <Button variant="outline" size="sm" :disabled="resolving" @click="requireAuthThen(resolveAll)">
+        {{ resolving ? '解析中…' : '解析(匹配 arXiv/S2)' }}
+      </Button>
+      <Button variant="outline" size="sm" @click="requireAuthThen(() => showImport = true)">
+        <Upload />导入
+      </Button>
+    </template>
+    <div class="space-y-4">
+    <!-- Conference sub-header -->
     <div class="flex items-center gap-3">
       <Button variant="ghost" size="icon-sm" @click="router.push('/conferences')">
         <ArrowLeft />
       </Button>
       <div class="flex-1 min-w-0">
-        <h1 class="flex items-center gap-2 text-xl font-semibold">
-          <CalendarDays class="h-5 w-5 text-primary" />
+        <h2 class="flex items-center gap-2 text-lg font-semibold">
           {{ store.current?.name || '加载中...' }}
           <Badge v-if="store.current?.year" variant="outline">{{ store.current.year }}</Badge>
-        </h1>
+        </h2>
         <p v-if="store.current?.description" class="text-sm text-muted-foreground mt-0.5 truncate">{{ store.current.description }}</p>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <Button variant="outline" size="sm" @click="refresh">
-          <RefreshCw />刷新
-        </Button>
-        <Button variant="outline" size="sm" :disabled="resolving" @click="requireAuthThen(resolveAll)">
-          {{ resolving ? '解析中…' : '解析(匹配 arXiv/S2)' }}
-        </Button>
-        <Button variant="outline" size="sm" @click="requireAuthThen(() => showImport = true)">
-          <Upload />导入
-        </Button>
       </div>
     </div>
 
@@ -425,5 +426,6 @@ async function submitImport() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  </div>
+    </div>
+  </AppPage>
 </template>
