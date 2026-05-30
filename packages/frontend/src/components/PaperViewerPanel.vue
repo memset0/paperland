@@ -2,20 +2,26 @@
 import { computed, ref, watch } from 'vue'
 import { FileText } from '@lucide/vue'
 import PdfViewer from '@/components/PdfViewer.vue'
+import NoteWalkthrough from '@/components/notes/NoteWalkthrough.vue'
+import { useNotesStore } from '@/stores/notes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { requestedPdfTarget } from '@/composables/usePdfNavigation'
 
 interface ViewerMode {
   id: string
   label: string
   available: boolean
-  type: 'pdf' | 'iframe'
+  type: 'pdf' | 'iframe' | 'walkthrough'
   url?: string | null
 }
 
 const props = defineProps<{
   pdfPath: string | null
   arxivId: string | null
+  paperId?: number | null
 }>()
+
+const notesStore = useNotesStore()
 
 const modes = computed<ViewerMode[]>(() => {
   const list: ViewerMode[] = []
@@ -32,6 +38,13 @@ const modes = computed<ViewerMode[]>(() => {
     type: 'iframe',
     url: props.arxivId ? `https://hjfy.top/arxiv/${props.arxivId}` : null,
   })
+  // Walkthrough renders the small-notes tree as one Markdown doc; only when notes exist.
+  list.push({
+    id: 'walkthrough',
+    label: 'Walk-through',
+    available: notesStore.noteCount > 0,
+    type: 'walkthrough',
+  })
   return list
 })
 
@@ -44,6 +57,11 @@ watch(availableModes, (newModes) => {
     activeId.value = newModes[0].id
   }
 }, { immediate: true })
+
+// A `paperland://…?pdf=…` anchor jump activates the PDF tab; PdfViewer then scrolls/highlights.
+watch(requestedPdfTarget, (t) => {
+  if (t && props.pdfPath && activeId.value !== 'pdf') activeId.value = 'pdf'
+})
 </script>
 
 <template>
@@ -67,13 +85,14 @@ watch(availableModes, (newModes) => {
         </TabsList>
       </div>
       <TabsContent v-for="mode in availableModes" :key="mode.id" :value="mode.id" class="flex-1 overflow-hidden m-0">
-        <PdfViewer v-if="mode.type === 'pdf'" :pdf-path="pdfPath" />
+        <PdfViewer v-if="mode.type === 'pdf'" :pdf-path="pdfPath" :paper-id="paperId" />
         <iframe
           v-else-if="mode.type === 'iframe' && mode.url"
           :src="mode.url"
           class="w-full h-full border-0"
           sandbox="allow-scripts allow-same-origin allow-popups"
         />
+        <NoteWalkthrough v-else-if="mode.type === 'walkthrough'" />
       </TabsContent>
     </Tabs>
   </div>

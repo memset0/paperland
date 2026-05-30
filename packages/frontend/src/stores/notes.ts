@@ -42,31 +42,104 @@ export function buildRootTree(flat: Note[], paperId: number | null): NoteTreeNod
   return root
 }
 
+/** One rendered section of the walkthrough: a note's (numbered) heading plus its body. */
+export interface WalkthroughSection {
+  /** The note this section belongs to (used to open its editor from the walkthrough). */
+  noteId: number
+  /** The root's heading-less intro section; every other section has a heading. */
+  isRoot: boolean
+  /** Heading level 2–6 (H2 for the root's direct children, +1 per depth, clamped); 0 for root. */
+  level: number
+  /** Hierarchical section number like `1.`, `1.2.`, `1.2.3.` (trailing dot); '' for root. */
+  number: string
+  /** Display title; '' for root. */
+  title: string
+  /** Markdown body: a note's body with its own headings re-leveled + numbered ('' when empty); the root's body verbatim. */
+  body: string
+}
+
+/** Allocates hierarchical outline numbers (`1.`, `1.2.`, `1.2.3.`) across the whole walkthrough. */
+function outlineNumberer() {
+  const counters: number[] = [] // counters[sl] = current count at section level sl (1-based)
+  return (sl: number): string => {
+    counters[sl] = (counters[sl] ?? 0) + 1
+    counters.length = sl + 1 // drop deeper counters left over from a previous branch
+    return counters.slice(1, sl + 1).join('.') + '.'
+  }
+}
+
 /**
- * Assemble the whole notes tree into one continuous Markdown document, in mind-map
- * (depth-first, `sort_order`) order — what the walkthrough view renders.
- *
- * The root contributes its body (if any) as a leading block with NO heading; each
- * descendant emits a title heading whose level tracks mind-map depth: H2 for the
- * root's direct children (depth 0), +1 per level deeper, clamped at H6. The heading
- * level is driven solely by depth — any heading markup inside a note body is left
- * verbatim. Empty-body nodes emit only their heading and still recurse into children.
+ * Number and re-level the ATX headings inside a note body so they nest *under* the note
+ * and share the walkthrough's outline numbering with the note's child notes, in document
+ * order. The body's shallowest authored heading sits one level below the note; deeper
+ * authored levels keep their relative nesting (mapped to contiguous ranks). Headings inside
+ * fenced code blocks and non-heading lines pass through unchanged.
  */
-export function assembleWalkthrough(root: NoteTreeNode): string {
-  const out: string[] = []
-  const rootBody = root.body.trim()
-  if (rootBody) out.push(rootBody)
+function numberBodyHeadings(body: string, noteSl: number, next: (sl: number) => string): string {
+  if (!body.trim()) return ''
+  const lines = body.split('\n')
+  const fenceRe = /^\s*(```+|~~~+)/
+  const headingRe = /^(#{1,6})\s+(.*)$/
+  // Pass 1: collect authored heading levels (outside code fences) → contiguous ranks.
+  let inFence = false
+  const levels = new Set<number>()
+  for (const line of lines) {
+    if (fenceRe.test(line)) { inFence = !inFence; continue }
+    if (inFence) continue
+    const m = headingRe.exec(line)
+    if (m) levels.add(m[1].length)
+  }
+  if (levels.size === 0) return body
+  const rank = new Map([...levels].sort((a, b) => a - b).map((lv, i) => [lv, i]))
+  // Pass 2: rewrite each heading line with its re-leveled depth + outline number.
+  inFence = false
+  return lines.map((line) => {
+    if (fenceRe.test(line)) { inFence = !inFence; return line }
+    const m = inFence ? null : headingRe.exec(line)
+    if (!m) return line
+    const sl = noteSl + 1 + rank.get(m[1].length)!
+    return `${'#'.repeat(Math.min(1 + sl, 6))} ${next(sl)} ${m[2].trim()}`
+  }).join('\n')
+}
+
+/**
+ * Flatten the notes tree into ordered walkthrough sections, in mind-map (depth-first,
+ * `sort_order`) order — what the walkthrough view renders.
+ *
+ * The root yields a heading-less intro section (its body verbatim, only if non-empty). Every
+ * other note yields a heading whose level tracks mind-map depth (H2 for the root's direct
+ * children, +1 per level deeper, clamped at H6) and a hierarchical `1.2.3.` number. Headings
+ * the user typed inside a note body are also numbered and re-leveled to nest under that note
+ * (they are not clickable). The numbering reflects only the walkthrough's heading hierarchy
+ * and order — it is independent of the notes' own titles.
+ */
+export function flattenWalkthrough(root: NoteTreeNode): WalkthroughSection[] {
+  const out: WalkthroughSection[] = []
+  const next = outlineNumberer()
+  // Root intro: verbatim body, no heading, not numbered.
+  if (root.body.trim()) {
+    out.push({ noteId: root.id, isRoot: true, level: 0, number: '', title: '', body: root.body })
+  }
   const walk = (nodes: NoteTreeNode[], depth: number) => {
     for (const n of nodes) {
-      const level = Math.min(2 + depth, 6)
-      out.push(`${'#'.repeat(level)} ${n.title?.trim() || '(untitled)'}`)
-      const body = n.body.trim()
-      if (body) out.push(body)
+      const sl = depth + 1 // section level: top-level notes = 1
+      const number = next(sl)
+      // Body headings are numbered right after the note title and before its child notes,
+      // so a note's own subsections and its child notes interleave in one outline.
+      const body = numberBodyHeadings(n.body, sl, next)
+      out.push({
+        noteId: n.id,
+        isRoot: false,
+        level: Math.min(1 + sl, 6),
+        number,
+        title: n.title?.trim() || '(untitled)',
+        body,
+      })
       walk(n.children, depth + 1)
     }
   }
   walk(root.children, 0) // children are already sorted by sort_order in buildRootTree
-  return out.join('\n\n')
+  return out
 }
 
 /** Collect a note id and all of its descendants from a flat list. */
