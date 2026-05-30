@@ -31,9 +31,8 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
     end_offset: number
     text: string
     color: string
-    note?: string | null
   } }>('/api/highlights', { preHandler: requireUser }, async (request, reply) => {
-    const { pathname, content_hash, start_offset, end_offset, text, color, note } = request.body || {} as any
+    const { pathname, content_hash, start_offset, end_offset, text, color } = request.body || {} as any
     if (!pathname || !content_hash || start_offset == null || end_offset == null || !text || !color) {
       return reply.code(400).send({ error: { message: 'Missing required fields' } })
     }
@@ -52,7 +51,6 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
       end_offset,
       text,
       color,
-      note: note ?? null,
       created_at: new Date().toISOString(),
     }).returning().get()
 
@@ -63,10 +61,10 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // PUT /api/highlights/:id
-  app.put<{ Params: { id: string }; Body: { color?: string; note?: string | null } }>(
+  app.put<{ Params: { id: string }; Body: { color?: string } }>(
     '/api/highlights/:id', { preHandler: requireUser }, async (request, reply) => {
       const id = parseInt(request.params.id, 10)
-      const { color, note } = request.body || {} as any
+      const { color } = request.body || {} as any
 
       const db = getDatabase()
       const existing = db.select().from(schema.highlights)
@@ -85,9 +83,6 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
           return reply.code(400).send({ error: { message: `Invalid color` } })
         }
         updates.color = color
-      }
-      if (note !== undefined) {
-        updates.note = note
       }
 
       if (Object.keys(updates).length === 0) {

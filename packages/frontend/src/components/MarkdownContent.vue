@@ -3,10 +3,12 @@ import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue'
 import MarkdownIt from 'markdown-it'
 import mk from '@traptitech/markdown-it-katex'
 import SparkMD5 from 'spark-md5'
+import TurndownService from 'turndown'
+import { gfm } from 'turndown-plugin-gfm'
 import 'katex/dist/katex.min.css'
 import { toast } from 'vue-sonner'
 import { useRouter, useRoute } from 'vue-router'
-import { StickyNote, Trash2, Save, Link2 } from '@lucide/vue'
+import { Trash2, Link2 } from '@lucide/vue'
 import { useHighlightStore } from '@/stores/highlights'
 import { useAuthStore } from '@/stores/auth'
 import { applyHighlights, clearHighlights, getSelectionOffsets } from '@/composables/useHighlight'
@@ -29,24 +31,19 @@ const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
 const showToolbar = ref(false)
 const toolbarPos = ref({ x: 0, y: 0 })
 const pendingSelection = ref<{ start_offset: number; end_offset: number; text: string } | null>(null)
-const showNoteInput = ref(false)
-const noteText = ref('')
-
-// Tooltip state
-const showTooltip = ref(false)
-const tooltipPos = ref({ x: 0, y: 0 })
-const tooltipNote = ref('')
 
 // Click menu state
 const showMenu = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
 const menuHighlightId = ref<number | null>(null)
-const menuEditNote = ref(false)
-const menuNoteText = ref('')
 
 // Configure markdown-it once
 const md = new MarkdownIt({ breaks: true, linkify: true, html: false })
 md.use(mk, { throwOnError: false })
+
+// HTML → Markdown converter for the "copy as anchor" action (GFM tables/strikethrough).
+const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
+turndown.use(gfm)
 
 /** Compute content hash: MD5 of content with all whitespace removed */
 const contentHash = computed(() => {
@@ -126,7 +123,7 @@ function handleSelectionSettled() {
   const anchorEl = range.startContainer.nodeType === Node.ELEMENT_NODE
     ? range.startContainer as Element
     : range.startContainer.parentElement
-  if (anchorEl?.closest('.hl-toolbar, .hl-menu, .hl-tooltip')) return
+  if (anchorEl?.closest('.hl-toolbar, .hl-menu')) return
 
   if (!props.content) {
     alert('内容为空，无法创建高亮。请检查组件是否正确接收了内容数据。')
@@ -159,8 +156,6 @@ function handleSelectionSettled() {
 
   toolbarPos.value = { x, y }
   showToolbar.value = true
-  showNoteInput.value = false
-  noteText.value = ''
 }
 
 async function createHighlight(color: HighlightColor) {
@@ -172,7 +167,6 @@ async function createHighlight(color: HighlightColor) {
     end_offset: pendingSelection.value.end_offset,
     text: pendingSelection.value.text,
     color,
-    note: showNoteInput.value && noteText.value.trim() ? noteText.value.trim() : null,
     ...(props.highlightPathname ? { pathname: props.highlightPathname } : {}),
   })
 
@@ -215,45 +209,71 @@ function onAnchorLinkClick(e: MouseEvent | Event) {
   }
 }
 
-/** Build a `paperland://` link for the current selection and copy it (as Markdown) to the clipboard. */
+// Private-use-area chars wrap math sentinels so Turndown never escapes the LaTeX.
+const MATH_SENTINEL = ''
+
+/**
+ * Convert the live selection back to Markdown.
+ * Math (`.katex` / `.katex-display`) is reconstructed exactly from each element's
+ * `x-tex` annotation and re-inserted as `$…$` / `$$…$$` AFTER Turndown runs, so the
+ * LaTeX is never mangled by Markdown escaping. Tables become GFM pipe tables.
+ */
+function selectionToMarkdown(): string {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return ''
+
+  const wrapper = document.createElement('div')
+  wrapper.appendChild(selection.getRangeAt(0).cloneContents())
+
+  // Drop highlight <mark> wrappers so highlight styling doesn't leak into the Markdown.
+  for (const mark of Array.from(wrapper.querySelectorAll('mark[data-highlight-id]'))) {
+    const parent = mark.parentNode
+    if (!parent) continue
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
+    parent.removeChild(mark)
+  }
+
+  // Swap each KaTeX element for a sentinel text node (display before inline, since
+  // `.katex-display` contains a `.katex`). Record the original LaTeX for re-insertion.
+  const maths: { display: boolean; tex: string }[] = []
+  const swapKatex = (selector: string, display: boolean) => {
+    for (const el of Array.from(wrapper.querySelectorAll(selector))) {
+      const tex = (el.querySelector('annotation[encoding="application/x-tex"]')?.textContent || '').trim()
+      el.replaceWith(document.createTextNode(`${MATH_SENTINEL}${maths.length}${MATH_SENTINEL}`))
+      maths.push({ display, tex })
+    }
+  }
+  swapKatex('.katex-display', true)
+  swapKatex('.katex', false)
+
+  let markdown = turndown.turndown(wrapper.innerHTML)
+  markdown = markdown.replace(
+    new RegExp(`${MATH_SENTINEL}(\\d+)${MATH_SENTINEL}`, 'g'),
+    (_, i) => {
+      const m = maths[Number(i)]
+      if (!m) return ''
+      // Display math must sit on its own line(s) to parse as a block; inline math is left in place.
+      return m.display ? `\n$$\n${m.tex}\n$$\n` : `$${m.tex}$`
+    },
+  )
+  // The sentinel usually already sits in its own paragraph, so the newlines added around
+  // display math would otherwise double up the blank line — collapse 3+ newlines to one blank line.
+  markdown = markdown.replace(/\n{3,}/g, '\n\n')
+  return markdown.trim()
+}
+
+/** Copy the full selection as Markdown, followed by a compact `[#](paperland://…)` anchor. */
 function copyAnchorLink() {
   if (!pendingSelection.value || !contentHash.value || !props.paperId) return
   const { start_offset, end_offset, text } = pendingSelection.value
   const url = `paperland://paper/${props.paperId}?h=${contentHash.value}&s=${start_offset}&e=${end_offset}`
-  const label = text.trim().slice(0, 40).replace(/\s+/g, ' ') || '锚点'
-  navigator.clipboard.writeText(`[${label}](${url})`)
-  toast.success('锚点链接已复制', { position: 'bottom-center' })
+  // Fall back to the rendered plain text if Markdown conversion comes back empty
+  // (e.g. the browser collapsed the selection when the toolbar was tapped).
+  const content = selectionToMarkdown() || text.trim()
+  navigator.clipboard.writeText(`${content} [#](${url})`)
+  toast.success('已复制内容和锚点链接', { position: 'bottom-center' })
   window.getSelection()?.removeAllRanges()
   closeAllPopups()
-}
-
-// ---- Hover Tooltip (desktop only) ----
-
-function onMarkMouseEnter(e: MouseEvent) {
-  // Skip hover tooltip on touch devices — they use tap → menu instead
-  if (isTouchDevice) return
-
-  const mark = (e.target as Element)?.closest('mark[data-highlight-id]')
-  if (!mark || !mark.getAttribute('data-highlight-note')) return
-
-  const note = mark.getAttribute('data-highlight-note')!
-  const containerRect = containerRef.value!.getBoundingClientRect()
-  const markRect = mark.getBoundingClientRect()
-
-  tooltipNote.value = note
-  tooltipPos.value = {
-    x: markRect.left - containerRect.left + markRect.width / 2,
-    y: markRect.top - containerRect.top - 8,
-  }
-  showTooltip.value = true
-}
-
-function onMarkMouseLeave(e: MouseEvent) {
-  if (isTouchDevice) return
-
-  const related = e.relatedTarget as Element | null
-  if (related?.closest('.hl-tooltip')) return
-  showTooltip.value = false
 }
 
 // ---- Click Menu ----
@@ -292,25 +312,13 @@ function onMarkClick(e: MouseEvent | Event) {
   }
 
   menuPos.value = { x, y }
-  menuEditNote.value = false
-  menuNoteText.value = hl.note || ''
   showMenu.value = true
   showToolbar.value = false
-  showTooltip.value = false
 }
 
 async function menuChangeColor(color: HighlightColor) {
   if (menuHighlightId.value == null) return
   await highlightStore.update(menuHighlightId.value, { color })
-  showMenu.value = false
-}
-
-async function menuSaveNote() {
-  if (menuHighlightId.value == null) return
-  await highlightStore.update(menuHighlightId.value, {
-    note: menuNoteText.value.trim() || null,
-  })
-  menuEditNote.value = false
   showMenu.value = false
 }
 
@@ -342,7 +350,6 @@ function onKatexClick(e: MouseEvent | Event) {
 
 function closeAllPopups() {
   showToolbar.value = false
-  showTooltip.value = false
   showMenu.value = false
   pendingSelection.value = null
 }
@@ -350,7 +357,7 @@ function closeAllPopups() {
 /** Dismiss popups on outside click/tap — idempotent, safe for both mousedown & touchstart */
 function onDocumentDismiss(e: MouseEvent | TouchEvent) {
   const target = e.target as Element
-  if (target?.closest('.hl-toolbar, .hl-menu, .hl-tooltip')) return
+  if (target?.closest('.hl-toolbar, .hl-menu')) return
   if (target?.closest('mark[data-highlight-id]')) return
   closeAllPopups()
 }
@@ -381,8 +388,6 @@ onBeforeUnmount(() => {
   <div class="markdown-content max-w-none relative" style="position: relative;" :data-content-hash="contentHash">
     <div
       ref="containerRef"
-      @mouseover="onMarkMouseEnter"
-      @mouseout="onMarkMouseLeave"
       @click="onAnchorLinkClick($event); onMarkClick($event); onKatexClick($event)"
     />
 
@@ -401,28 +406,9 @@ onBeforeUnmount(() => {
           @click.stop="createHighlight(c)"
         />
       </div>
-      <button class="hl-note-toggle" @click.stop="showNoteInput = !showNoteInput" title="Add note">
-        <StickyNote class="hl-icon" />
-      </button>
-      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyAnchorLink" title="复制为锚点链接">
+      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyAnchorLink" title="复制内容和锚点链接">
         <Link2 class="hl-icon" />
       </button>
-      <div v-if="showNoteInput" class="hl-note-input" @click.stop>
-        <input
-          v-model="noteText"
-          placeholder="Add note..."
-          @keydown.enter.stop="createHighlight('yellow')"
-        />
-      </div>
-    </div>
-
-    <!-- Hover Tooltip (desktop only, touch devices use tap → menu) -->
-    <div
-      v-if="showTooltip"
-      class="hl-tooltip"
-      :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
-    >
-      {{ tooltipNote }}
     </div>
 
     <!-- Click Menu -->
@@ -442,21 +428,8 @@ onBeforeUnmount(() => {
         />
       </div>
       <div class="hl-menu-actions">
-        <button v-if="!menuEditNote" @click.stop="menuEditNote = true" class="hl-menu-btn">
-          <StickyNote class="hl-icon" /> Note
-        </button>
         <button @click.stop="menuDelete" class="hl-menu-btn hl-menu-btn-danger">
           <Trash2 class="hl-icon" /> Delete
-        </button>
-      </div>
-      <div v-if="menuEditNote" class="hl-menu-note">
-        <input
-          v-model="menuNoteText"
-          placeholder="Add note..."
-          @keydown.enter.stop="menuSaveNote"
-        />
-        <button @click.stop="menuSaveNote" class="hl-menu-btn">
-          <Save class="hl-icon" /> Save
         </button>
       </div>
     </div>
@@ -548,28 +521,6 @@ onBeforeUnmount(() => {
   display: inline-flex; align-items: center; justify-content: center;
 }
 .hl-note-toggle:hover { background: var(--accent); color: var(--accent-foreground); }
-.hl-note-input {
-  width: 100%; margin-top: 4px;
-}
-.hl-note-input input {
-  width: 100%; padding: 4px 8px; font-size: 12px;
-  background: var(--background); color: var(--foreground);
-  border: 1px solid var(--input); border-radius: var(--radius-sm); outline: none;
-}
-.hl-note-input input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent); }
-
-/* --- Tooltip --- */
-.hl-tooltip {
-  position: absolute; z-index: 50; transform: translateX(-50%) translateY(-100%);
-  background: var(--primary); color: var(--primary-foreground);
-  font-size: 12px; line-height: 1.4;
-  padding: 4px 8px; border-radius: var(--radius-sm); max-width: 250px;
-  pointer-events: none; white-space: pre-wrap;
-}
-.hl-tooltip::after {
-  content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-  border: 4px solid transparent; border-top-color: var(--primary);
-}
 
 /* --- Click Menu --- */
 .hl-menu {
@@ -590,12 +541,5 @@ onBeforeUnmount(() => {
 .hl-menu-btn:hover { background: var(--accent); color: var(--accent-foreground); }
 .hl-menu-btn-danger { color: var(--destructive); }
 .hl-menu-btn-danger:hover { background: color-mix(in oklch, var(--destructive) 12%, transparent); color: var(--destructive); }
-.hl-menu-note { margin-top: 6px; display: flex; gap: 4px; }
-.hl-menu-note input {
-  flex: 1; padding: 4px 8px; font-size: 12px;
-  background: var(--background); color: var(--foreground);
-  border: 1px solid var(--input); border-radius: var(--radius-sm); outline: none;
-}
-.hl-menu-note input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent); }
 </style>
 

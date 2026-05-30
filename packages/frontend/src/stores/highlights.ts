@@ -44,7 +44,6 @@ export const useHighlightStore = defineStore('highlights', () => {
     end_offset: number
     text: string
     color: HighlightColor
-    note?: string | null
     pathname?: string
   }) {
     const targetPathname = data.pathname || currentPathname.value
@@ -58,8 +57,8 @@ export const useHighlightStore = defineStore('highlights', () => {
     return res.data
   }
 
-  /** Update a highlight's color or note */
-  async function update(id: number, data: { color?: HighlightColor; note?: string | null }) {
+  /** Update a highlight's color */
+  async function update(id: number, data: { color?: HighlightColor }) {
     const res = await highlightApi.update(id, data)
     const idx = highlights.value.findIndex(h => h.id === id)
     if (idx !== -1) highlights.value[idx] = res.data

@@ -347,6 +347,7 @@ content_priority:
 | vue-sonner | Toast 通知（由 `<Toaster>` 组件包装） |
 | vuedraggable | 拖拽（idea-forge Kanban） |
 | pdfjs-dist | PDF 在线阅读 |
+| turndown + turndown-plugin-gfm | 选区 HTML→Markdown 还原（「复制为锚点链接」：GFM 表格、数学按 `$`/`$$` 还原） |
 
 ### Python (scripts/)
 

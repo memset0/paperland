@@ -1,8 +1,5 @@
-# markdown-highlight Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change markdown-highlight. Update Purpose after archive.
-## Requirements
 ### Requirement: Highlight data model
 The system SHALL store highlights in a `highlights` table with fields: `id`, `user_id`, `pathname`, `content_hash`, `start_offset`, `end_offset`, `text`, `color`, `created_at`. The `user_id` SHALL reference `users.id` and identify the owner of the highlight. A highlight SHALL carry only a color; the system SHALL NOT read or write any per-highlight note. A legacy `note` column MAY remain physically present in the database for historical rows, but the active Drizzle schema and all queries SHALL ignore it.
 
@@ -13,21 +10,6 @@ The system SHALL store highlights in a `highlights` table with fields: `id`, `us
 #### Scenario: Legacy note column is ignored
 - **WHEN** the `highlights` table still has a physical `note` column populated on historical rows
 - **THEN** the active schema SHALL NOT select, return, or update that column, and reading a highlight SHALL never surface a note
-
-### Requirement: Batch query highlights by pathname
-The system SHALL provide `GET /api/highlights?pathname=<path>` that returns the current user's highlights for the given page path in a single request. The result SHALL be scoped to the authenticated user; anonymous requests SHALL return an empty list with HTTP 200.
-
-#### Scenario: Load all highlights for a page
-- **WHEN** an authenticated user loads a page at pathname `/papers/42`
-- **THEN** a single `GET /api/highlights?pathname=/papers/42` request SHALL return all of that user's highlights for that page, across all content_hash values
-
-#### Scenario: No highlights for page
-- **WHEN** `GET /api/highlights?pathname=/papers/42` is called and the current user has no highlights there
-- **THEN** the response SHALL return `{ "data": [] }`
-
-#### Scenario: Anonymous user sees no highlights
-- **WHEN** an anonymous client calls `GET /api/highlights?pathname=/papers/42`
-- **THEN** the response SHALL return `{ "data": [] }` with HTTP 200
 
 ### Requirement: Create highlight
 The system SHALL provide `POST /api/highlights` to create a new highlight record owned by the current authenticated user. The request body SHALL carry `{ pathname, content_hash, start_offset, end_offset, text, color }` and SHALL NOT carry a note. Anonymous requests SHALL be rejected with 401.
@@ -59,17 +41,6 @@ The system SHALL provide `PUT /api/highlights/:id` to update a highlight's color
 - **WHEN** a user sends `PUT /api/highlights/:id` for a highlight owned by a different user (or is anonymous)
 - **THEN** the system SHALL respond 404 (not owner) or 401 (anonymous) and SHALL NOT modify it
 
-### Requirement: Delete highlight
-The system SHALL provide `DELETE /api/highlights/:id` to delete a highlight, only when it belongs to the current authenticated user.
-
-#### Scenario: Delete existing highlight
-- **WHEN** the owner sends a DELETE request for one of their highlight IDs
-- **THEN** the highlight record SHALL be removed and the corresponding `<mark>` element SHALL be removed from the DOM
-
-#### Scenario: Delete another user's highlight rejected
-- **WHEN** a user sends `DELETE /api/highlights/:id` for a highlight owned by a different user (or is anonymous)
-- **THEN** the system SHALL respond 404 (not owner) or 401 (anonymous) and SHALL NOT delete it
-
 ### Requirement: Text selection creates highlight
 The system SHALL display a floating toolbar when text is selected within a MarkdownContent component, allowing the user to choose a highlight color. The toolbar SHALL NOT offer a note input. On both desktop and mobile (touch) devices, the system SHALL detect text selection completion via the `selectionchange` event with debouncing, and display the toolbar near the selection.
 
@@ -97,25 +68,6 @@ The system SHALL display a floating toolbar when text is selected within a Markd
 - **WHEN** the selection is near the edge of the screen (especially on narrow mobile viewports)
 - **THEN** the toolbar position SHALL be clamped to remain fully visible within the container bounds
 
-### Requirement: Highlight rendering via DOM text node traversal
-The system SHALL render highlights by traversing DOM text nodes after markdown rendering and wrapping matched offset ranges with `<mark>` elements. The highlight system SHALL remain parser-agnostic — it operates on the rendered DOM tree, not the markdown parser's AST, and SHALL work correctly with any markdown renderer that produces valid HTML with KaTeX elements carrying `.katex` / `.katex-display` CSS classes.
-
-#### Scenario: Single paragraph highlight
-- **WHEN** a highlight with start_offset=10, end_offset=25 exists
-- **THEN** the system SHALL find the text nodes covering offsets 10-25 and wrap them in `<mark>` elements with the appropriate color class and `data-highlight-id`
-
-#### Scenario: Cross-paragraph highlight
-- **WHEN** a highlight spans text across multiple block elements (e.g., two paragraphs)
-- **THEN** the system SHALL split the highlight into multiple `<mark>` segments (one per text node in range), all sharing the same `data-highlight-id`
-
-#### Scenario: Offset verification
-- **WHEN** the text at the stored offset does not match the stored `text` field
-- **THEN** the system SHALL silently skip rendering that highlight (graceful degradation)
-
-#### Scenario: Parser change does not break highlights
-- **WHEN** the markdown parser is changed from `marked` to `markdown-it`
-- **THEN** existing highlights SHALL continue to render correctly because the highlight system matches on rendered `textContent` offsets, not on HTML structure
-
 ### Requirement: Highlight interaction — click menu
 The system SHALL display a context menu when the user clicks or taps on a highlighted text, with options to change color and delete. The menu SHALL NOT offer a note-editing option.
 
@@ -131,59 +83,6 @@ The system SHALL display a context menu when the user clicks or taps on a highli
 #### Scenario: Delete highlight from menu
 - **WHEN** the user clicks/taps "delete" in the highlight context menu
 - **THEN** the highlight SHALL be removed from the DOM and a DELETE request SHALL be sent to the backend
-
-### Requirement: Popup dismissal on all devices
-The system SHALL close all highlight-related popups (toolbar, tooltip, menu) when the user interacts outside of them, on both desktop and touch devices.
-
-#### Scenario: Dismiss popups on desktop
-- **WHEN** a popup is showing and the user clicks outside of it on desktop
-- **THEN** all highlight popups SHALL be closed
-
-#### Scenario: Dismiss popups on touch device
-- **WHEN** a popup is showing and the user taps outside of it on a touch device
-- **THEN** all highlight popups SHALL be closed via `touchstart` event detection
-
-### Requirement: Empty content protection
-The system SHALL prevent highlight creation on empty MarkdownContent and display an error alert.
-
-#### Scenario: Attempt to highlight empty content
-- **WHEN** a MarkdownContent component has an empty content prop and the user attempts to select text
-- **THEN** the system SHALL display an error alert indicating the content is empty and highlight creation is not possible
-
-### Requirement: Content hash computation
-The system SHALL compute content_hash as the MD5 hash of the markdown content string with all whitespace characters removed.
-
-#### Scenario: Hash computation
-- **WHEN** markdown content is `"Hello **world**\n\nNew paragraph"`
-- **THEN** the content_hash SHALL be MD5 of `"Hello**world**Newparagraph"` (all whitespace stripped)
-
-### Requirement: Page-level highlight data loading
-The system SHALL load all highlights for the current page with a single API request when the page mounts, and distribute the data to individual MarkdownContent instances by content_hash. When QA content is displayed on a page other than the paper detail page (e.g., /qa feed), highlights SHALL be loaded and saved using the original paper's pathname (`/papers/:id`) rather than the current route path.
-
-#### Scenario: Page loads with multiple MarkdownContent instances
-- **WHEN** a page containing 5 MarkdownContent components loads
-- **THEN** exactly one `GET /api/highlights?pathname=...` request SHALL be made, and each component SHALL receive only the highlights matching its own content_hash
-
-#### Scenario: QA feed page highlight binding
-- **WHEN** a QA entry for paper 42 is expanded on the /qa feed page
-- **THEN** highlights SHALL be loaded from and saved to pathname `/papers/42`, NOT `/qa`
-
-#### Scenario: Highlight created on QA feed page
-- **WHEN** a user creates a highlight on QA answer text displayed on the /qa feed page for paper 42
-- **THEN** the highlight SHALL be stored with pathname `/papers/42`
-- **WHEN** the user navigates to `/papers/42` detail page
-- **THEN** the same highlight SHALL be visible on the paper detail page
-
-### Requirement: Highlights are owner-scoped
-Highlights SHALL be private to their owner. Reads SHALL return only the current user's highlights, and only the owner SHALL be able to create, update, or delete a highlight. Anonymous users SHALL neither see nor create highlights.
-
-#### Scenario: Highlights not shared between users
-- **WHEN** user A highlights text on `/papers/42` and user B opens the same page
-- **THEN** user B SHALL NOT see user A's highlights, and vice versa
-
-#### Scenario: Anonymous viewer sees no highlights and cannot create
-- **WHEN** an anonymous visitor opens a paper or QA page
-- **THEN** no highlights SHALL be rendered, and attempting to create a highlight SHALL prompt for login
 
 ### Requirement: Copy an anchor link from a selection
 The selection floating toolbar (the same one offering highlight colors) SHALL include a "复制为锚点链接" (copy anchor link) action for authenticated users. Choosing it SHALL place on the clipboard the **full selected content converted back to Markdown**, immediately followed by a compact anchor link of the form `[#](paperland://paper/<id>?h=<content_hash>&s=<start>&e=<end>)` that addresses the selection (paper id + the block's `content_hash` + the selection's rendered `start`/`end` offsets). The copied content SHALL be the complete selection — NOT a truncated label and NOT the render-stripped plain text.
@@ -218,3 +117,8 @@ The selection floating toolbar (the same one offering highlight colors) SHALL in
 - **WHEN** an anonymous visitor selects text
 - **THEN** the toolbar SHALL NOT offer "复制为锚点链接" (it requires login, consistent with other selection actions)
 
+## REMOVED Requirements
+
+### Requirement: Highlight interaction — hover tooltip
+**Reason**: Highlights are now color-only; with per-highlight notes removed there is nothing to show on hover. Per-paper annotation is now handled by the dedicated notes system.
+**Migration**: Use the standalone notes system (`paper-notes`) for any per-paper notes. Existing highlight `note` data is left in the database but is no longer read or displayed.

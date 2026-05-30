@@ -58,10 +58,9 @@ export const highlightApi = {
     end_offset: number
     text: string
     color: HighlightColor
-    note?: string | null
   }) => api.post<{ data: Highlight }>('/api/highlights', data),
 
-  update: (id: number, data: { color?: HighlightColor; note?: string | null }) =>
+  update: (id: number, data: { color?: HighlightColor }) =>
     api.put<{ data: Highlight }>(`/api/highlights/${id}`, data),
 
   remove: (id: number) =>

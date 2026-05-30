@@ -196,7 +196,6 @@ export interface Highlight {
   end_offset: number
   text: string
   color: HighlightColor
-  note: string | null
   created_at: string
 }
 

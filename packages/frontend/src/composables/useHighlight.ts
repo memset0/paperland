@@ -205,7 +205,6 @@ function createMark(hl: Highlight): HTMLElement {
   const mark = document.createElement('mark')
   mark.dataset.highlightId = String(hl.id)
   mark.dataset.highlightColor = hl.color
-  if (hl.note) mark.dataset.highlightNote = hl.note
   mark.className = `hl-${hl.color}`
   return mark
 }

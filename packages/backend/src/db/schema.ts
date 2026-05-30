@@ -93,7 +93,11 @@ export const highlights = sqliteTable('highlights', {
   end_offset: integer('end_offset').notNull(),
   text: text('text').notNull(),
   color: text('color').notNull(), // 'yellow' | 'green' | 'blue' | 'pink'
-  note: text('note'),
+  // NOTE: a legacy `note` column still exists physically in the DB (old highlight-notes).
+  // It is intentionally dropped from the active schema and no longer read or written — the
+  // dedicated `notes` table supersedes it. No destructive migration is generated; the column
+  // is left in place to preserve historical data. (A future drizzle-kit generate may propose
+  // dropping it; that is expected and can be ignored.)
   created_at: text('created_at').notNull(),
 })
 
