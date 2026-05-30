@@ -240,6 +240,8 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       db.delete(schema.paperCitations).where(eq(schema.paperCitations.paper_id, id)).run()
       // 4. Delete paper_tags
       db.delete(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).run()
+      // 4b. Delete per-user reference links
+      db.delete(schema.paperReferenceLinks).where(eq(schema.paperReferenceLinks.paper_id, id)).run()
       // 5. Delete highlights by pdf_path pattern
       if (paper.pdf_path) {
         db.delete(schema.highlights).where(like(schema.highlights.pathname, `%${paper.pdf_path}%`)).run()

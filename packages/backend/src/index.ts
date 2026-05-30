@@ -15,6 +15,7 @@ import { serviceRoutes } from './api/services.js'
 import { qaRoutes } from './api/qa.js'
 import { highlightsRoutes } from './api/highlights.js'
 import { notesRoutes } from './api/notes.js'
+import { referenceLinksRoutes } from './api/reference_links.js'
 import { tagRoutes } from './api/tags.js'
 import { externalPaperRoutes } from './external-api/papers.js'
 import { externalTagRoutes } from './external-api/tags.js'
@@ -128,6 +129,7 @@ async function main() {
   await app.register(qaRoutes)
   await app.register(highlightsRoutes)
   await app.register(notesRoutes)
+  await app.register(referenceLinksRoutes)
   await app.register(tagRoutes)
 
   // Register idea-forge routes

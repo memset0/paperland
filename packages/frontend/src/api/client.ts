@@ -133,3 +133,28 @@ export const notesApi = {
 
   listAll: () => api.get<{ data: NoteWithPaper[] }>('/api/notes'),
 }
+
+// Reference links API
+import type { PaperReferenceLink } from '@paperland/shared'
+
+export const referenceLinksApi = {
+  // Owner-scoped read; anonymous (or a not-yet-ready route) degrades silently to empty.
+  async getForPaper(paperId: number): Promise<{ data: PaperReferenceLink[] }> {
+    try {
+      const res = await fetch(`/api/papers/${paperId}/reference-links`, { credentials: 'same-origin' })
+      if (!res.ok) return { data: [] }
+      return await res.json()
+    } catch {
+      return { data: [] }
+    }
+  },
+
+  create: (paperId: number, data: { title: string; url: string; description?: string | null }) =>
+    api.post<{ data: PaperReferenceLink }>(`/api/papers/${paperId}/reference-links`, data),
+
+  update: (id: number, data: { title?: string; url?: string; description?: string | null }) =>
+    api.patch<{ data: PaperReferenceLink }>(`/api/reference-links/${id}`, data),
+
+  remove: (id: number) =>
+    api.delete<{ success: boolean }>(`/api/reference-links/${id}`),
+}

@@ -223,6 +223,19 @@ export interface NoteWithPaper extends Note {
   paper_title: string
 }
 
+// Per-user reference link attached to a paper (blog post, project page, …).
+// `title` and `url` are required; `description` is optional.
+export interface PaperReferenceLink {
+  id: number
+  user_id: number
+  paper_id: number
+  title: string
+  url: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Conferences
 export interface Conference {
   id: number

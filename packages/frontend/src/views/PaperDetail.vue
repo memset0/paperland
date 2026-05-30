@@ -17,6 +17,7 @@ import { usePageTitle } from '@/composables/usePageTitle'
 import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
 import QAList from '@/components/QAList.vue'
 import PaperNotesCard from '@/components/PaperNotesCard.vue'
+import ReferenceLinksSection from '@/components/ReferenceLinksSection.vue'
 import PaperCitations from '@/components/PaperCitations.vue'
 import QAInput from '@/components/QAInput.vue'
 import PaperActionLauncher, { type LauncherAction } from '@/components/PaperActionLauncher.vue'
@@ -511,6 +512,7 @@ async function promote() {
                   <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
                 </template>
               </div>
+              <ReferenceLinksSection :paper-id="paperId" />
               <div v-if="store.currentPaper.abstract" class="space-y-2">
                 <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
                 <p class="text-sm text-muted-foreground leading-relaxed">{{ store.currentPaper.abstract }}</p>
@@ -659,6 +661,7 @@ async function promote() {
                 <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
               </template>
             </div>
+            <ReferenceLinksSection :paper-id="paperId" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">
               <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
               <p class="text-sm text-muted-foreground leading-relaxed">{{ store.currentPaper.abstract }}</p>
