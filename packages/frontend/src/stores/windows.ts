@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export interface NoteWindowTarget {
-  kind: 'walkthrough' | 'note'
+  kind: 'root' | 'note'
   paperId: number
   noteId?: number
   title: string
@@ -43,7 +43,7 @@ export const useWindowsStore = defineStore('note-windows', () => {
   let topZ = 100
 
   function keyFor(t: NoteWindowTarget): string {
-    return t.kind === 'walkthrough' ? `walkthrough-${t.paperId}` : `note-${t.noteId}`
+    return t.kind === 'root' ? `root-${t.paperId}` : `note-${t.noteId}`
   }
 
   /** Open a window for a target, or focus it if already open. `at` seeds the position. */

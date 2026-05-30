@@ -1,8 +1,5 @@
-# notes-page Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-paper-notes. Update Purpose after archive.
-## Requirements
 ### Requirement: Notes aggregate API
 The system SHALL provide `GET /api/notes` that returns the current user's notes across all papers under the unified note model (no walkthrough kind), each with its `paper_id` and `paper_title`. The endpoint SHALL require an authenticated user and return only that user's notes, and SHALL include only notes whose `body` is non-empty after trimming (empty root notes are excluded).
 
@@ -40,4 +37,3 @@ The system SHALL provide a `/notes` page that requires login and lists the curre
 #### Scenario: Anonymous user gated
 - **WHEN** an anonymous user selects the Notes sidebar entry or navigates to `/notes`
 - **THEN** the system SHALL prompt for login and SHALL NOT display any notes
-

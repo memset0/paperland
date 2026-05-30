@@ -213,17 +213,18 @@ highlights
   note            text      nullable
   created_at      text      not null
 
-notes                                          // 按用户私有的论文笔记
+notes                                          // 按用户私有的论文笔记（每 用户×论文 一棵树，根笔记锚定）
   id              integer   primary key autoincrement
   user_id         integer   → users.id, not null     // 属主
   paper_id        integer   → papers.id, not null
-  kind            text      not null                 // 'walkthrough' | 'note'
-  parent_id       integer   → notes.id, nullable      // 自引用树；walkthrough 与顶层 note 为 null
-  title           text      nullable                 // 小笔记标题；walkthrough 不用
+  kind            text      not null                 // 'root' | 'note'
+  parent_id       integer   → notes.id, nullable      // 自引用树；仅根笔记(kind='root')为 null，其余 note 都有父
+  title           text      nullable                 // 笔记标题；根笔记不用
   body            text      not null default ''       // Markdown；锚点以 paperland:// 链接内联于 body
   sort_order      integer   not null default 0        // 同级排序
   created_at      text      not null
   updated_at      text      not null
+  // 唯一索引 notes_root_unq (user_id, paper_id) WHERE kind='root' —— 每 用户×论文 至多一个根笔记；根笔记惰性创建
 
 conferences
   id              integer   primary key autoincrement

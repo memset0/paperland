@@ -41,10 +41,7 @@ const groups = computed<Group[]>(() => {
     g.notes.push(n)
   }
   for (const g of map.values()) {
-    g.notes.sort((a, b) =>
-      (a.kind === 'walkthrough' ? -1 : 0) - (b.kind === 'walkthrough' ? -1 : 0)
-      || b.updated_at.localeCompare(a.updated_at),
-    )
+    g.notes.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
   }
   return [...map.values()]
 })
@@ -55,7 +52,7 @@ function snippet(body: string): string {
 
 /** Open a note in the context of its paper (the editor window binds to that paper's store). */
 function openNote(n: NoteWithPaper) {
-  const q = n.kind === 'walkthrough' ? { walkthrough: '1' } : { note: String(n.id) }
+  const q = n.kind === 'root' ? { root: '1' } : { note: String(n.id) }
   router.push({ path: `/papers/${n.paper_id}`, query: q })
 }
 </script>
@@ -90,7 +87,7 @@ function openNote(n: NoteWithPaper) {
             @click="openNote(n)"
           >
             <div class="text-sm font-medium">
-              {{ n.kind === 'walkthrough' ? 'Walkthrough' : (n.title || '(untitled)') }}
+              {{ n.kind === 'root' ? '(root)' : (n.title || '(untitled)') }}
             </div>
             <div v-if="snippet(n.body)" class="text-xs text-muted-foreground line-clamp-1">{{ snippet(n.body) }}</div>
           </button>

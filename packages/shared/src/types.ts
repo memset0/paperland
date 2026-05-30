@@ -12,6 +12,8 @@ export interface Paper {
   link: string | null
   tags_json: string | null
   listed: boolean
+  /** Derived (not stored): false for OpenReview-only papers that cannot be promoted to listed=true. */
+  listable?: boolean
   created_at: string
   updated_at: string
 }
@@ -199,16 +201,16 @@ export interface Highlight {
   created_at: string
 }
 
-// Notes — per-user, per-paper walkthrough + tree of small notes.
+// Notes — per-user, per-paper single tree anchored by a lazily-created `root` note.
 // Anchors are NOT a column; they live inline in `body` as `paperland://` links.
-export type NoteKind = 'walkthrough' | 'note'
+export type NoteKind = 'root' | 'note'
 
 export interface Note {
   id: number
   user_id: number
   paper_id: number
   kind: NoteKind
-  parent_id: number | null // self-referential tree; null for walkthrough & top-level notes
+  parent_id: number | null // self-referential tree; null only for the `root` note
   title: string | null
   body: string
   sort_order: number

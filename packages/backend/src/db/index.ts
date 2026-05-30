@@ -90,6 +90,11 @@ export function getDatabase(): ReturnType<typeof drizzle> {
   return _db
 }
 
+/** Test-only seam: inject a prepared drizzle DB so handlers using getDatabase() hit it. */
+export function setDatabaseForTesting(db: ReturnType<typeof drizzle>): void {
+  _db = db
+}
+
 export function getSqliteDatabase(): Database {
   if (!_sqlite) {
     throw new Error('Database not initialized. Call initDatabase() first.')

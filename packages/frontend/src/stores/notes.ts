@@ -8,22 +8,65 @@ export interface NoteTreeNode extends Note {
   children: NoteTreeNode[]
 }
 
-/** Assemble the flat note list into a sorted forest by `parent_id` / `sort_order`. */
-export function buildTree(flat: Note[]): NoteTreeNode[] {
+/** Sentinel id for an unsaved, synthetic root node (no root row persisted yet). */
+export const SYNTHETIC_ROOT_ID = -1
+
+function syntheticRoot(paperId: number | null): NoteTreeNode {
+  return {
+    id: SYNTHETIC_ROOT_ID, user_id: 0, paper_id: paperId ?? 0, kind: 'root',
+    parent_id: null, title: null, body: '', sort_order: 0,
+    created_at: '', updated_at: '', children: [],
+  }
+}
+
+/**
+ * Assemble the flat note list into a single tree rooted at the `root` note.
+ * If no root row exists yet, a synthetic (unsaved) root is returned so the
+ * mind-map always has a center node to render.
+ */
+export function buildRootTree(flat: Note[], paperId: number | null): NoteTreeNode {
   const byId = new Map<number, NoteTreeNode>()
   for (const n of flat) byId.set(n.id, { ...n, children: [] })
-  const roots: NoteTreeNode[] = []
   for (const node of byId.values()) {
+    if (node.kind === 'root') continue
     const parent = node.parent_id != null ? byId.get(node.parent_id) : undefined
     if (parent) parent.children.push(node)
-    else roots.push(node)
   }
+  const rootRow = flat.find((n) => n.kind === 'root')
+  const root = rootRow ? byId.get(rootRow.id)! : syntheticRoot(paperId)
   const sortRec = (nodes: NoteTreeNode[]) => {
     nodes.sort((a, b) => a.sort_order - b.sort_order)
     nodes.forEach((n) => sortRec(n.children))
   }
-  sortRec(roots)
-  return roots
+  sortRec(root.children)
+  return root
+}
+
+/**
+ * Assemble the whole notes tree into one continuous Markdown document, in mind-map
+ * (depth-first, `sort_order`) order — what the walkthrough view renders.
+ *
+ * The root contributes its body (if any) as a leading block with NO heading; each
+ * descendant emits a title heading whose level tracks mind-map depth: H2 for the
+ * root's direct children (depth 0), +1 per level deeper, clamped at H6. The heading
+ * level is driven solely by depth — any heading markup inside a note body is left
+ * verbatim. Empty-body nodes emit only their heading and still recurse into children.
+ */
+export function assembleWalkthrough(root: NoteTreeNode): string {
+  const out: string[] = []
+  const rootBody = root.body.trim()
+  if (rootBody) out.push(rootBody)
+  const walk = (nodes: NoteTreeNode[], depth: number) => {
+    for (const n of nodes) {
+      const level = Math.min(2 + depth, 6)
+      out.push(`${'#'.repeat(level)} ${n.title?.trim() || '(untitled)'}`)
+      const body = n.body.trim()
+      if (body) out.push(body)
+      walk(n.children, depth + 1)
+    }
+  }
+  walk(root.children, 0) // children are already sorted by sort_order in buildRootTree
+  return out.join('\n\n')
 }
 
 /** Collect a note id and all of its descendants from a flat list. */
@@ -47,8 +90,7 @@ function collectSubtree(rootId: number, flat: Note[]): Set<number> {
 }
 
 export const useNotesStore = defineStore('notes', () => {
-  const walkthrough = ref<Note | null>(null)
-  const notes = ref<Note[]>([]) // flat small notes for the current paper
+  const notes = ref<Note[]>([]) // flat notes (root + descendants) for the current paper
   const currentPaperId = ref<number | null>(null)
   const loading = ref(false)
 
@@ -56,7 +98,12 @@ export const useNotesStore = defineStore('notes', () => {
   // position BEFORE a move; cleared when a note is created (per the product spec).
   const moveHistory = ref<Array<{ noteId: number; parentId: number | null; sortOrder: number }>>([])
 
-  const tree = computed(() => buildTree(notes.value))
+  /** The persisted root note, or null when it hasn't been created yet. */
+  const root = computed<Note | null>(() => notes.value.find((n) => n.kind === 'root') ?? null)
+  /** Single tree rooted at the (real or synthetic) root note. */
+  const tree = computed<NoteTreeNode>(() => buildRootTree(notes.value, currentPaperId.value))
+  /** A note counts only if its body (trimmed) is non-empty; an empty root doesn't count. */
+  const noteCount = computed(() => notes.value.filter((n) => n.body.trim() !== '').length)
 
   async function fetchForPaper(paperId: number) {
     currentPaperId.value = paperId
@@ -66,27 +113,35 @@ export const useNotesStore = defineStore('notes', () => {
       const res = await notesApi.getForPaper(paperId)
       // Ignore late responses for a paper the user already navigated away from.
       if (currentPaperId.value !== paperId) return
-      walkthrough.value = res.walkthrough
       notes.value = res.notes
     } finally {
       loading.value = false
     }
   }
 
-  async function saveWalkthrough(body: string) {
+  /** Upsert the root note's body (lazily creating the root on first content). */
+  async function saveRoot(body: string) {
     const paperId = currentPaperId.value
     if (paperId == null) return
-    const res = await notesApi.saveWalkthrough(paperId, body, walkthrough.value?.updated_at)
-    walkthrough.value = res.data
+    const res = await notesApi.saveRoot(paperId, body, root.value?.updated_at)
+    const idx = notes.value.findIndex((n) => n.kind === 'root')
+    if (idx !== -1) notes.value[idx] = res.data
+    else notes.value.unshift(res.data)
     return res.data
   }
 
   async function createNote(data: { title?: string | null; body?: string; parent_id?: number | null }) {
     const paperId = currentPaperId.value
     if (paperId == null) return
+    const hadRoot = root.value != null
     const res = await notesApi.create(paperId, data)
-    notes.value.push(res.data)
-    moveHistory.value = [] // a new note invalidates the move-undo history
+    if (hadRoot) {
+      notes.value.push(res.data)
+      moveHistory.value = [] // a new note invalidates the move-undo history
+    } else {
+      // The backend lazily created the root note too — refetch to pick up both rows.
+      await fetchForPaper(paperId)
+    }
     return res.data
   }
 
@@ -129,11 +184,10 @@ export const useNotesStore = defineStore('notes', () => {
     const ids = collectSubtree(id, notes.value)
     notes.value = notes.value.filter((n) => !ids.has(n.id))
     moveHistory.value = moveHistory.value.filter((e) => !ids.has(e.noteId)) // drop dead undo entries
-    if (walkthrough.value?.id === id) walkthrough.value = null
   }
 
   return {
-    walkthrough, notes, tree, currentPaperId, loading, moveHistory,
-    fetchForPaper, saveWalkthrough, createNote, updateNote, moveNote, removeNote, undoMove,
+    notes, root, tree, noteCount, currentPaperId, loading, moveHistory,
+    fetchForPaper, saveRoot, createNote, updateNote, moveNote, removeNote, undoMove,
   }
 })

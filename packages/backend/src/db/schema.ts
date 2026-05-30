@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, primaryKey, index, unique, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, primaryKey, index, unique, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
 
 // User accounts. Website credentials live here (not in config.yml).
 export const users = sqliteTable('users', {
@@ -101,21 +102,25 @@ export const highlights = sqliteTable('highlights', {
   created_at: text('created_at').notNull(),
 })
 
-// Per-user, per-paper notes: one `walkthrough` (linear Markdown) + a tree of small
-// `note` rows (self-referential `parent_id`). Anchors live inline in `body` as
-// `paperland://` links, so there is no anchor column.
+// Per-user, per-paper notes: a single tree anchored by one lazily-created `root` note
+// (kind='root', the sole parent_id=null node), with `note` rows hanging beneath it via
+// self-referential `parent_id`. Anchors live inline in `body` as `paperland://` links,
+// so there is no anchor column.
 export const notes = sqliteTable('notes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   user_id: integer('user_id').notNull().references(() => users.id), // owner
   paper_id: integer('paper_id').notNull().references(() => papers.id),
-  kind: text('kind').notNull(), // 'walkthrough' | 'note'
-  parent_id: integer('parent_id').references((): AnySQLiteColumn => notes.id), // self-ref; null for walkthrough & top-level notes
+  kind: text('kind').notNull(), // 'root' | 'note'
+  parent_id: integer('parent_id').references((): AnySQLiteColumn => notes.id), // self-ref; null only for the `root` note
   title: text('title'),
   body: text('body').notNull().default(''),
   sort_order: integer('sort_order').notNull().default(0),
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
-})
+}, (table) => [
+  // At most one root note per (user, paper); guards lazy root creation against races.
+  uniqueIndex('notes_root_unq').on(table.user_id, table.paper_id).where(sql`${table.kind} = 'root'`),
+])
 
 export const apiTokens = sqliteTable('api_tokens', {
   id: integer('id').primaryKey({ autoIncrement: true }),

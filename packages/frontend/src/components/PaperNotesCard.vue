@@ -5,13 +5,11 @@ import { useNotesStore } from '@/stores/notes'
 import { useWindowsStore } from '@/stores/windows'
 import { useAuthStore } from '@/stores/auth'
 import { Card } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import MarkdownContent from './MarkdownContent.vue'
 import NoteMindmap from './notes/NoteMindmap.vue'
-import { NotebookPen, Pencil } from '@lucide/vue'
+import { NotebookPen } from '@lucide/vue'
 
-// Notes card: a walkthrough entry + the branching mind-map of small notes.
-// Editing happens in floating windows (opened from the pencil / mind-map nodes).
+// Notes card: the single note tree rendered as a branching mind-map, rooted at the
+// (lazily-created) root note. Editing happens in floating windows (opened from nodes).
 const props = defineProps<{ paperId: number }>()
 const store = useNotesStore()
 const windows = useWindowsStore()
@@ -21,9 +19,9 @@ const route = useRoute()
 async function load(id: number) {
   if (!auth.isAuthenticated) return
   await store.fetchForPaper(id)
-  // Opened from the /notes page, which navigates here with ?note= / ?walkthrough=.
-  if (route.query.walkthrough) {
-    windows.open({ kind: 'walkthrough', paperId: id, title: 'Walkthrough' })
+  // Opened from the /notes page, which navigates here with ?note= / ?root=.
+  if (route.query.root) {
+    windows.open({ kind: 'root', paperId: id, title: '(root)' })
   } else if (route.query.note) {
     const noteId = parseInt(route.query.note as string, 10)
     const n = store.notes.find((x) => x.id === noteId)
@@ -32,10 +30,6 @@ async function load(id: number) {
 }
 onMounted(() => load(props.paperId))
 watch(() => props.paperId, (id) => load(id))
-
-function openWalkthrough() {
-  windows.open({ kind: 'walkthrough', paperId: props.paperId, title: 'Walkthrough' })
-}
 </script>
 
 <template>
@@ -43,6 +37,7 @@ function openWalkthrough() {
     <div class="flex items-center justify-between border-b px-5 py-3">
       <h3 class="text-sm font-semibold flex items-center gap-2">
         <NotebookPen class="h-4 w-4" /> Notes
+        <span v-if="auth.isAuthenticated" class="font-normal text-muted-foreground">({{ store.noteCount }})</span>
       </h3>
     </div>
 
@@ -50,18 +45,7 @@ function openWalkthrough() {
       Sign in to take notes
     </div>
 
-    <div v-else class="px-5 py-4 space-y-4">
-      <div class="space-y-1">
-        <div class="flex items-center justify-between">
-          <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Walkthrough</div>
-          <Button size="icon-xs" variant="ghost" title="Edit walkthrough" @click="openWalkthrough">
-            <Pencil />
-          </Button>
-        </div>
-        <MarkdownContent v-if="store.walkthrough?.body" :content="store.walkthrough.body" :paper-id="paperId" class="text-sm" />
-        <p v-else class="text-sm text-muted-foreground">No walkthrough yet — click the pencil to start.</p>
-      </div>
-
+    <div v-else class="px-5 py-4">
       <NoteMindmap :paper-id="paperId" />
     </div>
   </Card>

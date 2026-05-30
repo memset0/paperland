@@ -1,8 +1,41 @@
-# paper-notes Specification
+## ADDED Requirements
 
-## Purpose
-TBD - created by archiving change add-paper-notes. Update Purpose after archive.
-## Requirements
+### Requirement: Root note per user per paper, lazily created
+For each (user, paper) the system SHALL maintain at most one `root`-kind note, which has `parent_id IS NULL` and is the parent of all other notes for that paper. A paper with no notes SHALL have **zero** note rows; the root note SHALL be created **lazily** — only when the user first writes content to it or creates the first child note. `PUT /api/papers/:id/root` SHALL upsert the root note: create it (persisting the given `body`) if absent, otherwise update its `body`. Creating a note with no explicit parent SHALL create the root note if it does not yet exist and attach the new note as a child of the root, in a single transaction. At most one `root` note SHALL exist per (user, paper).
+
+#### Scenario: No notes means no rows
+- **WHEN** a paper has never had a note written for a given user
+- **THEN** there SHALL be no note rows for that (user, paper), including no root note
+
+#### Scenario: First root write creates the root note
+- **WHEN** an authenticated user writes body content to the root note of a paper that has none
+- **THEN** the system SHALL create a single `root` note owned by that user for that paper and persist the body
+
+#### Scenario: First child creates root and child together
+- **WHEN** an authenticated user creates a note with no explicit parent for a paper that has no notes yet
+- **THEN** the system SHALL create the root note and the new note as its child in one transaction
+
+#### Scenario: At most one root per user per paper
+- **WHEN** two writes that would each create the root for the same (user, paper) race
+- **THEN** the system SHALL end with exactly one `root` note and attach work to that single root
+
+### Requirement: Note count by content
+A note (the root note or any other note) SHALL count toward a paper's note total only if its `body`, after trimming surrounding whitespace, is non-empty. An empty root note SHALL NOT count, and a note that has a title but an empty body SHALL NOT count. Note counts surfaced in the UI (the mind-map and the `/notes` aggregate) SHALL reflect this rule.
+
+#### Scenario: Empty root note does not count
+- **WHEN** a paper has a root note with an empty body and no other notes
+- **THEN** the paper's note count SHALL be 0
+
+#### Scenario: Notes with content are counted
+- **WHEN** a paper has an empty root note and two child notes that each have non-empty bodies
+- **THEN** the paper's note count SHALL be 2
+
+#### Scenario: Title-only note does not count
+- **WHEN** a note has a title but an empty body
+- **THEN** it SHALL NOT be included in the note count
+
+## MODIFIED Requirements
+
 ### Requirement: Note data model
 The system SHALL store notes in a `notes` table with fields: `id`, `user_id` (→ users.id, owner), `paper_id` (→ papers.id), `kind` (`root` | `note`), `parent_id` (→ notes.id, nullable, self-referential), `title` (nullable), `body` (Markdown text), `sort_order` (integer), `created_at`, `updated_at`. Notes are per-user and per-paper, organized as a single tree per (user, paper) anchored by a `root`-kind note (`parent_id IS NULL`); every other note is `kind='note'` with a non-null `parent_id`. There SHALL be no structured anchor column — anchors live inline in `body` as `paperland://` links (see the `markdown-anchors` capability).
 
@@ -97,37 +130,8 @@ The paper detail page SHALL include a 笔记 section exposing the note mind-map 
 - **WHEN** an anonymous visitor opens a paper detail page
 - **THEN** the 笔记 section SHALL prompt for login and SHALL NOT show note content
 
-### Requirement: Root note per user per paper, lazily created
-For each (user, paper) the system SHALL maintain at most one `root`-kind note, which has `parent_id IS NULL` and is the parent of all other notes for that paper. A paper with no notes SHALL have **zero** note rows; the root note SHALL be created **lazily** — only when the user first writes content to it or creates the first child note. `PUT /api/papers/:id/root` SHALL upsert the root note: create it (persisting the given `body`) if absent, otherwise update its `body`. Creating a note with no explicit parent SHALL create the root note if it does not yet exist and attach the new note as a child of the root, in a single transaction. At most one `root` note SHALL exist per (user, paper).
+## REMOVED Requirements
 
-#### Scenario: No notes means no rows
-- **WHEN** a paper has never had a note written for a given user
-- **THEN** there SHALL be no note rows for that (user, paper), including no root note
-
-#### Scenario: First root write creates the root note
-- **WHEN** an authenticated user writes body content to the root note of a paper that has none
-- **THEN** the system SHALL create a single `root` note owned by that user for that paper and persist the body
-
-#### Scenario: First child creates root and child together
-- **WHEN** an authenticated user creates a note with no explicit parent for a paper that has no notes yet
-- **THEN** the system SHALL create the root note and the new note as its child in one transaction
-
-#### Scenario: At most one root per user per paper
-- **WHEN** two writes that would each create the root for the same (user, paper) race
-- **THEN** the system SHALL end with exactly one `root` note and attach work to that single root
-
-### Requirement: Note count by content
-A note (the root note or any other note) SHALL count toward a paper's note total only if its `body`, after trimming surrounding whitespace, is non-empty. An empty root note SHALL NOT count, and a note that has a title but an empty body SHALL NOT count. Note counts surfaced in the UI (the mind-map and the `/notes` aggregate) SHALL reflect this rule.
-
-#### Scenario: Empty root note does not count
-- **WHEN** a paper has a root note with an empty body and no other notes
-- **THEN** the paper's note count SHALL be 0
-
-#### Scenario: Notes with content are counted
-- **WHEN** a paper has an empty root note and two child notes that each have non-empty bodies
-- **THEN** the paper's note count SHALL be 2
-
-#### Scenario: Title-only note does not count
-- **WHEN** a note has a title but an empty body
-- **THEN** it SHALL NOT be included in the note count
-
+### Requirement: One walkthrough per user per paper
+**Reason**: The `walkthrough` note kind is removed. It was never used in practice (no walkthrough rows exist), and the unified root-note model supersedes it — the root note now holds any whole-paper overview content. Any future "walk through the whole paper" experience will be a separate, dedicated walkthrough view, not a special note kind.
+**Migration**: The `PUT /api/papers/:id/walkthrough` endpoint is removed; the `kind='walkthrough'` value is removed. The migration deletes any stray walkthrough rows and reparents existing top-level notes under a lazily-created `root` note (see design.md). No note content is lost.

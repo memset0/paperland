@@ -6,8 +6,9 @@ import MarkdownContent from '@/components/MarkdownContent.vue'
 import { Pencil, Eye, Columns } from '@lucide/vue'
 
 // Markdown editor with three display modes. All state is frontend-only; saving goes
-// through the notes store (walkthrough upsert or per-note PATCH) with 2s debounce,
+// through the notes store (root-note upsert or per-note PATCH) with 2s debounce,
 // commit-on-blur, Ctrl+S, and IME-safe scheduling.
+const ROOT_LABEL = '(root)'
 const props = defineProps<{ win: NoteWindow }>()
 const notes = useNotesStore()
 const windows = useWindowsStore()
@@ -23,9 +24,9 @@ let savePending = false       // a save was requested while another was in fligh
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 function syncFromStore() {
-  if (props.win.kind === 'walkthrough') {
-    editBody.value = notes.walkthrough?.body ?? ''
-    editTitle.value = 'Walkthrough'
+  if (props.win.kind === 'root') {
+    editBody.value = notes.root?.body ?? ''
+    editTitle.value = ROOT_LABEL
   } else {
     const n = notes.notes.find((x) => x.id === props.win.noteId)
     editBody.value = n?.body ?? ''
@@ -48,8 +49,8 @@ async function doSave() {
   if (saving.value) { savePending = true; return } // don't drop; re-run after the current save
   saving.value = true
   try {
-    if (props.win.kind === 'walkthrough') {
-      await notes.saveWalkthrough(editBody.value)
+    if (props.win.kind === 'root') {
+      await notes.saveRoot(editBody.value)
     } else if (props.win.noteId != null) {
       await notes.updateNote(props.win.noteId, { title: editTitle.value, body: editBody.value })
       windows.setTitle(props.win.key, editTitle.value || '(untitled)')
@@ -112,7 +113,7 @@ const modes: { value: Mode; icon: typeof Pencil; label: string }[] = [
         @compositionstart="onCompositionStart"
         @compositionend="onCompositionEnd"
       />
-      <span v-else class="flex-1 text-xs text-muted-foreground">Walkthrough</span>
+      <span v-else class="flex-1 text-xs text-muted-foreground">{{ ROOT_LABEL }}</span>
       <span v-if="saving" class="text-[10px] text-muted-foreground shrink-0">Saving…</span>
       <div class="flex items-center rounded border overflow-hidden shrink-0">
         <button

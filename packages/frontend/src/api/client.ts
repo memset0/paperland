@@ -106,18 +106,18 @@ import type { Note, NoteWithPaper } from '@paperland/shared'
 export const notesApi = {
   // Raw fetch: owner-scoped read returns empty for anonymous (and degrades silently
   // to empty if the route/server isn't ready) — no global error toast.
-  async getForPaper(paperId: number): Promise<{ walkthrough: Note | null; notes: Note[] }> {
+  async getForPaper(paperId: number): Promise<{ notes: Note[] }> {
     try {
       const res = await fetch(`/api/papers/${paperId}/notes`, { credentials: 'same-origin' })
-      if (!res.ok) return { walkthrough: null, notes: [] }
+      if (!res.ok) return { notes: [] }
       return await res.json()
     } catch {
-      return { walkthrough: null, notes: [] }
+      return { notes: [] }
     }
   },
 
-  saveWalkthrough: (paperId: number, body: string, updated_at?: string) =>
-    api.put<{ data: Note }>(`/api/papers/${paperId}/walkthrough`, { body, updated_at }),
+  saveRoot: (paperId: number, body: string, updated_at?: string) =>
+    api.put<{ data: Note }>(`/api/papers/${paperId}/root`, { body, updated_at }),
 
   create: (paperId: number, data: { title?: string | null; body?: string; parent_id?: number | null }) =>
     api.post<{ data: Note }>(`/api/papers/${paperId}/notes`, data),
