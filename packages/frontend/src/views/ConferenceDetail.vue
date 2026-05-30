@@ -107,7 +107,6 @@ function displayArxivId(c: any): string | null {
 function displayCorpusId(c: any): string | null {
   return c.paper_corpus_id || (c.source === 'semantic_scholar' ? c.external_id : null) || c.metadata?.s2_match?.corpus_id || null
 }
-const chipClass = 'inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors'
 
 // --- Grouping by topic ---
 const grouped = computed(() => {
@@ -338,11 +337,11 @@ async function submitImport() {
                 </button>
               </div>
 
-              <!-- Links + topic -->
+              <!-- Links + inline topic editor -->
               <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                <a v-if="displayArxivId(c)" :href="`https://arxiv.org/abs/${displayArxivId(c)}`" target="_blank" rel="noopener" :class="chipClass" @click.stop>arXiv</a>
+                <Badge v-if="displayArxivId(c)" as="a" variant="destructive" :href="`https://arxiv.org/abs/${displayArxivId(c)}`" target="_blank" rel="noopener" @click.stop>arXiv</Badge>
                 <S2Badge v-if="displayCorpusId(c)" :corpus-id="displayCorpusId(c)" />
-                <a v-if="c.link" :href="c.link" target="_blank" rel="noopener" :class="chipClass" @click.stop>{{ /openreview\.net/.test(c.link) ? 'OpenReview' : '原文' }}</a>
+                <Badge v-if="c.link" as="a" variant="secondary" :href="c.link" target="_blank" rel="noopener" @click.stop>{{ /openreview\.net/.test(c.link) ? 'OpenReview' : '原文' }}</Badge>
 
                 <template v-if="editingTopicId === c.id">
                   <Input
@@ -354,9 +353,6 @@ async function submitImport() {
                   />
                   <Button variant="ghost" size="icon-xs" @click="saveTopic"><Check /></Button>
                 </template>
-                <Badge v-else-if="c.topic" as="button" variant="outline" class="cursor-pointer" @click="startEditTopic(c)">
-                  #{{ c.topic }}
-                </Badge>
               </div>
             </div>
 
