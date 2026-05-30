@@ -282,10 +282,13 @@ async function confirmDelete() {
 
 const promoting = ref(false)
 async function promote() {
-  if (!store.currentPaper) return
+  if (!store.currentPaper || store.currentPaper.listable === false) return
   promoting.value = true
   try {
     await store.promote(store.currentPaper.id)
+  } catch {
+    // Backend rejected (e.g. 422 LISTING_NOT_ALLOWED) — the API client already showed the
+    // error toast and the paper stays unlisted.
   } finally {
     promoting.value = false
   }
@@ -387,7 +390,13 @@ async function promote() {
               <div class="flex items-start justify-between gap-3">
                 <h2 class="text-lg font-semibold leading-snug">{{ store.currentPaper.title }}</h2>
                 <div class="flex items-center gap-1 shrink-0">
-                  <Button v-if="store.currentPaper.listed === false" size="sm" :disabled="promoting" @click="promote">
+                  <Button
+                    v-if="store.currentPaper.listed === false"
+                    size="sm"
+                    :disabled="promoting || store.currentPaper.listable === false"
+                    :title="store.currentPaper.listable === false ? '仅有 OpenReview 链接，缺少 arXiv / Semantic Scholar 来源，无法加入列表' : undefined"
+                    @click="promote"
+                  >
                     {{ promoting ? '加入中…' : '加入列表' }}
                   </Button>
                   <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">

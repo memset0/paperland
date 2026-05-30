@@ -8,6 +8,7 @@ import { loadTemplates } from '../services/template_loader.js'
 import { askQuestion } from '../services/qa_service.js'
 import { getConfig } from '../config.js'
 import { findOrCreateUserTag, userTagsForPaper } from '../utils/user-tags.js'
+import { canList, openreviewLinkCount } from '../utils/listing.js'
 
 function parsePaper(raw: any) {
   return {
@@ -77,7 +78,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
   )
 
   // Update paper
-  app.patch<{ Params: { id: string }; Body: { title?: string; authors?: string[]; link?: string; content?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { title?: string; authors?: string[]; link?: string; content?: string; listed?: boolean } }>(
     '/external-api/v1/papers/:id',
     async (request, reply) => {
       const db = getDatabase()
@@ -85,7 +86,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
       const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
       if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
 
-      const { title, authors, link, content } = request.body || {}
+      const { title, authors, link, content, listed } = request.body || {}
       const updates: Record<string, any> = {}
 
       if (paper.arxiv_id && (title !== undefined || authors !== undefined)) {
@@ -103,12 +104,33 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         updates.contents = JSON.stringify(existing)
       }
 
+      // Promote/demote visibility, mirroring the internal API.
+      if (listed !== undefined) updates.listed = listed ? 1 : 0
+
+      // Listing eligibility: an OpenReview-only paper cannot be promoted to listed=true (demotion always allowed).
+      if (listed === true) {
+        const effective = {
+          arxiv_id: paper.arxiv_id,
+          corpus_id: paper.corpus_id,
+          link: link !== undefined ? (link || null) : paper.link,
+        }
+        if (!canList(effective, openreviewLinkCount(db, id))) {
+          reply.code(422).send({ error: { code: 'LISTING_NOT_ALLOWED', message: '该论文仅有 OpenReview 链接、缺少 arXiv / Semantic Scholar 来源，无法加入列表' } })
+          return
+        }
+      }
+
       if (Object.keys(updates).length === 0) {
         return { ...parsePaper(paper), tags: getTags(db, paper.id, request.user?.id ?? null) }
       }
 
       updates.updated_at = new Date().toISOString()
       db.update(schema.papers).set(updates).where(eq(schema.papers.id, id)).run()
+
+      // Promotion to listed → run the previously-deferred full pipeline.
+      if (listed === true && paper.listed === 0) {
+        serviceRunner.triggerForPaper(id).catch(() => {})
+      }
 
       const updated = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
       return { ...parsePaper(updated!), tags: getTags(db, id, request.user?.id ?? null) }

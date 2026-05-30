@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { withDedup, getDedupKey } from './paper_dedup.js'
 import { serviceRunner } from './service_runner.js'
+import { canList, openreviewLinkCount } from '../utils/listing.js'
 
 export interface IngestPaperInput {
   arxiv_id?: string | null
@@ -33,10 +34,13 @@ export interface IngestPaperResult {
 export async function ingestPaper(input: IngestPaperInput): Promise<IngestPaperResult> {
   const { arxiv_id, corpus_id, title, authors, link, content, listed } = input
 
-  // Promote an existing metadata-only paper when a normal (listed) ingest matches it.
+  // Promote an existing metadata-only paper when a normal (listed) ingest matches it —
+  // but never list an OpenReview-only paper (only conference links, no arxiv/S2 source).
   const maybePromote = (existing: typeof schema.papers.$inferSelect): void => {
     if (listed !== false && existing.listed === 0) {
-      getDatabase().update(schema.papers).set({ listed: 1 }).where(eq(schema.papers.id, existing.id)).run()
+      const db = getDatabase()
+      if (!canList(existing, openreviewLinkCount(db, existing.id))) return
+      db.update(schema.papers).set({ listed: 1 }).where(eq(schema.papers.id, existing.id)).run()
       serviceRunner.triggerForPaper(existing.id).catch(() => {})
     }
   }

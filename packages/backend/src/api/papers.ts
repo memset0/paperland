@@ -1,14 +1,15 @@
 import type { FastifyInstance } from 'fastify'
 import { eq, like, or, desc, asc, inArray, sql, and } from 'drizzle-orm'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
-import { withDedup, getDedupKey } from '../services/paper_dedup.js'
+import { ingestPaper } from '../services/ingest_paper.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { requireUser } from '../auth/guards.js'
 import { userTagsByPapers, userTagsForPaper, findOrCreateUserTag, findUserTagByName, clearUserPaperTags } from '../utils/user-tags.js'
+import { canList, openreviewLinkCount, openreviewLinkCountsByPapers } from '../utils/listing.js'
 
 export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // List papers with pagination and search
-  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string; tag_ids?: string } }>(
+  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string; tag_ids?: string; listed?: string } }>(
     '/api/papers',
     async (request) => {
       const db = getDatabase()
@@ -52,6 +53,11 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         conditions.push(inArray(schema.papers.id, tagFilteredPaperIds))
       }
 
+      // Visibility mode: 'listed' (default) | 'unlisted' | 'all'
+      const listedMode = request.query.listed === 'all' ? 'all' : request.query.listed === 'unlisted' ? 'unlisted' : 'listed'
+      if (listedMode === 'listed') conditions.push(eq(schema.papers.listed, 1))
+      else if (listedMode === 'unlisted') conditions.push(eq(schema.papers.listed, 0))
+
       let query = db.select().from(schema.papers)
       if (conditions.length > 0) {
         query = query.where(conditions.length === 1 ? conditions[0] : and(...conditions)) as typeof query
@@ -64,7 +70,13 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
 
       // Parse JSON fields + attach the current user's tags (none for anonymous)
       const tagsByPaper = userTagsByPapers(db, data.map(p => p.id), request.user?.id ?? null)
-      const parsed = data.map(p => ({ ...parsePaper(p), tags: tagsByPaper.get(p.id) ?? [] }))
+      // Batch-derive listability: OpenReview-only papers (only conference links, no arxiv/S2) cannot be listed.
+      const orCounts = openreviewLinkCountsByPapers(db, data.map(p => p.id))
+      const parsed = data.map(p => ({
+        ...parsePaper(p),
+        tags: tagsByPaper.get(p.id) ?? [],
+        listable: canList(p, orCounts.get(p.id) ?? 0),
+      }))
 
       return {
         data: parsed,
@@ -92,9 +104,22 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
     // The current user's tags for this paper (none for anonymous)
     const tags = userTagsForPaper(db, id, request.user?.id ?? null)
 
+    // OpenReview links live on conference_papers rows (one per submission/venue) —
+    // a paper can have several (resubmissions). Derive the list here.
+    const openreview_links = db.select({
+      link: schema.conferencePapers.link,
+      conference_id: schema.conferencePapers.conference_id,
+    }).from(schema.conferencePapers)
+      .where(eq(schema.conferencePapers.paper_id, id))
+      .all()
+      .filter(r => !!r.link)
+
     return {
       ...parsePaper(paper),
       tags,
+      openreview_links,
+      // OpenReview-only papers (links present, no arxiv/S2 source) are not promotable to listed=true.
+      listable: canList(paper, openreview_links.length),
     }
   })
 
@@ -123,7 +148,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
   )
 
   // Update paper
-  app.patch<{ Params: { id: string }; Body: { title?: string; authors?: string[]; link?: string; content?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { title?: string; authors?: string[]; link?: string; content?: string; listed?: boolean } }>(
     '/api/papers/:id',
     { preHandler: requireUser },
     async (request, reply) => {
@@ -135,7 +160,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         return
       }
 
-      const { title, authors, link, content } = request.body || {}
+      const { title, authors, link, content, listed } = request.body || {}
       const updates: Record<string, any> = {}
 
       // arXiv papers: reject title/authors changes
@@ -155,12 +180,34 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         updates.contents = JSON.stringify(existing)
       }
 
+      // Promote/demote visibility (加入列表 = listed:true)
+      if (listed !== undefined) updates.listed = listed ? 1 : 0
+
+      // Listing eligibility: an OpenReview-only paper (only conference links, no arxiv/S2 source)
+      // cannot be promoted to listed=true. Demotion (listed=false) is always allowed.
+      if (listed === true) {
+        const effective = {
+          arxiv_id: paper.arxiv_id,
+          corpus_id: paper.corpus_id,
+          link: link !== undefined ? (link || null) : paper.link,
+        }
+        if (!canList(effective, openreviewLinkCount(db, id))) {
+          reply.code(422).send({ error: { code: 'LISTING_NOT_ALLOWED', message: '该论文仅有 OpenReview 链接、缺少 arXiv / Semantic Scholar 来源，无法加入列表' } })
+          return
+        }
+      }
+
       if (Object.keys(updates).length === 0) {
         return parsePaper(paper)
       }
 
       updates.updated_at = new Date().toISOString()
       db.update(schema.papers).set(updates).where(eq(schema.papers.id, id)).run()
+
+      // Promotion to listed → run the previously-deferred full pipeline
+      if (listed === true && paper.listed === 0) {
+        serviceRunner.triggerForPaper(id).catch(() => {})
+      }
 
       const updated = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
       return parsePaper(updated!)
@@ -218,71 +265,20 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         return
       }
 
-      // Determine dedup key
-      const dedupKey = arxiv_id
-        ? getDedupKey('arxiv', arxiv_id)
-        : corpus_id
-          ? getDedupKey('corpus', corpus_id)
-          : null
+      const { paper, created } = await ingestPaper({ arxiv_id, corpus_id, title, authors, link, content })
 
-      const createFn = async () => {
-        const db = getDatabase()
-
-        // Check for existing paper
-        if (arxiv_id) {
-          const existing = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, arxiv_id)).get()
-          if (existing) {
-            if (corpus_id && !existing.corpus_id) {
-              db.update(schema.papers).set({ corpus_id }).where(eq(schema.papers.id, existing.id)).run()
-            }
-            return { ...parsePaper(existing), tags: userTagsForPaper(db, existing.id, userId), created: false }
-          }
+      // Attach per-user tags only when this call actually created the paper —
+      // matching the pre-refactor behavior, which only ran tag insertion in the
+      // freshly-inserted branch.
+      const db = getDatabase()
+      if (created && tagNames && tagNames.length > 0) {
+        for (const tagName of tagNames) {
+          const tag = findOrCreateUserTag(db, userId, tagName)
+          db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
         }
-        if (corpus_id) {
-          const existing = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, corpus_id)).get()
-          if (existing) {
-            if (arxiv_id && !existing.arxiv_id) {
-              db.update(schema.papers).set({ arxiv_id }).where(eq(schema.papers.id, existing.id)).run()
-            }
-            return { ...parsePaper(existing), tags: userTagsForPaper(db, existing.id, userId), created: false }
-          }
-        }
-
-        const now = new Date().toISOString()
-        const contents = content ? JSON.stringify({ user_input: content }) : null
-
-        const paper = db.insert(schema.papers).values({
-          arxiv_id: arxiv_id || null,
-          corpus_id: corpus_id || null,
-          title: title || 'Untitled',
-          authors: JSON.stringify(authors || []),
-          contents,
-          link: link || null,
-          created_at: now,
-          updated_at: now,
-        }).returning().get()
-
-        // Handle tags (scoped to the creating user)
-        if (tagNames && tagNames.length > 0) {
-          for (const tagName of tagNames) {
-            const tag = findOrCreateUserTag(db, userId, tagName)
-            db.insert(schema.paperTags).values({ paper_id: paper.id, tag_id: tag.id }).run()
-          }
-        }
-
-        // Trigger services in background (non-blocking)
-        serviceRunner.triggerForPaper(paper.id).catch((err) => {
-          console.error(`Failed to trigger services for paper ${paper.id}:`, err)
-        })
-
-        return { ...parsePaper(paper), tags: userTagsForPaper(db, paper.id, userId), created: true }
       }
 
-      // Use dedup if we have an external ID
-      if (dedupKey) {
-        return await withDedup(dedupKey, createFn)
-      }
-      return await createFn()
+      return { ...parsePaper(paper), tags: userTagsForPaper(db, paper.id, userId), created }
     }
   )
 
@@ -363,6 +359,7 @@ function parsePaper(raw: any) {
     authors: typeof raw.authors === 'string' ? JSON.parse(raw.authors) : raw.authors,
     contents: raw.contents ? JSON.parse(raw.contents) : null,
     metadata: raw.metadata ? JSON.parse(raw.metadata) : null,
+    listed: !!raw.listed,
     tags: [], // per-user tags are attached by the route handler (papers.tags_json is deprecated)
   }
 }
