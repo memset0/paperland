@@ -226,6 +226,17 @@ notes                                          // 按用户私有的论文笔记
   updated_at      text      not null
   // 唯一索引 notes_root_unq (user_id, paper_id) WHERE kind='root' —— 每 用户×论文 至多一个根笔记；根笔记惰性创建
 
+paper_reference_links                          // 按用户私有的论文参考链接（博客解读 / 项目主页 / 讨论帖等）
+  id              integer   primary key autoincrement
+  user_id         integer   → users.id, not null     // 属主
+  paper_id        integer   → papers.id, not null
+  title           text      not null                 // 标题（必填）
+  url             text      not null                 // 链接（必填，仅 http/https）
+  description     text      nullable                 // 描述（可选）
+  created_at      text      not null
+  updated_at      text      not null
+  // 索引 idx_paper_reference_links_paper_user (paper_id, user_id)；列表按 created_at 升序（添加顺序）
+
 conferences
   id              integer   primary key autoincrement
   name            text      not null

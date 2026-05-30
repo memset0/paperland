@@ -183,6 +183,16 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 - 无标签时显示 "+ 添加标签" 按钮直接进入编辑模式
 - 宽屏 split view 和窄屏 single column 两处均支持编辑
 
+#### 参考链接
+
+信息卡片中（标签区块下方）有「参考链接」区块（`components/ReferenceLinksSection.vue`），用于挂载论文之外的外部资源（博客解读、项目主页、讨论帖等）。**按 用户×论文 私有**（与笔记/标签一致，匿名只读返回空）。
+
+- 每条链接含 `title`（标题，必填）、`url`（链接，必填）、`description`（描述，可选）；标题渲染为超链接，`target="_blank" rel="noopener noreferrer"` 新标签页打开，描述作为次要灰字显示在标题下方
+- 列表按添加顺序（`created_at` 升序）展示；每条 hover 显示编辑 / 删除按钮
+- 标题旁「+」按钮（无链接时为 "+ 添加链接"）展开内联表单（标题 / 链接 / 描述三个输入），增删改后就地刷新，不整页刷新
+- 组件自取自管（`referenceLinksApi`：`getForPaper` / `create` / `update` / `remove`），无需 Pinia store；宽屏 split view 与窄屏 single column 两处均渲染
+- 后端 `GET|POST /api/papers/:id/reference-links`、`PATCH|DELETE /api/reference-links/:id`，写操作经 `requireUser` + owner 校验，`url` 仅放行 http/https
+
 #### 删除论文
 
 论文详情页信息卡片右上角有删除按钮（垃圾桶图标），点击弹出确认对话框：
