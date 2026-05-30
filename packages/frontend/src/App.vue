@@ -48,14 +48,14 @@ onUnmounted(() => {
 
 interface NavItem { path: string; label: string; icon: any; requiresAuth?: boolean; requiresAdmin?: boolean }
 const navItems: NavItem[] = [
-  { path: '/', label: '论文管理', icon: FileText },
-  { path: '/conferences', label: '会议', icon: CalendarDays },
-  { path: '/tags', label: '标签管理', icon: Tag, requiresAuth: true },
+  { path: '/', label: 'Papers', icon: FileText },
+  { path: '/conferences', label: 'Conferences', icon: CalendarDays },
+  { path: '/tags', label: 'Tags', icon: Tag, requiresAuth: true },
   { path: '/qa', label: 'Q&A', icon: MessageSquare, requiresAuth: true },
   { path: '/notes', label: 'Notes', icon: NotebookPen, requiresAuth: true },
   { path: '/idea-forge', label: 'Idea Forge', icon: Lightbulb, requiresAuth: true },
-  { path: '/services', label: '服务管理', icon: Activity, requiresAdmin: true },
-  { path: '/settings', label: '设置', icon: Settings, requiresAdmin: true },
+  { path: '/services', label: 'Services', icon: Activity, requiresAdmin: true },
+  { path: '/settings', label: 'Settings', icon: Settings, requiresAdmin: true },
 ]
 
 function isActive(path: string) {
@@ -83,7 +83,7 @@ function onNavClick(e: MouseEvent, item: NavItem) {
   drawerOpen.value = false
   if (item.requiresAdmin && !auth.isAdmin) {
     if (!auth.isAuthenticated) openLogin()
-    else toast.error('需要管理员权限')
+    else toast.error('Admin access required')
     return
   }
   if (item.requiresAuth && !auth.isAuthenticated) {
@@ -95,7 +95,7 @@ function onNavClick(e: MouseEvent, item: NavItem) {
 
 async function doLogout() {
   await auth.logout()
-  toast.success('已登出')
+  toast.success('Logged out')
   // Leave restricted pages on logout.
   const meta = route.meta as { requiresAuth?: boolean; requiresAdmin?: boolean }
   if (meta.requiresAuth || meta.requiresAdmin) router.push('/')
@@ -130,8 +130,8 @@ async function doLogout() {
             </TooltipTrigger>
             <TooltipContent side="right">
               {{ item.label }}
-              <span v-if="item.requiresAdmin && !auth.isAdmin" class="opacity-70">（需管理员）</span>
-              <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="opacity-70">（需登录）</span>
+              <span v-if="item.requiresAdmin && !auth.isAdmin" class="opacity-70">(Admin only)</span>
+              <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="opacity-70">(Login required)</span>
             </TooltipContent>
           </Tooltip>
         </nav>
@@ -143,7 +143,7 @@ async function doLogout() {
                 <LogIn />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">登录</TooltipContent>
+            <TooltipContent side="right">Login</TooltipContent>
           </Tooltip>
           <DropdownMenu v-else>
             <DropdownMenuTrigger as-child>
@@ -154,11 +154,11 @@ async function doLogout() {
             <DropdownMenuContent side="right" align="end" class="w-44">
               <DropdownMenuLabel>
                 {{ auth.user?.username }}
-                <span v-if="auth.isAdmin" class="text-xs text-muted-foreground">（管理员）</span>
+                <span v-if="auth.isAdmin" class="text-xs text-muted-foreground">(Admin)</span>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem @click="accountOpen = true">账户设置</DropdownMenuItem>
-              <DropdownMenuItem @click="doLogout">登出</DropdownMenuItem>
+              <DropdownMenuItem @click="accountOpen = true">Account settings</DropdownMenuItem>
+              <DropdownMenuItem @click="doLogout">Logout</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -205,8 +205,8 @@ async function doLogout() {
                 <a :href="navHref(item)" @click="onNavClick($event, item)">
                   <component :is="item.icon" />
                   {{ item.label }}
-                  <span v-if="item.requiresAdmin && !auth.isAdmin" class="ml-auto text-xs text-muted-foreground">需管理员</span>
-                  <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="ml-auto text-xs text-muted-foreground">需登录</span>
+                  <span v-if="item.requiresAdmin && !auth.isAdmin" class="ml-auto text-xs text-muted-foreground">Admin only</span>
+                  <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="ml-auto text-xs text-muted-foreground">Login required</span>
                 </a>
               </Button>
             </nav>
@@ -216,14 +216,14 @@ async function doLogout() {
                 variant="ghost" size="lg" class="w-full justify-start gap-3"
                 @click="drawerOpen = false; openLogin()"
               >
-                <LogIn /> 登录
+                <LogIn /> Login
               </Button>
               <template v-else>
                 <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; accountOpen = true">
                   <CircleUser /> {{ auth.user?.username }}
                 </Button>
                 <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; doLogout()">
-                  <LogIn class="rotate-180" /> 登出
+                  <LogIn class="rotate-180" /> Logout
                 </Button>
               </template>
             </div>

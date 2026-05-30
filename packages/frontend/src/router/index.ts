@@ -9,14 +9,14 @@ const routes = [
     path: '/',
     name: 'papers',
     component: () => import('@/views/PaperList.vue'),
-    meta: { title: '论文管理' },
+    meta: { title: 'Papers' },
   },
   {
     path: '/papers/:id',
     name: 'paper-detail',
     component: () => import('@/views/PaperDetail.vue'),
     // Placeholder until the paper loads; PaperDetail overrides with the paper title.
-    meta: { title: '论文详情' },
+    meta: { title: 'Paper Detail' },
   },
   {
     path: '/qa',
@@ -34,31 +34,31 @@ const routes = [
     path: '/tags',
     name: 'tags',
     component: () => import('@/views/TagManagement.vue'),
-    meta: { requiresAuth: true, title: '标签管理' },
+    meta: { requiresAuth: true, title: 'Tags' },
   },
   {
     path: '/services',
     name: 'services',
     component: () => import('@/views/ServiceDashboard.vue'),
-    meta: { requiresAdmin: true, title: '服务管理' },
+    meta: { requiresAdmin: true, title: 'Services' },
   },
   {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/Settings.vue'),
-    meta: { requiresAdmin: true, title: '设置' },
+    meta: { requiresAdmin: true, title: 'Settings' },
   },
   {
     path: '/conferences',
     name: 'conferences',
     component: () => import('@/views/ConferenceList.vue'),
-    meta: { title: '会议' },
+    meta: { title: 'Conferences' },
   },
   {
     path: '/conferences/:id',
     name: 'conference-detail',
     component: () => import('@/views/ConferenceDetail.vue'),
-    meta: { title: '会议详情' },
+    meta: { title: 'Conference Detail' },
   },
   {
     path: '/idea-forge',
@@ -94,7 +94,7 @@ router.beforeEach(async (to) => {
     return to.path === '/' ? false : '/'
   }
   if (meta.requiresAdmin && !auth.isAdmin) {
-    toast.error('需要管理员权限')
+    toast.error('Admin access required')
     return to.path === '/' ? false : '/'
   }
   return true

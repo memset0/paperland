@@ -1,14 +1,4 @@
-# page-title Specification
-
-## Purpose
-TBD - created by archiving change add-page-title. Update Purpose after archive.
-## Requirements
-### Requirement: Per-page browser title
-应用 SHALL 根据当前显示的页面内容设置浏览器标签标题（`document.title`），而非对所有页面使用同一个固定标题。
-
-#### Scenario: Navigating between pages
-- **WHEN** 用户从一个页面导航到另一个页面
-- **THEN** `document.title` SHALL 更新为能标识新页面的标题
+## MODIFIED Requirements
 
 ### Requirement: Title format and fallback
 页面标题 SHALL 使用 `{页面标题} · Paperland` 的格式。当某页面没有特定标题时，`document.title` SHALL 回退为 `Paperland`。
@@ -58,17 +48,9 @@ TBD - created by archiving change add-page-title. Update Purpose after archive.
 - **WHEN** 论文详情页已打开但论文数据尚未加载完成
 - **THEN** `document.title` SHALL 为 `Paper Detail · Paperland`
 
-### Requirement: Idea Forge project title from project name
-Idea Forge 项目页（`/idea-forge/:projectName`）SHALL 将页面标题设置为该项目名。
-
-#### Scenario: Open a project
-- **WHEN** 用户打开名为 `my-research` 的 Idea Forge 项目
-- **THEN** `document.title` SHALL 为 `my-research · Paperland`
-
 ### Requirement: Title resets when leaving a dynamic page
 当用户从动态页面（论文详情 / Idea Forge 项目）导航到其他页面时，`document.title` SHALL 更新为目标页面的标题，且 SHALL NOT 残留上一页面的内容标题。
 
 #### Scenario: Leave paper detail
 - **WHEN** 用户从某论文详情页导航到 `/settings`
 - **THEN** `document.title` SHALL 为 `Settings · Paperland`，不再包含上一篇论文的标题
-
