@@ -105,11 +105,18 @@ export const useConferencesStore = defineStore('conferences', () => {
     return await api.patch(`/api/papers/${paperId}`, { listed: true })
   }
 
+  /** Bulk "加入列表": promote selected candidates (by conference_paper id) to the library. */
+  async function promoteMany(id: number, ids: number[]) {
+    return await api.post<{ promoted: number; skipped: number; errors: Array<{ candidate_id: number; message: string }> }>(
+      `/api/conferences/${id}/papers/promote`, { ids },
+    )
+  }
+
   return {
     list, pagination, loading,
     current, candidates, candidatesLoading,
     fetchConferences, fetchConference, createConference, updateConference, deleteConference,
     fetchCandidates, importPapers, updateCandidate, updateCandidates, deleteCandidate,
-    ingestConference, ingestCandidate, resolveConference, promotePaper,
+    ingestConference, ingestCandidate, resolveConference, promotePaper, promoteMany,
   }
 })

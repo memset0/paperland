@@ -5,6 +5,7 @@ import { requireUser } from '../auth/guards.js'
 import { ingestPaper } from '../services/ingest_paper.js'
 import { matchPaperByTitle } from '../services/semantic_scholar_service.js'
 import { serviceRunner } from '../services/service_runner.js'
+import { canList, openreviewLinkCount } from '../utils/listing.js'
 
 type Source = 'arxiv' | 'openreview' | 'semantic_scholar' | null
 type Status = 'pending' | 'candidate' | 'ingested'
@@ -217,18 +218,31 @@ export async function conferenceRoutes(app: FastifyInstance): Promise<void> {
         .orderBy(asc(schema.conferencePapers.topic), asc(schema.conferencePapers.id))
         .all()
 
-      // Attach the linked paper's `listed` so the client derives status:
-      // paper_id null → 待添加; paper_listed false → 仅元数据; true → 已加入.
+      // Attach the linked paper's fields so the client derives status AND shows
+      // screening info: paper_id null → 待添加; paper_listed false → 仅元数据; true → 已加入.
       const paperIds = rows.map(r => r.paper_id).filter((x): x is number => x != null)
-      const paperMap = new Map<number, { listed: boolean; arxiv_id: string | null; corpus_id: string | null }>()
+      const paperMap = new Map<number, {
+        listed: boolean; arxiv_id: string | null; corpus_id: string | null
+        abstract: string | null; tldr: string | null
+        citation_count: number | null; fields_of_study: string[] | null
+      }>()
       if (paperIds.length > 0) {
-        for (const p of db.select({ id: schema.papers.id, listed: schema.papers.listed, arxiv_id: schema.papers.arxiv_id, corpus_id: schema.papers.corpus_id }).from(schema.papers).where(inArray(schema.papers.id, paperIds)).all()) {
-          paperMap.set(p.id, { listed: !!p.listed, arxiv_id: p.arxiv_id, corpus_id: p.corpus_id })
+        for (const p of db.select({ id: schema.papers.id, listed: schema.papers.listed, arxiv_id: schema.papers.arxiv_id, corpus_id: schema.papers.corpus_id, abstract: schema.papers.abstract, metadata: schema.papers.metadata }).from(schema.papers).where(inArray(schema.papers.id, paperIds)).all()) {
+          let tldr: string | null = null, citation_count: number | null = null, fields_of_study: string[] | null = null
+          if (p.metadata) {
+            try {
+              const m = JSON.parse(p.metadata)
+              tldr = typeof m.tldr === 'string' ? m.tldr : null
+              citation_count = typeof m.citation_count === 'number' ? m.citation_count : null
+              fields_of_study = Array.isArray(m.fields_of_study) ? m.fields_of_study : null
+            } catch { /* ignore malformed metadata */ }
+          }
+          paperMap.set(p.id, { listed: !!p.listed, arxiv_id: p.arxiv_id, corpus_id: p.corpus_id, abstract: p.abstract, tldr, citation_count, fields_of_study })
         }
       }
-      // Surface the resolved/linked paper's S2 + arXiv ids so the candidate row can
-      // render the same arxiv:/S2 badges as the library — see resolveOne, which caches
-      // the S2 match and links a (metadata-only) paper.
+      // Surface the resolved/linked paper's S2 + arXiv ids and screening fields
+      // (abstract / tldr / citation count / fields-of-study) so candidate rows can be
+      // triaged in place — see resolveOne, which caches the S2 match and links a paper.
       return rows.map(r => {
         const linked = r.paper_id != null ? paperMap.get(r.paper_id) : undefined
         return {
@@ -236,6 +250,10 @@ export async function conferenceRoutes(app: FastifyInstance): Promise<void> {
           paper_listed: r.paper_id != null ? (linked?.listed ?? null) : null,
           paper_arxiv_id: linked?.arxiv_id ?? null,
           paper_corpus_id: linked?.corpus_id ?? null,
+          paper_abstract: linked?.abstract ?? null,
+          paper_tldr: linked?.tldr ?? null,
+          paper_citation_count: linked?.citation_count ?? null,
+          paper_fields_of_study: linked?.fields_of_study ?? null,
         }
       })
     }
@@ -340,6 +358,51 @@ export async function conferenceRoutes(app: FastifyInstance): Promise<void> {
     }
   )
 
+  // POST /api/conferences/:id/papers/promote — bulk "加入列表": for each selected
+  // candidate's linked paper, flip listed → true and trigger its full pipeline.
+  // Skips 待添加 (no linked paper) and already-listed papers. Idempotent.
+  app.post<{ Params: { id: string }; Body: { ids?: number[] } }>(
+    '/api/conferences/:id/papers/promote',
+    { preHandler: requireUser },
+    async (request, reply) => {
+      const db = getDatabase()
+      const id = parseInt(request.params.id, 10)
+      const conf = db.select().from(schema.conferences).where(eq(schema.conferences.id, id)).get()
+      if (!conf) {
+        reply.code(404).send({ error: { code: 'CONFERENCE_NOT_FOUND', message: `Conference ${id} not found` } })
+        return
+      }
+      const ids = Array.isArray(request.body?.ids) ? request.body!.ids.filter((n) => Number.isInteger(n)) : []
+      if (ids.length === 0) {
+        reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'ids is required' } })
+        return
+      }
+      const rows = db.select().from(schema.conferencePapers)
+        .where(and(eq(schema.conferencePapers.conference_id, id), inArray(schema.conferencePapers.id, ids)))
+        .all()
+      const now = new Date().toISOString()
+      let promoted = 0, skipped = 0
+      const errors: Array<{ candidate_id: number; message: string }> = []
+      for (const r of rows) {
+        if (r.paper_id == null) { skipped++; continue } // 待添加: resolve first
+        const paper = db.select().from(schema.papers).where(eq(schema.papers.id, r.paper_id)).get()
+        if (!paper) { errors.push({ candidate_id: r.id, message: `linked paper ${r.paper_id} not found` }); continue }
+        if (paper.listed === 1) { skipped++; continue } // already in library
+        // OpenReview-only papers (only conference links, no arxiv/S2 source) cannot be listed.
+        if (!canList(paper, openreviewLinkCount(db, paper.id))) {
+          skipped++
+          errors.push({ candidate_id: r.id, message: 'OpenReview-only paper (no arxiv/S2 source) cannot be listed' })
+          continue
+        }
+        db.update(schema.papers).set({ listed: 1, updated_at: now }).where(eq(schema.papers.id, paper.id)).run()
+        db.update(schema.conferencePapers).set({ status: 'ingested', updated_at: now }).where(eq(schema.conferencePapers.id, r.id)).run()
+        serviceRunner.triggerForPaper(paper.id).catch(() => {})
+        promoted++
+      }
+      return { promoted, skipped, errors }
+    }
+  )
+
   // PATCH /api/conferences/:id/papers/:cpId — single candidate update (topic/status, no ingest)
   app.patch<{ Params: { id: string; cpId: string }; Body: { status?: string; topic?: string | null } }>(
     '/api/conferences/:id/papers/:cpId',
@@ -409,7 +472,9 @@ export async function conferenceRoutes(app: FastifyInstance): Promise<void> {
     if (row.paper_id) {
       const existing = db.select().from(schema.papers).where(eq(schema.papers.id, row.paper_id)).get()
       if (existing) {
-        if (existing.listed === 0) {
+        // Only promote to listed when the paper has a canonical arxiv/S2 source —
+        // an OpenReview-only paper stays metadata-only.
+        if (existing.listed === 0 && canList(existing, openreviewLinkCount(db, existing.id))) {
           db.update(schema.papers).set({ listed: 1 }).where(eq(schema.papers.id, existing.id)).run()
           serviceRunner.triggerForPaper(existing.id).catch(() => {})
         }
@@ -434,7 +499,10 @@ export async function conferenceRoutes(app: FastifyInstance): Promise<void> {
 
     const authors = row.authors ? JSON.parse(row.authors) as string[] : []
     // OpenReview link is NOT written to papers.link — it stays on this conference_papers row.
-    const { paper } = await ingestPaper({ arxiv_id, corpus_id, title: row.title, authors })
+    // A candidate that resolved to no canonical id but carries a (conference) link would become
+    // OpenReview-only once linked, so it must be ingested as metadata-only (listed=false), never listed.
+    const openreviewOnly = !arxiv_id && !corpus_id && !!(row.link && row.link.trim())
+    const { paper } = await ingestPaper({ arxiv_id, corpus_id, title: row.title, authors, listed: openreviewOnly ? false : undefined })
     db.update(schema.conferencePapers).set({
       status: 'ingested',
       paper_id: paper.id,

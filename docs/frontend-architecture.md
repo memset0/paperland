@@ -31,19 +31,19 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 ## 全局导航结构
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  Paperland                                                    │
-├──────────┬──────────┬──────────┬──────────┬─────────────────┤
-│  论文管理 │  标签管理 │  Idea Forge │  Q&A   │  服务管理 │  设置  │
-└──────────┴──────────┴─────────────┴────────┴──────────┴────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Paperland                                                                    │
+├────────┬─────────────┬──────┬─────┬───────┬────────────┬──────────┬──────────┤
+│ Papers │ Conferences │ Tags │ Q&A │ Notes │ Idea Forge │ Services │ Settings │
+└────────┴─────────────┴──────┴─────┴───────┴────────────┴──────────┴──────────┘
 ```
 
 ### 页面标题（浏览器标签）
 
 每个页面根据内容设置浏览器标签标题，统一格式 `{页面标题} · Paperland`，无标题时回退为 `Paperland`。`index.html` 的静态 `<title>Paperland</title>` 仅作首屏 / 兜底。
 
-- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：论文管理 `/`、会议 `/conferences`、标签管理 `/tags`、Q&A `/qa`、Idea Forge `/idea-forge`、服务管理 `/services`、设置 `/settings`；详情类路由先用占位标题（论文详情 `/papers/:id`、会议详情 `/conferences/:id`）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
-- **动态标题**：内容驱动的页面在视图内用 `composables/usePageTitle.ts` 的 `usePageTitle(() => …)`（基于 `@vueuse/core` 的 `useTitle`）响应式覆盖占位——论文详情用论文标题（加载前显示「论文详情」），Idea Forge 项目页用项目名。守卫先于视图执行，故占位标题在数据就绪后被组件覆盖；离开页面时视图作用域销毁停止 watcher，由目标页守卫重置标题。
+- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Papers `/`、Conferences `/conferences`、Tags `/tags`、Q&A `/qa`、Idea Forge `/idea-forge`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Conference Detail `/conferences/:id`）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
+- **动态标题**：内容驱动的页面在视图内用 `composables/usePageTitle.ts` 的 `usePageTitle(() => …)`（基于 `@vueuse/core` 的 `useTitle`）响应式覆盖占位——论文详情用论文标题（加载前显示「Paper Detail」），Idea Forge 项目页用项目名。守卫先于视图执行，故占位标题在数据就绪后被组件覆盖；离开页面时视图作用域销毁停止 watcher，由目标页守卫重置标题。
 - **格式来源**：`formatTitle(name?)` 是格式与 ` · Paperland` 后缀的唯一来源，守卫与各视图共用。新增路由只需补 `meta.title`（缺省则回退 `Paperland`）。
 
 ### 响应式 / 移动端布局
@@ -209,10 +209,12 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 |------|------|------|
 | PDF 原文 | 论文有 `pdf_path` | 嵌入 PDF iframe（PdfViewer 组件） |
 | 幻觉翻译 | 论文有 `arxiv_id` | 嵌入 `https://hjfy.top/arxiv/{arxiv_id}` iframe |
+| 走查 | 该 (用户, 论文) 有非空笔记（`store.noteCount > 0`） | 把整棵笔记树渲染为一篇连续 Markdown 文档（见下方「走查视图」） |
 
-- 自动选中第一个可用模式
+- 自动选中第一个可用模式（走查排在 modes 数组末位，PDF/幻觉翻译优先；笔记加载后走查 Tab 才出现，且不抢占当前选中）
 - 无可用模式时显示占位提示
 - 模式系统可扩展：添加新模式只需在 modes 数组中增加条目
+- 走查 Tab 的可用性来自 `useNotesStore().noteCount`，故 `PaperViewerPanel` 直接读 notes store（笔记由始终挂载的 `PaperNotesCard` 拉取）
 
 #### 窄屏布局
 
@@ -467,17 +469,17 @@ content_priority:
          → Pinia store 按 content_hash 分组 → 各 MarkdownContent 按 hash 取自己的高亮
          → DOM 后处理：遍历 text nodes，按 offset 包裹 <mark>
 
-选中文本 → 浮动工具栏（4 色 + 可选笔记）→ POST /api/highlights → 更新 store → 重新渲染
-点击/tap 高亮 → 弹出菜单（改色 / 编辑笔记 / 删除）→ PUT/DELETE /api/highlights/:id
-悬停高亮（桌面端）→ Tooltip 显示笔记
+选中文本 → 浮动工具栏（4 色 + 复制为锚点链接）→ POST /api/highlights → 更新 store → 重新渲染
+点击/tap 高亮 → 弹出菜单（改色 / 删除）→ PUT/DELETE /api/highlights/:id
 ```
+
+> **高亮只做高亮**：高亮本身不再附带笔记（per-paper 笔记由独立的 Notes 系统承担）。工具栏无「添加笔记」输入框、点击菜单无「编辑笔记」、桌面端也不再有悬停 tooltip。数据库里旧的 `highlights.note` 历史数据保留但不再读取（active schema 已移除该列，未做破坏性迁移）。
 
 #### 移动端适配
 
 选择检测使用 `selectionchange` 事件（W3C 标准），在桌面和触摸设备上均可靠触发：
 
 - **选择检测**：`document selectionchange` + 防抖（桌面 50ms / 移动 300ms），替代 `mouseup`
-- **Tooltip**：桌面端 hover 显示；触摸设备上跳过独立 tooltip，tap 高亮直接弹出 click menu
 - **弹窗关闭**：同时监听 `mousedown` + `touchstart`（passive），确保桌面和触屏都可点击空白区域关闭
 - **触摸区域**：通过 `@media (pointer: coarse)` 将按钮最小触摸区域扩大到 44×44 CSS px
 - **视口 clamp**：工具栏和菜单定位增加左右边界检测，防止在窄屏上超出容器
@@ -487,8 +489,8 @@ content_priority:
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/highlights?pathname=...` | 按页面路径获取所有高亮 |
-| POST | `/api/highlights` | 创建高亮 |
-| PUT | `/api/highlights/:id` | 修改颜色/笔记 |
+| POST | `/api/highlights` | 创建高亮（仅颜色，无 note） |
+| PUT | `/api/highlights/:id` | 修改颜色 |
 | DELETE | `/api/highlights/:id` | 删除高亮 |
 
 #### 高亮颜色
@@ -1177,7 +1179,7 @@ paperland://paper/<id>?h=<hash>&s=<start>&e=<end>  // 块内文本范围
 - 定位基于**块的 `content_hash`**（与高亮同一指纹），不依赖问题/回答的 id 或下标——多模型多回答、重新生成、重排序都不会跑偏。
 - `MarkdownContent` 给渲染容器挂 `data-content-hash`，并拦截 `paperland://` 链接点击：本页直接 `locateBlock`，跨页 `router.push('/papers/:id?h=...')`。
 - `composables/useBlockAnchor.ts` 的 **`locateBlock(paperId, hash, range?)`**：① DOM 命中 → 滚动 + 闪烁；② 未命中（折叠 / 未激活 tab）→ 遍历 Q&A store 现算 hash 反查归属，展开 `Collapsible` + 激活对应 result tab（`requestedResultId`）后再定位；③ 找不到 → toast 失效、不跳转。有 `s`/`e` 时在块内按 offset 高亮该片段（复用 `useHighlight` 的 segment 逻辑）。
-- 选区浮动工具栏（登录态）新增「复制为锚点链接」，从当前选区生成 `paperland://` 链接。
+- 选区浮动工具栏（登录态）的「复制为锚点链接」：把**整段选区还原成 Markdown** 后，再追加一个紧凑的 `[#](paperland://...)` 锚点链接（形如 `<选区 Markdown> [#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`）。还原用 `turndown` + `turndown-plugin-gfm`（整表→GFM 管道表）；数学公式从各 KaTeX 元素的 `x-tex` annotation 还原为 `$…$`（行内）/独立成行的 `$$…$$`（行间），并用占位符在 turndown 转义后再回填，保证 LaTeX 不被破坏；选区内的高亮 `<mark>` 会被剥离。锚点的 `s`/`e` 仍取渲染态偏移，跳转逻辑不变。
 - 锚定面仅限 `MarkdownContent` 渲染文本（Q&A 回答、摘要/FAQ、笔记自身）；论文正文为 PDF/iframe，不可锚定。
 
 ### 浮动编辑窗口
@@ -1192,6 +1194,17 @@ paperland://paper/<id>?h=<hash>&s=<start>&e=<end>  // 块内文本范围
 ### 分支思维导图
 
 `components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：整棵笔记树以分支思维导图呈现（CSS 自动布局的层级节点 + 连线，节点只显示标题），**根笔记始终作为唯一根节点显示**（无持久化根时为占位节点，标为 Overview）。点击节点开其编辑窗口（根节点 → Overview 编辑器）；普通节点支持增子 / 增兄 / 删除（删除前确认并显示连带子节点数），**根节点不可拖拽、不可删除、无「增兄」**（只可增子）；拖拽改父子（落到某节点 → 成其子；落到空白画布 → 挂到根笔记下，绝不变成无父节点），乐观更新 + 失败回滚，后端防环。表头计数为 `store.noteCount`（仅非空 body 的节点）。
+
+**节点字符数徽章**：body 非空（`body.trim()` 不为空）的节点在标题后显示一个灰色括号字符数 `(N)`（`.nn-count`，`var(--muted-foreground)`、`pointer-events:none`），N 为 `node.body.trim().length`；空节点不显示。徽章随节点 body 编辑实时更新（`node` 来自响应式 tree）。
+
+### 走查视图（Walkthrough）
+
+`components/notes/NoteWalkthrough.vue`：把整棵笔记树拼成一篇连续 Markdown 文档，作为左侧面板的「走查」查看模式（见上方「多模式查看器」）。组装逻辑是 `stores/notes.ts` 的纯函数 `assembleWalkthrough(root)`：
+
+- **顺序**：按思维导图深度优先遍历，同级按 `sort_order`（复用 `tree` computed 已排好序的 children）。每个节点先输出自身内容，再递归拼接其子节点。
+- **标题重排**：根笔记**不输出标题**，其 body（若非空）作为开篇引言块；根的直接子节点起始为 **H2**，每深入一层 +1（`min(2 + depth, 6)`，封顶 H6）。标题层级**仅由思维导图深度决定**，与节点 body 内部用户自己写的 heading 无关（body 原样输出）。
+- **空节点**：无标题用 `(untitled)` 占位；body 为空只输出标题并继续递归子节点。
+- **实时重渲染**：`document = computed(() => assembleWalkthrough(store.tree))` 经 `MarkdownContent`（watch `content`）渲染，故笔记内容编辑、节点改父/重排都会自动重新组装并渲染，无需手动刷新。无内容时显示「暂无笔记内容」。
 
 ### 入口与归属
 
