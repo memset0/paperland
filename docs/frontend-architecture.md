@@ -19,11 +19,12 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 ### 组件迁移约定
 
-- 所有 button / input / textarea / dialog / sheet / select / tabs / badge / card / popover / tooltip / dropdown-menu / table / alert / scroll-area / sonner / command / checkbox / label / collapsible 都来自 `@/components/ui/*`
+- 所有 button / input / textarea / dialog / sheet / select / tabs / badge / card / popover / tooltip / dropdown-menu / table / alert / scroll-area / sonner / command / checkbox / label / collapsible / skeleton 都来自 `@/components/ui/*`
 - 折叠 disclosure 用 `<Collapsible>` 而非 HTML `<details>`；展开状态用 reactive `openMap`（如 `Record<string, boolean>`）管理
+- **`Tooltip` 必须位于某个 `TooltipProvider` 内**。`App.vue` 挂了**两处** provider：一处包桌面侧边栏 `<aside>`，一处包主内容 `<main>` 的 `<RouterView />`。页面内容（路由组件）里用 `Tooltip` 时直接用即可，无需自己再套 provider；反过来，脱离 `App.vue` 外壳单独挂载用到 `Tooltip` 的组件会抛 "must be used within `TooltipProvider`"
 - 单个 `.vue` 文件中的 Tailwind utility **主要承担布局**（grid/flex/spacing/responsive），不再用 utility 模仿按钮 / 输入框 / 卡片视觉
 - 颜色用语义 token：`bg-primary`、`text-muted-foreground`、`text-destructive` 等。**不**使用 `text-indigo-600`、`bg-emerald-50` 之类的具体色阶
-- Tag 显示统一走 `<Badge variant="secondary">`，不再使用每标签自定义颜色（`tagsStore.getTagColor` 后端仍然保留，前端展示层暂不渲染）
+- Tag 徽章统一用 `TagBadge`（`components/TagBadge.vue`）：默认渲染中性 `secondary` 药丸；传入 `color` prop 时渲染该标签**自身颜色的淡色调 chip**（标签色文字 + 同色半透明底/描边，亮/暗模式皆可读）。标签管理页（`/tags`）即用 `color` 渲染真彩 chip；论文列表/详情目前不传 `color`，保持中性 `secondary`。后端始终保留每标签颜色（`tags.color`，前端 `tagsStore.getTagColor`）
 - idea-forge 的类别映射（`IDEA_CATEGORIES` / `IDEA_CATEGORY_LABELS` / `IDEA_CATEGORY_VARIANT`）集中在 `src/lib/idea-categories.ts`，组件统一从这里导入
 
 ---
@@ -98,7 +99,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 - 展示所有已添加的论文
 - 每条记录显示：标题、标签（彩色徽章）、作者、来源（link）、引用指标（Cited / Refs）、日期
-  - **标签列**：使用 `TagBadge` 组件（`components/TagBadge.vue`），根据标签颜色渲染彩色圆角徽章
+  - **标签列**：使用 `TagBadge` 组件（`components/TagBadge.vue`）渲染中性 `secondary` 圆角徽章（此处不传 `color`，真彩 chip 仅用于标签管理页）
   - **引用指标列**：两个独立列 `Cited` / `Refs`，各用 `CountCell` 组件（`components/CountCell.vue`）渲染一个数字。`Cited`（被引用数）取 `metadata.citation_count`，`Refs`（引用数）取 `metadata.reference_count ?? metadata.references?.length`（旧数据回退到 references 数组长度）。已知值（含 `0`）用 `toLocaleString()` 千分位显示，未富化时显示中性占位符 `–`（区分「未知」与「确为 0」）。两列均 `hidden md:table-cell`（窄屏隐藏）
   - **来源列**：使用 `SourceTag` 组件（`components/SourceTag.vue`），根据 `arxiv_id` 与 `link` 显示可点击的来源标签
     - arXiv 论文：只要 `arxiv_id` 存在就显示红色标签，格式 `arxiv:{id}`，链接由 id 派生（`arxiv.org/abs/{id}`），**不依赖** `link` 字段（会议导入论文经 S2 解析出 `arxiv_id` 但 `link` 为空，OpenReview 链接另存于 `conference_papers`）
@@ -465,7 +466,9 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 | 入口 | 说明 |
 |------|------|
 | 论文详情页内嵌 | 针对当前论文提问，paper_id 自动绑定，展示模板提问和自由提问 |
-| 独立 Q&A 页面 (/qa) | 按时间倒序展示所有自由提问的 Feed 流（不含模板提问），每个 QA 为可折叠面板，显示关联论文标题及跳转链接，支持重新生成、删除、复制、Pin 等操作 |
+| 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接，支持重新生成、删除、复制、Pin 等操作 |
+
+**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每张卡片完全由 shadcn 原语拼成——外层 `<Collapsible v-model:open>` 驱动展开/折叠，`CollapsibleTrigger as-child` 套在 `CardHeader` 上（合并后 DOM 上 `data-slot` 为 `collapsible-trigger`），`CollapsibleContent` 是卡片体，头/体之间用 `<Separator>` 分隔。头部三栏：状态图标（`Tooltip` 标注 已完成/生成中/生成失败）+ 旋转 chevron / prompt 主行 + 论文链接（`@click.stop`，点击只跳转不折叠）与时间 / 右侧回答数或模型 `Badge`。重新生成对话框用 `Checkbox` + `Label` 行做模型多选。卡片体复用 `QAResultView.vue`（多模型 `Tabs`、markdown、操作按钮）——其图标操作（Pin/复制/重生成/删除）改用 `Tooltip` 标注、分隔用 `Separator`，论文详情页同享此改进。页面外壳 `QAPage.vue` 在 `AppPage` 的 `#actions` 槽放刷新按钮（加载时 spin），加载态用一组**结构化骨架卡**（与真实卡片同款 `ring-1 ring-foreground/10 rounded-lg` 轮廓 + 状态点/chevron/标题行/副标题行/badge 的 `Skeleton` 块，切换平滑；数量取 `feedPagination.page_size`（即一页条数）而非写死，使加载前后列表高度一致、不跳动）。注意：列表/骨架的滚动容器要带 `pt`（如 `pt-2`），否则 `overflow-y-auto` 会把最上方卡片的 ring 描边裁掉。`Skeleton` 组件默认底色已从 shadcn 原版的 `bg-accent` 改为 `bg-foreground/10`——本主题把 `--accent` 定制成了蓝色（同 primary），原版骨架会变成蓝块。**分页**：feed 走后端分页（`GET /api/qa/free?page=&page_size=`，默认 20/页，返回 `{ data, pagination }`，复用 `PaginatedResponse<T>`，与论文列表一致）；`QAPage` 在 fill 布局底部固定 上一页/下一页 + "当前/总页数" 控件（`total_pages > 1` 时显示），翻页后把列表滚回顶部；轮询只重拉当前页。**性能**：模型列表（重新生成对话框用）由 `QAPage` 在页面级经 store 的 `fetchModels()` 只请求一次、通过 `store.availableModels` 共享给所有卡片——此前每张 `QAFeedPanel` 都在 `onMounted` 各发一次 `/api/config/models`，条目多时（如 200+）会产生上百个重复请求,是页面卡顿的主因。
 
 ### 2.5 提问的文本上下文来源
 
@@ -927,24 +930,40 @@ papers 表新增 `tags_json` (text, nullable) 字段，存储 `[{"id":1,"name":"
 
 **标签管理页面 (`/tags` → TagManagement.vue):**
 
-- 侧边栏 Tag 图标入口
-- 列表展示所有标签：颜色色块、名称、关联论文数、编号
-- **可见性切换**：每个标签行有眼睛图标按钮（Eye/EyeOff），点击切换标签在论文列表筛选栏中的可见性。默认可见。隐藏标签的 EyeOff 图标始终显示，可见标签的 Eye 图标仅 hover 时显示。
-- 内联重命名：如新名称已存在则弹出合并确认对话框
-- 删除：确认对话框（不可撤销）
-- 颜色选择器：预设 20 色调色板
+- 侧边栏 Tag 图标入口；用 `AppPage` 包裹，`#actions` 槽放「New」按钮
+- **该页所有 UI 文案均为英文**（New / Visible / ID / Name / Papers / Rename / Change color / Hide·Show / Delete / toast 等）
+- **shadcn `Table` 数据表格**，列顺序：可见(Visible) / ID / 名称(Name) / 论文数(Papers)（+ 末尾 `⋯` 操作控制列）。不分页、不内部滚动，默认展示全部标签，随页面滚动
+  - **可见列**：`Eye` / `EyeOff` 按钮（带 `Tooltip`）切换标签在论文列表筛选栏中的可见性，默认可见
+  - **ID 列**：`#id` 灰色等宽，表头可点击排序
+  - **名称列**：用 `TagBadge`（传 `color`）渲染**真彩 chip**（颜色即体现在此，**不再单设颜色列**）；重命名时就地切换为 `Input`（Enter 确认 / Esc 取消），新名已存在则弹合并确认对话框；表头可点击排序
+  - **论文数列**：右对齐，表头可点击排序
+  - 排序：`sortKey ∈ {id, name, paper_count}`、升/降序切换，默认按名称升序
+  - **操作列（`⋯` `DropdownMenu`）**：Rename / Change color（子菜单调色板）/ Hide·Show / Delete（`destructive`，确认对话框，不可撤销）——改色入口收在此处
+- **工具栏**：左侧 `Input` 按名称大小写不敏感实时过滤；右侧统计「N / M visible」（可见标签数 / 总标签数）
+- **行内新建**：「New」在表体顶部插入可编辑新行（名称 `Input` + 行内色块 `Popover` 选色，默认随机色），保存调用 `createTag`；空名禁用保存，重名走 409 并 `toast.error` 提示
+- **反馈**：增 / 改 / 合并 / 删除成功与失败均用 `vue-sonner` `toast`
+- **空态**：加载中（`Loader2`）/ 无标签（No tags yet）/ 搜索无匹配（No matching tags）三态分明
 
 **标签 Pinia Store (`stores/tags.ts`):**
 
 - `tags` 数组、`colorMap` 计算属性
 - `fetchTags()` / `ensureLoaded()` / `refreshCache()`
-- `renameTag()` / `mergeTag()` / `deleteTag()` / `updateTagColor()` / `toggleVisibility()`
-- 缓存策略：页面加载时请求一次，修改颜色后主动刷新
+- `createTag()` / `renameTag()` / `mergeTag()` / `deleteTag()` / `updateTagColor()` / `toggleVisibility()`
+- `createTag()` / `renameTag()` 用裸 `fetch`（而非 `api.post/patch`），以便就地处理 409 名称冲突而不触发全局错误 toast
+- 缓存策略：页面加载时请求一次，增删改后主动刷新
 
 **标签组件:**
 
-- `TagBadge.vue`：渲染单个标签徽章，使用颜色缓存，支持 clickable 模式
+- `TagBadge.vue`：渲染单个标签徽章，支持 `clickable` 模式；默认中性 `secondary`，传入 `color` 时渲染该色的淡色调 chip
 - `TagSelector.vue`：搜索式下拉选择器，支持选择已有标签或创建新标签
+
+**标签管理 Internal API（`packages/backend/src/api/tags.ts`，均需登录、按 `user_id` 隔离）:**
+
+- `GET /api/tags` — 列出当前用户标签（含 `paper_count`）
+- `POST /api/tags` — 新建标签。body `{ name, color? }`；`name` 去空校验（空 → 400）；`(user_id, name)` 查重，冲突返回 `409 { error: { code: 'TAG_NAME_CONFLICT' }, target_tag }`；`color` 缺省时由后端分配随机调色板颜色（`randomTagColor()`）；成功返回 `201 { id, name, color, visible, paper_count: 0 }`；匿名 `401`
+- `PATCH /api/tags/:id` — 改名 / 改色 / 改可见性（改名冲突同样 409）
+- `POST /api/tags/:id/merge` — 合并到 `target_id`
+- `DELETE /api/tags/:id` — 删除标签及其论文关联
 
 ### 6.3 QA Entry
 

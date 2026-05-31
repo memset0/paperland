@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { eq, and, sql, inArray } from 'drizzle-orm'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { requireUser } from '../auth/guards.js'
+import { randomTagColor } from '../utils/tag-colors.js'
 
 /** Load a tag only if it belongs to the given user. */
 function getOwnedTag(userId: number, id: number) {
@@ -39,6 +40,39 @@ export async function tagRoutes(app: FastifyInstance): Promise<void> {
       paper_count: countMap.get(t.id) || 0,
     }))
   })
+
+  // POST /api/tags — create a new tag for the current user
+  app.post<{ Body: { name?: string; color?: string } }>(
+    '/api/tags',
+    async (request, reply) => {
+      const db = getDatabase()
+      const userId = request.user!.id
+      const name = (request.body?.name || '').trim()
+      if (!name) {
+        reply.code(400).send({ error: { code: 'TAG_NAME_REQUIRED', message: 'Tag name is required' } })
+        return
+      }
+
+      // Uniqueness is enforced within the current user's tag set.
+      const existing = db.select().from(schema.tags)
+        .where(and(eq(schema.tags.user_id, userId), eq(schema.tags.name, name)))
+        .get()
+      if (existing) {
+        reply.code(409).send({
+          error: { code: 'TAG_NAME_CONFLICT', message: 'A tag with this name already exists' },
+          target_tag: { id: existing.id, name: existing.name, color: existing.color },
+        })
+        return
+      }
+
+      const color = request.body?.color || randomTagColor()
+      const created = db.insert(schema.tags)
+        .values({ user_id: userId, name, color })
+        .returning().get()
+      reply.code(201)
+      return { id: created.id, name: created.name, color: created.color, visible: !!created.visible, paper_count: 0 }
+    }
+  )
 
   // PATCH /api/tags/:id — rename and/or change color/visibility (current user's tag)
   app.patch<{ Params: { id: string }; Body: { name?: string; color?: string; visible?: boolean } }>(

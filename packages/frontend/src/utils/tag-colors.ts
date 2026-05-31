@@ -4,3 +4,7 @@ export const TAG_COLOR_PALETTE = [
   '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
   '#ec4899', '#f43f5e', '#78716c', '#64748b', '#6b7280',
 ]
+
+export function randomTagColor(): string {
+  return TAG_COLOR_PALETTE[Math.floor(Math.random() * TAG_COLOR_PALETTE.length)]
+}

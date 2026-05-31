@@ -56,6 +56,22 @@ export const useTagsStore = defineStore('tags', () => {
     return data as { id: number; name: string; color: string } | { error: any; target_tag: any }
   }
 
+  async function createTag(name: string, color?: string) {
+    // Raw fetch (like renameTag) so a 409 name-conflict can be surfaced inline by the
+    // caller instead of triggering the global error toast that `api.post` would fire.
+    const response = await fetch('/api/tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(color ? { name, color } : { name }),
+    })
+    const data = await response.json()
+    if (!response.ok && response.status !== 409) {
+      throw new Error(data.error?.message || data.message || 'Create failed')
+    }
+    if (response.ok) await fetchTags()
+    return data as TagWithCount | { error: any; target_tag: any }
+  }
+
   async function mergeTag(sourceId: number, targetId: number) {
     const res = await api.post<{ merged: boolean }>(`/api/tags/${sourceId}/merge`, { target_id: targetId })
     await fetchTags()
@@ -79,5 +95,5 @@ export const useTagsStore = defineStore('tags', () => {
     await fetchTags()
   }
 
-  return { tags, loaded, colorMap, getTagColor, fetchTags, refreshCache, ensureLoaded, renameTag, mergeTag, deleteTag, updateTagColor, toggleVisibility }
+  return { tags, loaded, colorMap, getTagColor, fetchTags, refreshCache, ensureLoaded, createTag, renameTag, mergeTag, deleteTag, updateTagColor, toggleVisibility }
 })
