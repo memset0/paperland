@@ -8,7 +8,7 @@ import { gfm } from 'turndown-plugin-gfm'
 import 'katex/dist/katex.min.css'
 import { toast } from 'vue-sonner'
 import { useRouter, useRoute } from 'vue-router'
-import { Trash2, Link2 } from '@lucide/vue'
+import { Trash2, Link2, Copy } from '@lucide/vue'
 import { useHighlightStore } from '@/stores/highlights'
 import { useAuthStore } from '@/stores/auth'
 import { applyHighlights, clearHighlights, getSelectionOffsets } from '@/composables/useHighlight'
@@ -295,16 +295,32 @@ function selectionToMarkdown(): string {
   return markdown.trim()
 }
 
+/** Build the `paperland://…` anchor URL for the pending selection, or null when unavailable. */
+function pendingAnchorUrl(): string | null {
+  if (!pendingSelection.value || !contentHash.value || !props.paperId) return null
+  const { start_offset, end_offset } = pendingSelection.value
+  return `paperland://paper/${props.paperId}?h=${contentHash.value}&s=${start_offset}&e=${end_offset}`
+}
+
 /** Copy the full selection as Markdown, followed by a compact `[#](paperland://…)` anchor. */
-function copyAnchorLink() {
-  if (!pendingSelection.value || !contentHash.value || !props.paperId) return
-  const { start_offset, end_offset, text } = pendingSelection.value
-  const url = `paperland://paper/${props.paperId}?h=${contentHash.value}&s=${start_offset}&e=${end_offset}`
+function copyContentAndAnchorLink() {
+  const url = pendingAnchorUrl()
+  if (!url || !pendingSelection.value) return
   // Fall back to the rendered plain text if Markdown conversion comes back empty
   // (e.g. the browser collapsed the selection when the toolbar was tapped).
-  const content = selectionToMarkdown() || text.trim()
+  const content = selectionToMarkdown() || pendingSelection.value.text.trim()
   navigator.clipboard.writeText(`${content} [#](${url})`)
   toast.success('已复制内容和锚点链接', { position: 'bottom-center' })
+  window.getSelection()?.removeAllRanges()
+  closeAllPopups()
+}
+
+/** Copy only the positioning anchor, wrapped in Markdown image form `![#](paperland://…)`. */
+function copyAnchorLinkOnly() {
+  const url = pendingAnchorUrl()
+  if (!url) return
+  navigator.clipboard.writeText(`![#](${url})`)
+  toast.success('已复制锚点链接', { position: 'bottom-center' })
   window.getSelection()?.removeAllRanges()
   closeAllPopups()
 }
@@ -440,7 +456,10 @@ onBeforeUnmount(() => {
           @click.stop="createHighlight(c)"
         />
       </div>
-      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyAnchorLink" title="复制内容和锚点链接">
+      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyContentAndAnchorLink" title="复制内容和锚点链接">
+        <Copy class="hl-icon" />
+      </button>
+      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyAnchorLinkOnly" title="复制锚点链接">
         <Link2 class="hl-icon" />
       </button>
     </div>

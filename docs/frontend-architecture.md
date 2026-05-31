@@ -538,7 +538,7 @@ content_priority:
          → Pinia store 按 content_hash 分组 → 各 MarkdownContent 按 hash 取自己的高亮
          → DOM 后处理：遍历 text nodes，按 offset 包裹 <mark>
 
-选中文本 → 浮动工具栏（4 色 + 复制为锚点链接）→ POST /api/highlights → 更新 store → 重新渲染
+选中文本 → 浮动工具栏（4 色 + 两个复制按钮：内容+锚点链接 / 仅锚点链接）→ POST /api/highlights → 更新 store → 重新渲染
 点击/tap 高亮 → 弹出菜单（改色 / 删除）→ PUT/DELETE /api/highlights/:id
 ```
 
@@ -1267,7 +1267,11 @@ paperland://paper/<id>?pdf=<page>&ts=<start>&te=<end>  // 跳到该页并高亮�
 - 定位基于**块的 `content_hash`**（与高亮同一指纹），不依赖问题/回答的 id 或下标——多模型多回答、重新生成、重排序都不会跑偏。
 - `MarkdownContent` 给渲染容器挂 `data-content-hash`，并拦截 `paperland://` 链接点击：本页直接 `locateBlock`，跨页 `router.push('/papers/:id?h=...')`。
 - `composables/useBlockAnchor.ts` 的 **`locateBlock(paperId, hash, range?)`**：① DOM 命中 → 滚动 + 闪烁；② 未命中（折叠 / 未激活 tab）→ 遍历 Q&A store 现算 hash 反查归属，展开 `Collapsible` + 激活对应 result tab（`requestedResultId`）后再定位；③ 找不到 → toast 失效、不跳转。有 `s`/`e` 时在块内按 offset 高亮该片段（复用 `useHighlight` 的 segment 逻辑）。
-- 选区浮动工具栏（登录态）的「复制为锚点链接」：把**整段选区还原成 Markdown** 后，再追加一个紧凑的 `[#](paperland://...)` 锚点链接（形如 `<选区 Markdown> [#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`）。还原用 `turndown` + `turndown-plugin-gfm`（整表→GFM 管道表）；数学公式从各 KaTeX 元素的 `x-tex` annotation 还原为 `$…$`（行内）/独立成行的 `$$…$$`（行间），并用占位符在 turndown 转义后再回填，保证 LaTeX 不被破坏；选区内的高亮 `<mark>` 会被剥离。锚点的 `s`/`e` 仍取渲染态偏移，跳转逻辑不变。
+- 选区浮动工具栏（登录态）提供**两个复制按钮**，二者指向同一个 `paperland://paper/<id>?h=<hash>&s=<start>&e=<end>` 锚点，只是剪贴板的 Markdown 包裹形式不同：
+  - **复制内容和锚点链接**（`Copy` 图标，`copyContentAndAnchorLink`）：把**整段选区还原成 Markdown** 后，再追加一个紧凑的 `[#](paperland://...)` 锚点链接（形如 `<选区 Markdown> [#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`）。还原用 `turndown` + `turndown-plugin-gfm`（整表→GFM 管道表）；数学公式从各 KaTeX 元素的 `x-tex` annotation 还原为 `$…$`（行内）/独立成行的 `$$…$$`（行间），并用占位符在 turndown 转义后再回填，保证 LaTeX 不被破坏；选区内的高亮 `<mark>` 会被剥离。
+  - **复制锚点链接**（`Link2` 图标，`copyAnchorLinkOnly`）：只复制定位链接、不带正文，且用 Markdown **图片**语法包裹——`![#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`。`![#]` 作为「嵌入标记」（区别于会被点击拦截的 `[#]` 链接形式），其渲染为可点击/嵌入元素留作后续；当前点击拦截只处理 `a[href^="paperland://"]`。
+
+  两者都从 `pendingAnchorUrl()` 取同一个 URL，登录态（`paperId` 存在）才显示。锚点的 `s`/`e` 仍取渲染态偏移，跳转逻辑不变。
 - **PDF 目标**走嵌入式 pdf.js 查看器（见 1.4「嵌入式 pdf.js 查看器」）：`MarkdownContent` 解析出 `pdf`/`ts`/`te` 后，本页直接调 `requestPdfNavigation(...)`（`composables/usePdfNavigation.ts` 的模块级 `requestedPdfTarget` ref，仿 `requestedResultId`），跨页 `router.push('/papers/:id?pdf=...&ts=...&te=...')`；`PaperDetail.handleAnchorFromRoute` 加载后读 query 设置同一 ref。`PaperViewerPanel` 监听该 ref 自动切到「PDF 原文」Tab，`PdfViewer` 监听后滚动到该页、把 `ts/te` 偏移映射回文本层矩形并画**临时高亮**（不落库，类似块锚点的闪烁）。`ts`/`te` 是该页**文本内容的字符偏移**（pdf.js `getTextContent()` 顺序，与高亮同一偏移模型），缩放无关。
 - 锚定面覆盖 `MarkdownContent` 渲染文本（Q&A 回答、摘要/FAQ、笔记自身）**与 PDF 正文页/选区**；外部翻译 iframe 不可锚定。
 
