@@ -236,7 +236,10 @@ async function doLogout() {
 
     <!-- ========== Main content ========== -->
     <main :class="['flex-1 overflow-y-auto overflow-x-hidden', isMobile && !isEmbed ? 'pt-12' : '']">
-      <RouterView />
+      <!-- Provider so page-content Tooltips (e.g. QA feed cards) work; the sidebar has its own. -->
+      <TooltipProvider :delay-duration="100">
+        <RouterView />
+      </TooltipProvider>
     </main>
 
     <!-- Floating note editor windows (above app chrome) -->

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { api } from '@/api/client'
-import type { QAFeedEntry } from '@paperland/shared'
+import type { QAFeedEntry, PaginatedResponse } from '@paperland/shared'
 
 const STORAGE_KEY = 'paperland_selected_models'
 
@@ -201,13 +201,32 @@ export const useQAStore = defineStore('qa', () => {
   // --- Feed state (for /qa page) ---
   const feedEntries = ref<QAFeedEntry[]>([])
   const feedLoading = ref(false)
+  const feedPagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 0 })
   let feedPollTimer: ReturnType<typeof setInterval> | null = null
 
-  async function fetchFeed(showLoading = false) {
+  // Available models for the regenerate dialog. Fetched once and shared across all
+  // feed cards (previously each QAFeedPanel fetched this on mount — N duplicate requests).
+  const availableModels = ref<Array<{ name: string }>>([])
+  let modelsFetched = false
+  async function fetchModels() {
+    if (modelsFetched && availableModels.value.length) return
+    try {
+      const res = await api.get<{ models: { available: Array<{ name: string }> } }>('/api/config/models')
+      availableModels.value = res.models.available
+      modelsFetched = true
+    } catch {
+      if (!availableModels.value.length) availableModels.value = [{ name: 'gpt-4o' }]
+    }
+  }
+
+  async function fetchFeed(showLoading = false, page = feedPagination.value.page) {
     if (showLoading) feedLoading.value = true
     try {
-      const res = await api.get<{ data: QAFeedEntry[] }>('/api/qa/free')
+      const res = await api.get<PaginatedResponse<QAFeedEntry>>(
+        `/api/qa/free?page=${page}&page_size=${feedPagination.value.page_size}`,
+      )
       feedEntries.value = res.data
+      feedPagination.value = res.pagination
     } finally {
       if (showLoading) feedLoading.value = false
     }
@@ -240,6 +259,7 @@ export const useQAStore = defineStore('qa', () => {
     fetchTemplates, fetchQA, switchPaper, triggerAllTemplates, regenerateTemplate,
     submitFreeQuestion, regenerateEntry, deleteResult,
     startPolling, stopPolling, hasInProgress,
-    feedEntries, feedLoading, fetchFeed, startFeedPolling, stopFeedPolling, feedHasInProgress,
+    feedEntries, feedLoading, feedPagination, fetchFeed, startFeedPolling, stopFeedPolling, feedHasInProgress,
+    availableModels, fetchModels,
   }
 })

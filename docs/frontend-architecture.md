@@ -240,6 +240,10 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 └─────────────────────────────┴───────────────────────────────────────┘
 ```
 
+#### 摘要中英双语（BilingualText）
+
+信息区的「摘要」用通用组件 `components/BilingualText.vue` 渲染（详情页宽 / 窄两处布局均接入）。组件接收一段**纯文本**（不做 Markdown 渲染，`whitespace-pre-wrap` 保留换行），默认只展示英文原文，下方有一个小 **Translate** 按钮（lucide `Languages` 图标）。**仅登录用户**点击才翻译：未登录则唤起登录框（`useLoginPrompt().openLogin()`）、不发请求。点击后调 `translationApi.translate(text)`（`POST /api/translate`，由前端把文本喂入），翻译期间按钮显示 `Loader2` 并禁用；返回后在英文下方**追加**中文译文（带 muted「Translation」小标签），并提供 **Hide/Show** 折叠与 **Re-translate**（`force` 绕过缓存重译并覆盖）。翻译缓存由后端按内容寻址、**全体用户共享**（见 tech-stack.md「翻译服务」），同一段文本任意用户翻过一次后其他人点 Translate 即秒回。组件为通用叶子组件，可复用于其它纯文本（如未来 TLDR）。
+
 #### 多模式查看器（PaperViewerPanel）
 
 左侧面板支持多种查看模式，通过顶部 Tab 栏切换：
@@ -248,7 +252,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 |------|------|------|
 | PDF 原文 | 论文有 `pdf_path` | 嵌入式 **pdf.js** 查看器（PdfViewer 组件，见下方「嵌入式 pdf.js 查看器」） |
 | 幻觉翻译 | 论文有 `arxiv_id` | 嵌入 `https://hjfy.top/arxiv/{arxiv_id}` iframe |
-| Walk-through | 该 (用户, 论文) 有非空笔记（`store.noteCount > 0`） | 把整棵笔记树渲染为一篇连续 Markdown 文档（见下方「Walk-through 视图」） |
+| Walk-through | 该 (用户, 论文) 有非空笔记（`store.noteCount > 0`） | 整篇大笔记的三模式文档视图（render / edit / split，见下方「Walk-through / 文档视图」） |
 
 - 自动选中第一个可用模式（Walk-through 排在 modes 数组末位，PDF/幻觉翻译优先；笔记加载后该 Tab 才出现，且不抢占当前选中）
 - 无可用模式时显示占位提示
@@ -468,7 +472,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 | 论文详情页内嵌 | 针对当前论文提问，paper_id 自动绑定，展示模板提问和自由提问 |
 | 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接，支持重新生成、删除、复制、Pin 等操作 |
 
-**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每张卡片完全由 shadcn 原语拼成——外层 `<Collapsible v-model:open>` 驱动展开/折叠，`CollapsibleTrigger as-child` 套在 `CardHeader` 上（合并后 DOM 上 `data-slot` 为 `collapsible-trigger`），`CollapsibleContent` 是卡片体，头/体之间用 `<Separator>` 分隔。头部三栏：状态图标（`Tooltip` 标注 已完成/生成中/生成失败）+ 旋转 chevron / prompt 主行 + 论文链接（`@click.stop`，点击只跳转不折叠）与时间 / 右侧回答数或模型 `Badge`。重新生成对话框用 `Checkbox` + `Label` 行做模型多选。卡片体复用 `QAResultView.vue`（多模型 `Tabs`、markdown、操作按钮）——其图标操作（Pin/复制/重生成/删除）改用 `Tooltip` 标注、分隔用 `Separator`，论文详情页同享此改进。页面外壳 `QAPage.vue` 在 `AppPage` 的 `#actions` 槽放刷新按钮（加载时 spin），加载态用一组**结构化骨架卡**（与真实卡片同款 `ring-1 ring-foreground/10 rounded-lg` 轮廓 + 状态点/chevron/标题行/副标题行/badge 的 `Skeleton` 块，切换平滑；数量取 `feedPagination.page_size`（即一页条数）而非写死，使加载前后列表高度一致、不跳动）。注意：列表/骨架的滚动容器要带 `pt`（如 `pt-2`），否则 `overflow-y-auto` 会把最上方卡片的 ring 描边裁掉。`Skeleton` 组件默认底色已从 shadcn 原版的 `bg-accent` 改为 `bg-foreground/10`——本主题把 `--accent` 定制成了蓝色（同 primary），原版骨架会变成蓝块。**分页**：feed 走后端分页（`GET /api/qa/free?page=&page_size=`，默认 20/页，返回 `{ data, pagination }`，复用 `PaginatedResponse<T>`，与论文列表一致）；`QAPage` 在 fill 布局底部固定 上一页/下一页 + "当前/总页数" 控件（`total_pages > 1` 时显示），翻页后把列表滚回顶部；轮询只重拉当前页。**性能**：模型列表（重新生成对话框用）由 `QAPage` 在页面级经 store 的 `fetchModels()` 只请求一次、通过 `store.availableModels` 共享给所有卡片——此前每张 `QAFeedPanel` 都在 `onMounted` 各发一次 `/api/config/models`，条目多时（如 200+）会产生上百个重复请求,是页面卡顿的主因。
+**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = **card 外上方的一行「论文标题（左，可用整行、不截断成窄宽）+ 提问时间（`ml-auto` 右对齐）」** + 下方一张内容简单的 shadcn `Card`。这样论文标题作为分组标签放在卡外，card 内层级更简单。card 由 `<Collapsible v-model:open>` 驱动展开/折叠（`CollapsibleTrigger as-child` 套在 `CardHeader` 上，合并后 DOM 的 `data-slot` 为 `collapsible-trigger`；`CollapsibleContent` 是卡片体，头/体间用 `<Separator>` 分隔）。card 头部保持**单行**：状态图标（`Tooltip` 标注 已完成/生成中/生成失败）+ **加粗问题**（`font-semibold`，与详情页问题一致）+ 右侧回答数或模型 `Badge`，**无展开 chevron**（整行可点切换）。论文链接在 card 外，点击只跳转、不影响折叠。组件根是单个 `<div>`（论文行 + card + 对话框），使外层列表的 `space-y-3` 按"条目"分隔。重新生成对话框用 `Checkbox` + `Label` 行做模型多选。卡片体复用 `QAResultView.vue`（多模型 `Tabs`、markdown、操作按钮）——其图标操作（Pin/复制/重生成/删除）改用 `Tooltip` 标注、分隔用 `Separator`，论文详情页同享此改进。页面外壳 `QAPage.vue` 在 `AppPage` 的 `#actions` 槽放刷新按钮（加载时 spin），加载态用一组**结构化骨架卡**（与真实条目同构：card 外的论文/时间行 + card 内的 状态点/问题行/badge 的 `Skeleton` 块；数量取 `feedPagination.page_size`（即一页条数）而非写死，使加载前后列表高度一致、不跳动）。注意：列表/骨架的滚动容器要带 `pt`（如 `pt-2`），否则 `overflow-y-auto` 会把最上方卡片的 ring 描边裁掉。`Skeleton` 组件默认底色已从 shadcn 原版的 `bg-accent` 改为 `bg-foreground/10`——本主题把 `--accent` 定制成了蓝色（同 primary），原版骨架会变成蓝块。**分页**：feed 走后端分页（`GET /api/qa/free?page=&page_size=`，默认 20/页，返回 `{ data, pagination }`，复用 `PaginatedResponse<T>`，与论文列表一致）；`QAPage` 在 fill 布局底部固定 上一页/下一页 + "当前/总页数" 控件（`total_pages > 1` 时显示），翻页后把列表滚回顶部；轮询只重拉当前页。**性能**：模型列表（重新生成对话框用）由 `QAPage` 在页面级经 store 的 `fetchModels()` 只请求一次、通过 `store.availableModels` 共享给所有卡片——此前每张 `QAFeedPanel` 都在 `onMounted` 各发一次 `/api/config/models`，条目多时（如 200+）会产生上百个重复请求,是页面卡顿的主因。
 
 ### 2.5 提问的文本上下文来源
 
@@ -513,7 +517,8 @@ content_priority:
 - 组件自带完整的 scoped CSS 样式（标题、列表、代码块、表格、引用等）
 - 不依赖 `@tailwindcss/typography`，手动覆盖 Tailwind Preflight 的 reset（如 `list-style-type`）
 - KaTeX 样式通过 `katex/dist/katex.min.css` 导入
-- 行间公式居中显示，超宽公式支持水平滚动
+- 行间公式居中显示，超宽公式封顶 100% 宽度并支持水平滚动（`.katex-display` 用 `display:flex; justify-content:safe center` + `overflow-x:auto`，子 `.katex` 为 `inline-block; flex-shrink:0`）
+- 点击公式复制 LaTeX 的 hover 高亮只覆盖公式**实际渲染宽度**（行间公式不再点亮整行），超宽公式仍可左右滚动到两端
 
 ### 文本高亮标注
 
@@ -1240,16 +1245,16 @@ Idea Forge 是集成在 Paperland 中的研究想法管理系统。数据存储�
 
 ## 笔记 (Notes)
 
-按用户私有的、面向整篇论文的笔记。UI 文案统一用英文（Notes / Overview）。
+按用户私有的、面向整篇论文的笔记。每 (用户, 论文) = **一篇 Markdown 大笔记**（单文档）。UI 文案统一用英文（Notes）。思维导图与 Walk-through 都是这篇文档的**派生视图**（由其 Markdown 标题结构推导），不再有笔记树。
 
 ### 数据模型
 
-单表 `notes`（见 tech-stack.md），无结构化 anchor 字段。每 (用户, 论文) 是**一棵树**，由唯一的**根笔记**（`kind='root'`，全树唯一 `parent_id IS NULL` 的节点）锚定：
+单表 `notes`（见 tech-stack.md）：每 (用户, 论文) 至多一行，整篇笔记就是一个 `body` 字符串；`(user_id, paper_id)` 唯一索引。无 `kind`/`parent_id`/`title`/`sort_order`、无结构化 anchor 字段（锚点写在 `body` 里，见下）。
 
-- **根笔记 root**：每 (用户, 论文) 至多一条，是整棵树的父节点；编辑器里标为 **Overview**。它**惰性创建**——没有任何笔记的论文在库中零行，直到用户首次往根笔记写内容、或挂上第一条子笔记时才创建。
-- **笔记 note**：任意多条，经 `parent_id` 自引用挂在根笔记下成树、`sort_order` 定同级次序；前端 `buildRootTree()` 组装成以根笔记为根的单棵树（无持久化根时给出一个合成的占位根节点）。
-- **不再区分大/小笔记**：原 `walkthrough` 类型已废弃（数据迁移 0014 删除其行、为有顶层笔记的 (用户, 论文) 建根并把顶层笔记 reparent 到根下）。「通读全文」类需求今后由独立的 walkthrough view 承载，与根笔记无关。
-- **按内容计数**：仅 `body`（去空白后）非空的节点计入笔记总数——空根笔记、仅有标题无正文的节点都不计数（但仍在思维导图中显示）。
+- **惰性创建**：没有内容的论文在库中零行，首次写入时才建行。`PUT /api/papers/:id/note` upsert 整篇 body，乐观 `updated_at`（首次创建无需 `updated_at`，409 返回最新）。
+- **结构来自标题**：前端 `lib/markdown-doc.ts` 把 body 解析成 heading-section 树——层级按 heading **相对深度**（最浅的标题层级即顶层，故 `#` 或 `##` 起头都可用）；每个 section 的「叶子正文」= 该标题到下一个标题之间的文本；第一个标题之前的「前言（preamble）」= 思维导图中心节点的内容。
+- **按内容计数**：`store.noteCount` = 叶子正文非空的 section 数 + 前言非空（中心节点）；空文档不计数、不出现在 `/api/notes` 聚合里。
+- **旧数据迁移**：`db/notes-migration.ts` 的 `migrateNotesToSingleDoc()` 在 `migrate()` 之前运行（需要旧列），把每 (用户, 论文) 的旧笔记树按 walkthrough 方式压平成一篇 Markdown（标题→按深度的 heading、正文跟随、正文内标题重定级、根 body 作前言；无编号）写入存活行、删其余行；随后 drizzle 迁移 `0017` 删旧列 + 建唯一索引。幂等（旧列没了即跳过）、转换前自动备份。
 
 ### 锚定：`paperland://` 内联链接 + content_hash 块寻址
 
@@ -1275,42 +1280,40 @@ paperland://paper/<id>?pdf=<page>&ts=<start>&te=<end>  // 跳到该页并高亮�
 - **PDF 目标**走嵌入式 pdf.js 查看器（见 1.4「嵌入式 pdf.js 查看器」）：`MarkdownContent` 解析出 `pdf`/`ts`/`te` 后，本页直接调 `requestPdfNavigation(...)`（`composables/usePdfNavigation.ts` 的模块级 `requestedPdfTarget` ref，仿 `requestedResultId`），跨页 `router.push('/papers/:id?pdf=...&ts=...&te=...')`；`PaperDetail.handleAnchorFromRoute` 加载后读 query 设置同一 ref。`PaperViewerPanel` 监听该 ref 自动切到「PDF 原文」Tab，`PdfViewer` 监听后滚动到该页、把 `ts/te` 偏移映射回文本层矩形并画**临时高亮**（不落库，类似块锚点的闪烁）。`ts`/`te` 是该页**文本内容的字符偏移**（pdf.js `getTextContent()` 顺序，与高亮同一偏移模型），缩放无关。
 - 锚定面覆盖 `MarkdownContent` 渲染文本（Q&A 回答、摘要/FAQ、笔记自身）**与 PDF 正文页/选区**；外部翻译 iframe 不可锚定。
 
-### 浮动编辑窗口
+### 共享状态与并发模型（`stores/notes.ts`）
 
-根笔记（Overview）与普通笔记都在同一浮动窗口里编辑（`components/notes/`）：
+整篇笔记在 store 里只有**一份响应式 `body` 字符串**（单一数据源），`tree = computed(parseNoteDoc(body))` 派生 heading-section 树。所有编辑面都直接写穿这份 body，无各自的本地快照；持久化是**整篇防抖保存**（1.2s）+ 乐观 `updated_at`，409 → 重载最新并关窗 + toast。
 
-- `stores/windows.ts`：多窗管理、z-index 栈（最后点击置顶）、全局尺寸记忆（localStorage，新窗口按上次缩放尺寸打开）。窗口 `kind: 'root' | 'note'`，根窗口按 `root-<paperId>` 唯一键（与具体 note id 无关）。
-- `FloatingNoteWindow.vue`：电脑端可拖拽（标题栏）+ 可缩放（右下角），浮于页面顶层；手机端全屏。标题栏显示标题 + 关闭。
-- `NoteEditor.vue`：三显示模式（Editor / Split / Preview）点选切换；预览复用 `MarkdownContent`；2s 防抖自动保存 + Ctrl+S（沿用 idea-forge 范式）。根窗口标题固定为 **Overview**、无标题输入框，保存走 `saveRoot`（首次惰性建根）；普通笔记走 `updateNote`。
-- `NoteWindowHost.vue`：在 `App.vue` 挂载一次，渲染所有打开的窗口。
+- **模态编辑上下文**（`panelMode: 'render' | 'edit' | 'split'`）：render 时左面板只读、靠思维导图/浮窗编辑；进入 edit/split（整篇直接编辑）会**先关闭所有浮窗**（`setPanelMode` → `closeForPaper`）。
+- **结构变更关窗**：思维导图的拖拽/增/删/改名都是结构性改动（`applyStructural` → 快照入 undo 栈 + 写穿 + 关闭本论文所有浮窗）；`undo()` 弹栈回退。
+- **浮窗严格绑定（防覆盖兜底，design D7）**：浮窗打开时记录 ① 结构指纹 `structureKey()`（仅 heading 层级+文本+顺序，排除正文）② 本小节正文基线。每次写回前比对，任一不符即**拒绝写回 + 弹冲突提示**（保留窗内文本供拷贝）。同标签页内靠关窗已避免冲突；该绑定主要兜跨标签页/异常（重载后指纹/基线不符）。
+- **浮窗只改叶子、不产生结构**：窗内输入的任何 heading 在写穿时经 `demoteHeadings` 转加粗，故浮窗永不改文档结构。
 
-### 分支思维导图
+### 浮动编辑窗口（`components/notes/`）
 
-`components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：整棵笔记树以分支思维导图呈现（CSS 自动布局的层级节点 + 连线，节点只显示标题），**根笔记始终作为唯一根节点显示**（无持久化根时为占位节点，标为 Overview）。点击节点开其编辑窗口（根节点 → Overview 编辑器）；普通节点支持增子 / 增兄 / 删除（删除前确认并显示连带子节点数），**根节点不可拖拽、不可删除、无「增兄」**（只可增子）；拖拽改父子（落到某节点 → 成其子；落到空白画布 → 挂到根笔记下，绝不变成无父节点），乐观更新 + 失败回滚，后端防环。表头计数为 `store.noteCount`（仅非空 body 的节点）。
+- `stores/windows.ts`：多窗管理、z-index 栈、全局尺寸记忆（localStorage）。窗口按 `${paperId}:${sectionId ?? 'preamble'}` 唯一键——一个 section 至多一个窗（再次打开只聚焦）。
+- `FloatingNoteWindow.vue`：桌面可拖拽（标题栏）+ 缩放（右下角），手机端全屏。
+- `NoteEditor.vue`：编辑**单个 section 的叶子正文**（中心节点 → 编辑前言）；三显示模式（Editor / Split / Preview）；预览用 `demoteHeadings(editBody)` 渲染（所见即所存）；写穿到 `store.updateLeaf(sectionId, text)` / `store.updatePreamble(text)`，1.2s 防抖 + 失焦/Ctrl+S/关窗即提交，IME 安全；冲突时顶部红条提示。标题栏显示该 section 的标题（只读——改名是结构操作，在思维导图里做）。
+- `NoteWindowHost.vue`：在 `App.vue` 挂载一次，渲染所有窗口。
 
-**节点字符数徽章**：body 非空（`body.trim()` 不为空）的节点在标题后显示一个灰色括号字符数 `(N)`（`.nn-count`，`var(--muted-foreground)`、`pointer-events:none`），N 为 `node.body.trim().length`；空节点不显示。徽章随节点 body 编辑实时更新（`node` 来自响应式 tree）。
+### 分支思维导图（heading 派生）
 
-### Walk-through 视图
+`components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：由文档 heading 结构派生的分支导图。**中心节点 = 论文（其内容是前言）**，点它编辑前言；每个 heading 是一个节点（按相对深度成树），叶子正文非空时标题后显示灰色字符数徽章 `(N)`。连线由真实 DOM 位置量出的 SVG 曲线绘制（`data-nid` 用 section id）。点节点开其叶子浮窗；拖拽改父子（落到节点 → 成其子、落到中心/空白 → 顶层）= `store.reparent` 改写 heading；增子/增兄（`window.prompt` 命名 → `addChild`/`addSibling` 插入 heading）、改名（`rename` 改 heading 文本）、删除（确认连带子节点数 → `remove`）。中心节点不可拖拽/删除/增兄。表头 Undo 回退最近一次结构改动。
 
-`components/notes/NoteWalkthrough.vue`：把整棵笔记树渲染成一篇连续的阅读视图，作为左侧面板的「Walk-through」查看模式（见上方「多模式查看器」）。组装逻辑是 `stores/notes.ts` 的纯函数 `flattenWalkthrough(root): WalkthroughSection[]`——返回**结构化的 section 列表**（而非单个 Markdown 字符串），这样每个标题能携带 `noteId` 与编号、支持交互：
+### Walk-through / 文档视图（左面板，`NoteWalkthrough.vue`）
 
-- **顺序**：按思维导图深度优先遍历，同级按 `sort_order`（复用 `tree` computed 已排好序的 children）。每个节点先出自身 section，再递归子节点。
-- **层级**：根笔记**不出标题**，其 body（若非空）作为开篇引言 section（原样渲染、不编号）；根的直接子节点起始为 **H2**，每深入一层 +1（`level = min(2 + depth, 6)`，封顶 H6）。笔记标题层级仅由思维导图深度决定。
-- **正文内标题重排**：节点 body 里用户自己写的 markdown 标题会被**重排到该笔记标题之下**——body 中最浅的标题落在比该笔记深一级处，更深的保留相对嵌套（distinct 层级映射成连续 rank）；代码围栏内的 `#` 不当标题。
-- **自动编号（含正文标题）**：用一个贯穿全程的计数器 `outlineNumberer()`，给**所有标题**（笔记标题 + body 内部标题）统一编号 `1.`、`1.2.`、`1.2.3.`（带尾点）。`numberBodyHeadings` 把 body 标题穿插进同一套大纲：一个笔记自身的子小节标题与它的子笔记在文档顺序里共享一层（如笔记 `1.` 的 body 标题 `1.1.`、其第一个子笔记 `1.2.`）。编号**只看走查里 heading 的层级与顺序**，与笔记自身标题文字无关；根引言不编号。编号为黑色（继承标题色）。
-- **点击进入编辑**：**笔记标题**用 `<component :is="'h'+level">` 渲染并挂 `@click`，经 `windows.open({ kind:'note', paperId, noteId, title })` 打开该笔记浮动编辑器（与思维导图同一套窗口模型）；标题带**常驻**铅笔图标 + hover 下划线提示。**body 内部标题不对应单个笔记，故有编号但不可点、无铅笔**。
-- **正文渲染 + 关高亮**：每个 section 的 body 用 `MarkdownContent` 渲染并传 `:disable-highlights="true"`——走查内容是动态拼接的，与基于内容哈希的高亮模型不兼容，故关掉划线工具条/已存高亮/点击菜单（锚点链接、KaTeX 复制仍可用）。该 prop 在 `MarkdownContent` 内通过 `myHighlights` 直接返回 `[]`、`onMounted` 跳过 selection/dismiss 监听 实现。
-- **空节点**：无标题用 `(untitled)` 占位；body 为空只出标题并继续递归子节点。
-- **实时重渲染**：`sections = computed(() => flattenWalkthrough(store.tree))`，故笔记内容编辑、节点改父/重排都会自动重新组装并渲染，无需手动刷新。无内容时显示「No notes yet」。
-- **阅读型字号（仅本视图）**：正文用紧凑阅读字号（`.nw-content { font-size: 0.9rem }`）；标题用**绝对 rem**（h2 1.7rem → h6 1.05rem），不随正文缩放而变。笔记标题（`.wt-heading`）与 body 标题（`MarkdownContent` 渲染，经 `.nw-content :deep(.markdown-content hN)` 同级同尺寸）保持一致；只作用于走查，不影响 Q&A / 论文正文等处 Markdown 字号。
+左侧面板对整篇大笔记的三模式视图（`store.panelMode`）：
+- **render（默认）**：阅读型渲染——前言 + 各 section 的可点击、自动编号标题（`1.`、`1.1.`、`1.1.1.`，由 heading 层级在渲染时推导）+ 叶子正文（`MarkdownContent`，`:disable-highlights="true"`，因动态编号内容与基于内容哈希的高亮不兼容）。点标题开该 section 的浮窗。标题层级 `min(2+depth, 6)`，阅读型绝对 rem 字号（仅本视图）。
+- **edit**：整篇 Markdown 文本框（`v-model` → `store.setBody`），可自由增删/重排 heading。
+- **split**：编辑器 + render 并排。
+- 进入 edit/split 关闭所有浮窗；任一改动（叶子/结构/整篇）都实时重渲染。无内容时显示「No notes yet」。
 
 ### 入口与归属
 
-- 论文详情页右栏 `PaperNotesCard`（位于 Q&A 之上）：即思维导图本身（根笔记 + 其子树）；匿名显示「Sign in to take notes」。
-- 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：跨论文聚合，按论文分组 + 客户端搜索（仅列 body 非空的笔记，空根笔记不出现）；点击笔记跳到其 `/papers/:id?note=`（根笔记用 `?root=1`）并打开浮窗。
-- 侧边栏新增 Notes 项（登录门禁）。
-- 访问控制沿用 auth 模型：owner-scoped 读（匿名返回空 200）、写一律 `requireUser` + 属主校验（非属主 404）。
+- 论文详情页右栏 `PaperNotesCard`：即思维导图（中心节点 = 论文 + 各 heading）；匿名显示「Sign in to take notes」。左侧查看器 `PaperViewerPanel` 的「Walk-through」Tab 即三模式文档视图（`noteCount > 0` 时出现）。
+- 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：每篇论文一条（聚合 `GET /api/notes`，仅 body 非空）+ 客户端搜索（论文标题 + body），点击跳到 `/papers/:id`。
+- 访问控制沿用 auth：owner-scoped 读（匿名 `{ note: null }` 200）、写 `requireUser` + 属主校验。
 
-### 后端 API（`api/notes.ts`，全部 owner-scoped）
+### 后端 API（`api/notes.ts`，owner-scoped）
 
-`GET /api/papers/:id/notes`（返回 `{ notes }` 扁平列表，含根笔记）、`PUT /api/papers/:id/root`（upsert 根笔记 + 乐观 `updated_at` 409；首次创建无需 `updated_at`）、`POST /api/papers/:id/notes`（无 `parent_id` 时经 `ensureRoot` 挂到根下、惰性建根）、`PATCH /api/notes/:id`、`POST /api/notes/:id/move`（防环；`parent_id` 为 null 解析为根；拒绝移动根）、`DELETE /api/notes/:id`（事务内级联删子树；拒绝删根）、`GET /api/notes`（跨论文聚合 + `paper_title`，排除 body 为空的行）。根笔记的单实例由 `notes_root_unq` 分区唯一索引（`WHERE kind='root'`）保证，`ensureRoot` 在索引冲突时回读胜出者。
+`GET /api/papers/:id/note`（返回 `{ note }` 或 `{ note: null }`；匿名 200 空）、`PUT /api/papers/:id/note`（upsert 整篇 body + 乐观 `updated_at`；首次创建无需 `updated_at`，stale → 409 带最新；唯一索引冲突回读胜出者）、`GET /api/notes`（跨论文聚合，每篇一条 + `paper_title`，排除空 body；**鉴权在 handler 内联判断而非 `requireUser` preHandler**——本 fastify 版本下 preHandler 发 401 不能可靠中止 GET handler，故内联以免二次发送）。已移除旧的 tree 端点（create/move/subtree-delete/`PUT /root`）与 `ensureRoot`。

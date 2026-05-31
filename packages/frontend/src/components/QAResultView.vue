@@ -6,7 +6,9 @@ import { RefreshCw, Copy, Check, Trash2, Pin } from '@lucide/vue'
 import MarkdownContent from './MarkdownContent.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 const props = defineProps<{
   results: QAResult[]
@@ -85,48 +87,84 @@ function copyAnswer(resultId: number, text: string) {
     </TabsList>
     <TabsContent v-for="r in sortedResults()" :key="r.id" :value="String(r.id)">
       <MarkdownContent :content="r.answer" :highlight-pathname="highlightPathname" :paper-id="paperId" class="text-sm" />
-      <div class="flex items-center gap-1 mt-3 pt-2 border-t">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          :title="getPinnedModel() === r.model_name ? '取消置顶' : '置顶'"
-          :class="getPinnedModel() === r.model_name ? 'text-primary' : ''"
-          @click="pinResult(r.model_name)"
-        >
-          <Pin />
-        </Button>
-        <Button variant="ghost" size="icon-xs" @click="copyAnswer(r.id, r.answer)">
-          <Check v-if="copiedId === r.id" />
-          <Copy v-else />
-        </Button>
-        <Button variant="ghost" size="icon-xs" @click="emit('regenerate', r.model_name)">
-          <RefreshCw />
-        </Button>
-        <Button variant="ghost" size="icon-xs" @click="emit('deleteResult', r.id)" class="hover:text-destructive">
-          <Trash2 />
-        </Button>
+      <Separator class="my-3" />
+      <div class="flex items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              :class="getPinnedModel() === r.model_name ? 'text-primary' : ''"
+              @click="pinResult(r.model_name)"
+            >
+              <Pin />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{{ getPinnedModel() === r.model_name ? '取消置顶' : '置顶' }}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="icon-xs" @click="copyAnswer(r.id, r.answer)">
+              <Check v-if="copiedId === r.id" />
+              <Copy v-else />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{{ copiedId === r.id ? '已复制' : '复制' }}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="icon-xs" @click="emit('regenerate', r.model_name)">
+              <RefreshCw />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>重新生成</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="icon-xs" @click="emit('deleteResult', r.id)" class="hover:text-destructive">
+              <Trash2 />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>删除</TooltipContent>
+        </Tooltip>
       </div>
     </TabsContent>
   </Tabs>
 
   <div v-else-if="results.length === 1">
     <MarkdownContent :content="results[0].answer" :highlight-pathname="highlightPathname" :paper-id="paperId" class="text-sm" />
-    <div class="flex items-center justify-between mt-3 pt-2 border-t">
+    <Separator class="my-3" />
+    <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
         <Badge variant="secondary">{{ results[0].model_name }}</Badge>
         <span class="text-[10px] text-muted-foreground">{{ timeAgo(results[0].completed_at) }}</span>
       </div>
       <div class="flex items-center gap-1">
-        <Button variant="ghost" size="icon-xs" @click="copyAnswer(results[0].id, results[0].answer)">
-          <Check v-if="copiedId === results[0].id" />
-          <Copy v-else />
-        </Button>
-        <Button variant="ghost" size="icon-xs" @click="emit('regenerate', results[0].model_name)">
-          <RefreshCw />
-        </Button>
-        <Button variant="ghost" size="icon-xs" @click="emit('deleteResult', results[0].id)" class="hover:text-destructive">
-          <Trash2 />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="icon-xs" @click="copyAnswer(results[0].id, results[0].answer)">
+              <Check v-if="copiedId === results[0].id" />
+              <Copy v-else />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{{ copiedId === results[0].id ? '已复制' : '复制' }}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="icon-xs" @click="emit('regenerate', results[0].model_name)">
+              <RefreshCw />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>重新生成</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="icon-xs" @click="emit('deleteResult', results[0].id)" class="hover:text-destructive">
+              <Trash2 />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>删除</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   </div>

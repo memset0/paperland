@@ -60,18 +60,30 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     return { models: { default: config.models.default, available: config.models.available } }
   })
 
-  // List the current user's free QA entries across all papers (for /qa feed page)
-  app.get('/api/qa/free', { preHandler: requireUser }, async (request) => {
+  // Expose PDF viewer settings to the frontend (login required). Only the safe fields are
+  // returned — never the whole config, which holds secrets. Currently just the screenshot DPI.
+  app.get('/api/config/pdf', { preHandler: requireUser }, async () => {
+    const config = getConfig()
+    return { screenshot_dpi: config.pdf_viewer.screenshot_dpi }
+  })
+
+  // List the current user's free QA entries across all papers (for /qa feed page), paginated
+  app.get<{ Querystring: { page?: string; page_size?: string } }>('/api/qa/free', { preHandler: requireUser }, async (request) => {
     const db = getDatabase()
     const userId = request.user!.id
+    const page = parseInt(request.query.page || '1', 10)
+    const pageSize = parseInt(request.query.page_size || '20', 10)
 
     const entries = db.select().from(schema.qaEntries)
       .where(and(eq(schema.qaEntries.type, 'free'), eq(schema.qaEntries.user_id, userId)))
       .orderBy(desc(schema.qaEntries.created_at))
       .all()
 
+    const total = entries.length
+    const pageEntries = entries.slice((page - 1) * pageSize, page * pageSize)
+
     const data = []
-    for (const entry of entries) {
+    for (const entry of pageEntries) {
       const paper = db.select({ title: schema.papers.title }).from(schema.papers)
         .where(eq(schema.papers.id, entry.paper_id))
         .get()
@@ -93,7 +105,15 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       })
     }
 
-    return { data }
+    return {
+      data,
+      pagination: {
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: Math.ceil(total / pageSize),
+      },
+    }
   })
 
   // List QA entries for a paper. Template QA is public; free QA is the current user's only.
