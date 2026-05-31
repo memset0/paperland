@@ -75,6 +75,11 @@ export const translationApi = {
   translate: (text: string, force?: boolean) =>
     api.post<TranslateResponse>('/api/translate', { text, force }),
 
+  // Peek whether this text was already translated, WITHOUT calling the AI model (and without a 404
+  // on a miss). Returns `cached`/`translated_text`. Used to decide whether to auto-expand on mount.
+  peek: (text: string) =>
+    api.post<TranslateResponse>('/api/translate', { text, cache_only: true }),
+
   // Look up a cached translation by source hash without triggering a translation (404 when absent).
   getCachedTranslation: (hash: string, targetLang?: string) =>
     api.get<{ data: Translation }>(

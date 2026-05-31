@@ -224,12 +224,15 @@ export interface Translation {
 export interface TranslateRequest {
   text: string
   force?: boolean
+  /** Peek mode: return the cached translation (or cached:false) without calling the AI model. */
+  cache_only?: boolean
 }
 
 export interface TranslateResponse {
-  source_hash: string
-  source_text: string
-  translated_text: string
+  // null only in a cache_only peek miss
+  source_hash: string | null
+  source_text: string | null
+  translated_text: string | null
   source_lang: string
   target_lang: string
   model_name: string | null

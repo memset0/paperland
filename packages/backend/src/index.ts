@@ -2,7 +2,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import { existsSync, readFileSync } from 'fs'
-import { resolve } from 'path'
+import { resolve, sep } from 'path'
 import { loadConfig, getConfig } from './config.js'
 import { initDatabase } from './db/index.js'
 import { tokenAuth } from './auth/token_auth.js'
@@ -13,9 +13,12 @@ import { settingsRoutes } from './api/settings.js'
 import { paperRoutes } from './api/papers.js'
 import { serviceRoutes } from './api/services.js'
 import { qaRoutes } from './api/qa.js'
+import { translationRoutes } from './api/translation.js'
 import { highlightsRoutes } from './api/highlights.js'
 import { notesRoutes } from './api/notes.js'
 import { referenceLinksRoutes } from './api/reference_links.js'
+import { imagesRoutes } from './api/images.js'
+import { mimeForExt } from './services/image_store.js'
 import { tagRoutes } from './api/tags.js'
 import { externalPaperRoutes } from './external-api/papers.js'
 import { externalTagRoutes } from './external-api/tags.js'
@@ -120,6 +123,28 @@ async function main() {
     return reply.send(buffer)
   })
 
+  // Public image host serving — NO auth by design (any holder of the link can view).
+  // Lives outside /api/* so the identity hook leaves it open. Content-addressed files are
+  // immutable, so they can be cached aggressively.
+  app.get<{ Params: { '*': string } }>('/image/*', async (request, reply) => {
+    const baseDir = resolve(process.cwd(), getConfig().image_host.dir)
+    const rel = decodeURIComponent(request.params['*'] || '')
+    const filePath = resolve(baseDir, rel)
+    // Path-traversal guard: the resolved path must stay inside the storage dir.
+    if (filePath !== baseDir && !filePath.startsWith(baseDir + sep)) {
+      reply.code(400).send({ error: 'Invalid path' })
+      return
+    }
+    if (!existsSync(filePath)) {
+      reply.code(404).send({ error: 'Image not found' })
+      return
+    }
+    const buffer = readFileSync(filePath)
+    reply.header('Content-Type', mimeForExt(filePath.split('.').pop() || ''))
+    reply.header('Cache-Control', 'public, max-age=31536000, immutable')
+    return reply.send(buffer)
+  })
+
   // Register routes
   await app.register(authRoutes)
   await app.register(userRoutes)
@@ -127,9 +152,11 @@ async function main() {
   await app.register(paperRoutes)
   await app.register(serviceRoutes)
   await app.register(qaRoutes)
+  await app.register(translationRoutes)
   await app.register(highlightsRoutes)
   await app.register(notesRoutes)
   await app.register(referenceLinksRoutes)
+  await app.register(imagesRoutes)
   await app.register(tagRoutes)
 
   // Register idea-forge routes

@@ -345,8 +345,8 @@ translation:
 
 **翻译服务（`translation_service`）**：通用「英译中」文本翻译，pure service（类 `qa_service`，不进依赖图）。核心 `translateText(text, { force? })`：按规范化源文的 SHA-256 查 `translations` 缓存，命中即返回；未命中（或 `force`）则用 `translation.prompt`（`{TEXT}` 占位符）调 `getTranslationModel()` 选定的模型，结果 upsert 到缓存（`force` 原地覆盖同一 `(source_hash, target_lang)` 行）。模型调用经 `services.translation_service` 的并发/限流约束。内部 API（`/api/*`，登录可用，缓存全体共享）：
 
-- `POST /api/translate` —— body `{ text, force? }` → `{ source_hash, source_text, translated_text, source_lang, target_lang, model_name, cached }`。`force:true` 绕过缓存重译并覆盖。
-- `GET /api/translations/:hash`（可选 `?target_lang=`，默认 `zh`）—— 仅查缓存，命中返回 `{ data }`，未命中 404，不触发 AI。
+- `POST /api/translate` —— body `{ text, force?, cache_only? }` → `{ source_hash, source_text, translated_text, source_lang, target_lang, model_name, cached }`。`force:true` 绕过缓存重译并覆盖；`cache_only:true` 为 **peek**：只查缓存、不调 AI、不报 404（命中 `cached:true`+译文，未命中 `cached:false`+`translated_text:null`），供前端判断是否默认展开。
+- `GET /api/translations/:hash`（可选 `?target_lang=`，默认 `zh`）—— 按 hash 仅查缓存，命中返回 `{ data }`，未命中 404，不触发 AI。
 
 `qa_service` 与 `translation_service` 共用 `services/model_invoke.ts` 的 `callModel(prompt, modelName)` 调用 openai_api / codex / cli。
 
