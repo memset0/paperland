@@ -1,32 +1,21 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
 import { useNotesStore } from '@/stores/notes'
-import { useWindowsStore } from '@/stores/windows'
 import { useAuthStore } from '@/stores/auth'
 import { Card } from '@/components/ui/card'
 import NoteMindmap from './notes/NoteMindmap.vue'
 import { NotebookPen } from '@lucide/vue'
 
-// Notes card: the single note tree rendered as a branching mind-map, rooted at the
-// (lazily-created) root note. Editing happens in floating windows (opened from nodes).
+// Notes card: the single note document rendered as a heading-derived mind-map. The center node
+// is the paper (its preamble); editing happens in floating windows opened from nodes. The full
+// document view (with edit/split/render modes) lives in the left panel (NoteWalkthrough).
 const props = defineProps<{ paperId: number }>()
 const store = useNotesStore()
-const windows = useWindowsStore()
 const auth = useAuthStore()
-const route = useRoute()
 
 async function load(id: number) {
   if (!auth.isAuthenticated) return
   await store.fetchForPaper(id)
-  // Opened from the /notes page, which navigates here with ?note= / ?root=.
-  if (route.query.root) {
-    windows.open({ kind: 'root', paperId: id, title: '(root)' })
-  } else if (route.query.note) {
-    const noteId = parseInt(route.query.note as string, 10)
-    const n = store.notes.find((x) => x.id === noteId)
-    if (n) windows.open({ kind: 'note', paperId: id, noteId, title: n.title || '(untitled)' })
-  }
 }
 onMounted(() => load(props.paperId))
 watch(() => props.paperId, (id) => load(id))

@@ -1,69 +1,39 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, and, desc, inArray } from 'drizzle-orm'
+import { eq, and, desc } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { requireUser } from '../auth/guards.js'
 
-type NoteRow = typeof schema.notes.$inferSelect
-type DbHandle = ReturnType<typeof getDatabase>
-
 /**
- * Return the (user, paper) root note, creating an empty one lazily if absent.
- * Idempotent under the `notes_root_unq` partial unique index: a losing insert
- * (lost a race) is caught and the winning root is re-read.
+ * Notes API — ONE Markdown document per (user, paper). The whole note is a single `body`
+ * string; structure (mind-map + walkthrough) is derived on the frontend from its Markdown
+ * headings. There are no tree endpoints (no create-child / move / subtree-delete) and no
+ * walkthrough endpoint.
  */
-function ensureRoot(db: DbHandle, userId: number, paperId: number): NoteRow {
-  const find = () => db.select().from(schema.notes).where(and(
-    eq(schema.notes.paper_id, paperId),
-    eq(schema.notes.user_id, userId),
-    eq(schema.notes.kind, 'root'),
-  )).get()
-
-  const existing = find()
-  if (existing) return existing
-
-  const now = new Date().toISOString()
-  try {
-    return db.insert(schema.notes).values({
-      user_id: userId, paper_id: paperId, kind: 'root',
-      parent_id: null, title: null, body: '', sort_order: 0, created_at: now, updated_at: now,
-    }).returning().get()
-  } catch {
-    return find()! // unique-index race: the other writer created it
-  }
-}
-
 export async function notesRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/papers/:id/notes — owner-scoped; anonymous gets an empty list (HTTP 200).
-  // Returns the flat note list (the root note, if it exists, plus its descendants);
-  // the client builds the single tree rooted at the root note.
-  app.get<{ Params: { id: string } }>('/api/papers/:id/notes', async (request) => {
+  // GET /api/papers/:id/note — owner-scoped single document; anonymous gets { note: null } (HTTP 200).
+  app.get<{ Params: { id: string } }>('/api/papers/:id/note', async (request) => {
     const paperId = parseInt(request.params.id, 10)
     const userId = request.user?.id
-    if (userId == null) return { notes: [] }
+    if (userId == null) return { note: null }
 
     const db = getDatabase()
-    const notes = db.select().from(schema.notes)
+    const note = db.select().from(schema.notes)
       .where(and(eq(schema.notes.paper_id, paperId), eq(schema.notes.user_id, userId)))
-      .all()
-      .sort((a, b) => a.sort_order - b.sort_order)
-    return { notes }
+      .get()
+    return { note: note ?? null }
   })
 
-  // PUT /api/papers/:id/root — upsert the root note; optimistic updated_at on update.
-  // The first write (no root yet) creates it and needs no prior updated_at.
+  // PUT /api/papers/:id/note — upsert the whole document body; optimistic updated_at on update.
+  // The first write (no row yet) creates it and needs no prior updated_at.
   app.put<{ Params: { id: string }; Body: { body?: string; updated_at?: string } }>(
-    '/api/papers/:id/root', { preHandler: requireUser }, async (request, reply) => {
+    '/api/papers/:id/note', { preHandler: requireUser }, async (request, reply) => {
       const paperId = parseInt(request.params.id, 10)
       const userId = request.user!.id
       const { body = '', updated_at } = request.body || {}
 
       const db = getDatabase()
       const existing = db.select().from(schema.notes)
-        .where(and(
-          eq(schema.notes.paper_id, paperId),
-          eq(schema.notes.user_id, userId),
-          eq(schema.notes.kind, 'root'),
-        ))
+        .where(and(eq(schema.notes.paper_id, paperId), eq(schema.notes.user_id, userId)))
         .get()
 
       const now = new Date().toISOString()
@@ -75,173 +45,38 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
         return { data: db.select().from(schema.notes).where(eq(schema.notes.id, existing.id)).get() }
       }
 
-      const created = db.insert(schema.notes).values({
-        user_id: userId, paper_id: paperId, kind: 'root',
-        parent_id: null, title: null, body, sort_order: 0, created_at: now, updated_at: now,
-      }).returning().get()
-      return reply.code(201).send({ data: created })
+      try {
+        const created = db.insert(schema.notes).values({
+          user_id: userId, paper_id: paperId, body, created_at: now, updated_at: now,
+        }).returning().get()
+        return reply.code(201).send({ data: created })
+      } catch {
+        // unique-index race: another writer created the row — update that one instead.
+        const winner = db.select().from(schema.notes)
+          .where(and(eq(schema.notes.paper_id, paperId), eq(schema.notes.user_id, userId)))
+          .get()!
+        db.update(schema.notes).set({ body, updated_at: now }).where(eq(schema.notes.id, winner.id)).run()
+        return { data: db.select().from(schema.notes).where(eq(schema.notes.id, winner.id)).get() }
+      }
     },
   )
 
-  // POST /api/papers/:id/notes — create a note. With no parent_id the note is attached
-  // under the root note (creating the root lazily if needed). Appended at end of siblings.
-  app.post<{ Params: { id: string }; Body: { title?: string | null; body?: string; parent_id?: number | null } }>(
-    '/api/papers/:id/notes', { preHandler: requireUser }, async (request, reply) => {
-      const paperId = parseInt(request.params.id, 10)
-      const userId = request.user!.id
-      const { title = null, body = '', parent_id: rawParent = null } = request.body || {}
-
-      const db = getDatabase()
-
-      // Validate an explicit parent (root or note are both valid parents); else fall back to the root.
-      if (rawParent != null) {
-        const parent = db.select().from(schema.notes).where(eq(schema.notes.id, rawParent)).get()
-        if (!parent || parent.user_id !== userId || parent.paper_id !== paperId) {
-          return reply.code(400).send({ error: { message: 'Invalid parent_id' } })
-        }
-      }
-
-      // No explicit parent → attach under the root note, creating it lazily if needed.
-      const parent_id = rawParent ?? ensureRoot(db, userId, paperId).id
-      const siblings = db.select().from(schema.notes)
-        .where(and(
-          eq(schema.notes.user_id, userId),
-          eq(schema.notes.paper_id, paperId),
-          eq(schema.notes.parent_id, parent_id),
-        ))
-        .all()
-      const sort_order = siblings.reduce((m, s) => Math.max(m, s.sort_order), -1) + 1
-      const now = new Date().toISOString()
-      const created = db.insert(schema.notes).values({
-        user_id: userId, paper_id: paperId, kind: 'note', parent_id, title, body, sort_order, created_at: now, updated_at: now,
-      }).returning().get()
-      return reply.code(201).send({ data: created })
-    },
-  )
-
-  // PATCH /api/notes/:id — update title/body; optimistic updated_at; 404 if not owner.
-  app.patch<{ Params: { id: string }; Body: { title?: string | null; body?: string; updated_at?: string } }>(
-    '/api/notes/:id', { preHandler: requireUser }, async (request, reply) => {
-      const id = parseInt(request.params.id, 10)
-      const userId = request.user!.id
-      const db = getDatabase()
-
-      const existing = db.select().from(schema.notes).where(eq(schema.notes.id, id)).get()
-      if (!existing || existing.user_id !== userId) {
-        return reply.code(404).send({ error: { message: 'Note not found' } })
-      }
-
-      const { title, body, updated_at } = request.body || {}
-      if (updated_at && updated_at !== existing.updated_at) {
-        return reply.code(409).send({ error: { message: '已在别处修改' }, data: existing })
-      }
-
-      const updates: Record<string, unknown> = {}
-      if (title !== undefined) updates.title = title
-      if (body !== undefined) updates.body = body
-      if (Object.keys(updates).length === 0) return { data: existing }
-
-      updates.updated_at = new Date().toISOString()
-      db.update(schema.notes).set(updates).where(eq(schema.notes.id, id)).run()
-      return { data: db.select().from(schema.notes).where(eq(schema.notes.id, id)).get() }
-    },
-  )
-
-  // POST /api/notes/:id/move — reparent + reorder; rejects the root and cycles.
-  app.post<{ Params: { id: string }; Body: { parent_id?: number | null; sort_order?: number } }>(
-    '/api/notes/:id/move', { preHandler: requireUser }, async (request, reply) => {
-      const id = parseInt(request.params.id, 10)
-      const userId = request.user!.id
-      const { parent_id: rawParent = null, sort_order = 0 } = request.body || {}
-
-      const db = getDatabase()
-      const node = db.select().from(schema.notes).where(eq(schema.notes.id, id)).get()
-      if (!node || node.user_id !== userId) {
-        return reply.code(404).send({ error: { message: 'Note not found' } })
-      }
-      if (node.kind !== 'note') {
-        return reply.code(400).send({ error: { message: 'The root note cannot be moved' } })
-      }
-
-      // A note always has a parent: a null target means "attach under the root note".
-      const parent_id = rawParent ?? ensureRoot(db, userId, node.paper_id).id
-      const parent = db.select().from(schema.notes).where(eq(schema.notes.id, parent_id)).get()
-      if (!parent || parent.user_id !== userId || parent.paper_id !== node.paper_id) {
-        return reply.code(400).send({ error: { message: 'Invalid parent_id' } })
-      }
-      // Cycle guard: walk up the parent chain — if we reach the moving node, reject.
-      let cur: NoteRow | undefined = parent
-      while (cur) {
-        if (cur.id === id) {
-          return reply.code(400).send({ error: { message: 'Cannot move a note under its own descendant' } })
-        }
-        cur = cur.parent_id != null
-          ? db.select().from(schema.notes).where(eq(schema.notes.id, cur.parent_id)).get()
-          : undefined
-      }
-
-      db.update(schema.notes)
-        .set({ parent_id, sort_order, updated_at: new Date().toISOString() })
-        .where(eq(schema.notes.id, id)).run()
-      return { data: db.select().from(schema.notes).where(eq(schema.notes.id, id)).get() }
-    },
-  )
-
-  // DELETE /api/notes/:id — delete the note and its entire subtree in one transaction.
-  // The root note is the fixed anchor and cannot be deleted.
-  app.delete<{ Params: { id: string } }>('/api/notes/:id', { preHandler: requireUser }, async (request, reply) => {
-    const id = parseInt(request.params.id, 10)
-    const userId = request.user!.id
-    const db = getDatabase()
-
-    const node = db.select().from(schema.notes).where(eq(schema.notes.id, id)).get()
-    if (!node || node.user_id !== userId) {
-      return reply.code(404).send({ error: { message: 'Note not found' } })
+  // GET /api/notes — one note per paper (the single document), with paper title.
+  // Empty-body documents are excluded — they don't count as notes.
+  // NOTE: auth is guarded inline (not via the requireUser preHandler) — under this Fastify
+  // version a preHandler that sends 401 does not reliably halt a GET handler, so we do the
+  // check here as the sole responder to avoid a double-send.
+  app.get('/api/notes', async (request, reply) => {
+    const userId = request.user?.id
+    if (userId == null) {
+      return reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Login required' } })
     }
-    if (node.kind === 'root') {
-      return reply.code(400).send({ error: { message: 'The root note cannot be deleted' } })
-    }
-
-    // Build the child map from this user's notes for the paper, then collect the subtree.
-    const all = db.select().from(schema.notes)
-      .where(and(eq(schema.notes.user_id, userId), eq(schema.notes.paper_id, node.paper_id)))
-      .all()
-    const childrenOf = new Map<number, number[]>()
-    for (const n of all) {
-      if (n.parent_id != null) {
-        const list = childrenOf.get(n.parent_id) || []
-        list.push(n.id)
-        childrenOf.set(n.parent_id, list)
-      }
-    }
-    const toDelete: number[] = []
-    const stack = [id]
-    while (stack.length) {
-      const cur = stack.pop()!
-      toDelete.push(cur)
-      for (const c of childrenOf.get(cur) || []) stack.push(c)
-    }
-
-    db.transaction((tx) => {
-      tx.delete(schema.notes).where(inArray(schema.notes.id, toDelete)).run()
-    })
-    return { success: true, deleted: toDelete.length }
-  })
-
-  // GET /api/notes — the current user's notes across papers, with paper title.
-  // Empty-body notes (e.g. an untouched root note) are excluded — they don't count as notes.
-  app.get('/api/notes', { preHandler: requireUser }, async (request) => {
-    const userId = request.user!.id
     const db = getDatabase()
     const rows = db.select({
       id: schema.notes.id,
       user_id: schema.notes.user_id,
       paper_id: schema.notes.paper_id,
-      kind: schema.notes.kind,
-      parent_id: schema.notes.parent_id,
-      title: schema.notes.title,
       body: schema.notes.body,
-      sort_order: schema.notes.sort_order,
       created_at: schema.notes.created_at,
       updated_at: schema.notes.updated_at,
       paper_title: schema.papers.title,

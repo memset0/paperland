@@ -6,6 +6,7 @@ import { mkdirSync } from 'fs'
 import { randomBytes } from 'crypto'
 import { getConfig } from '../config.js'
 import * as schema from './schema.js'
+import { migrateNotesToSingleDoc } from './notes-migration.js'
 
 let _db: ReturnType<typeof drizzle> | null = null
 let _sqlite: Database | null = null
@@ -24,6 +25,12 @@ export function initDatabase(): ReturnType<typeof drizzle> {
   _sqlite.exec('PRAGMA foreign_keys = ON')
 
   _db = drizzle(_sqlite, { schema })
+
+  // Notes: flatten the old per-(user, paper) note tree into a single Markdown document BEFORE
+  // running migrations (it needs the old kind/parent_id/title/sort_order columns). Collapsing
+  // to one row per (user, paper) lets the generated reshape migration drop those columns and
+  // add the (user_id, paper_id) unique index cleanly. Idempotent + no-op once already migrated.
+  migrateNotesToSingleDoc(_sqlite)
 
   // Run migrations
   const migrationsFolder = resolve(dirname(new URL(import.meta.url).pathname), 'migrations')

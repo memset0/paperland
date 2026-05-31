@@ -1,8 +1,5 @@
-# note-mindmap Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-paper-notes. Update Purpose after archive.
-## Requirements
 ### Requirement: Branching mind-map view of small notes
 The note document of a (user, paper) SHALL be presented as a branching mind-map derived from its **heading structure** — an automatically laid-out hierarchical node view where parent/child relationships are shown as connected nodes (not a left-indented outline, and not a free-placement infinite canvas). Each Markdown heading SHALL become a node; hierarchy SHALL follow relative heading depth (the shallowest heading level present is the top level, and each additional `#` nests one level deeper); sibling order SHALL follow document order. Each node SHALL display its heading text. A node whose section **leaf body** — the text from its heading up to the next heading — is non-empty after trimming SHALL additionally display a small grey, parenthesised character count of that leaf body next to its heading text (e.g. `(123)`); a node with an empty leaf body SHALL NOT display a count.
 
@@ -71,6 +68,8 @@ The count shown in the mind-map header SHALL be the number of nodes — heading 
 - **WHEN** the document has an empty preamble and two headings whose leaf bodies are non-empty
 - **THEN** the header count SHALL be 2
 
+## ADDED Requirements
+
 ### Requirement: Root center node
 The mind-map SHALL always render a single center node labeled `(root)`, even when the document is empty. The center node SHALL represent the document **preamble** — any text before the first heading. All headings SHALL appear as descendants of the center node by relative depth. Clicking the center node SHALL open a floating editor for the preamble (creating the note row lazily on first content). The center node SHALL NOT be draggable, movable, or deletable.
 
@@ -97,3 +96,12 @@ The mind-map SHALL maintain a front-end-only undo history of structural edits (d
 - **WHEN** a user performs several structural edits and activates Undo repeatedly
 - **THEN** each Undo SHALL revert the most recent remaining structural edit in turn
 
+## REMOVED Requirements
+
+### Requirement: Undo drag moves
+**Reason**: Drag moves are now document heading rewrites, and add/delete are structural edits too; the undo history generalizes to all structural edits.
+**Migration**: Replaced by "Undo structural edits".
+
+### Requirement: Root note is the mind-map center
+**Reason**: There is no root note row; the mind-map center now represents the paper and the document preamble.
+**Migration**: Replaced by "Root center node"; the former root body becomes the document preamble edited from the center node.

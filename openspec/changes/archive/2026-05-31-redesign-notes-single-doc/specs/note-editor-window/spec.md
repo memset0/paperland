@@ -1,8 +1,5 @@
-# note-editor-window Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-paper-notes. Update Purpose after archive.
-## Requirements
 ### Requirement: Floating Markdown editor window
 A note section SHALL be edited in a floating Markdown editor window that is bound to exactly one heading's **leaf content** — the text from that heading up to the next heading — or, for the center node, the document **preamble** (text before the first heading). On mobile the window SHALL open as a fullscreen overlay; on desktop it SHALL open as a small floating window that can be freely moved (dragged) and resized, positioned by default near the node/heading that launched it and floating above the page, and SHALL position to the corresponding section. The window SHALL render Markdown editing and preview entirely on the frontend, reusing `MarkdownContent` for preview. The window SHALL NOT keep a private editable copy of the document; its edits SHALL write through to the single shared document (see the `notes-shared-editing` capability).
 
@@ -28,32 +25,6 @@ The window SHALL display, at its top, the heading text of the section being edit
 #### Scenario: Title bar shows a preamble label for the center node
 - **WHEN** a floating editor window is open for the center node's preamble
 - **THEN** the window's title bar SHALL show a `(root)` / preamble label
-
-### Requirement: Three display modes
-The window SHALL support three display modes — editor only, preview only, and side-by-side (editor and preview together) — switchable by clicking, with all switching handled on the frontend.
-
-#### Scenario: Switch to side-by-side
-- **WHEN** the user switches mode to side-by-side
-- **THEN** the window SHALL show the Markdown editor and its rendered preview simultaneously
-
-#### Scenario: Switch to preview only
-- **WHEN** the user switches mode to preview only
-- **THEN** the window SHALL show only the rendered `MarkdownContent`, no editor
-
-#### Scenario: Switch to editor only
-- **WHEN** the user switches mode to editor only
-- **THEN** the window SHALL show only the Markdown editor, no preview
-
-### Requirement: Window size memory
-The window SHALL have a default width and height, and the system SHALL remember in the browser (localStorage) the dimensions a user last resized a note window to, opening subsequent note windows at that remembered size.
-
-#### Scenario: Default size on first open
-- **WHEN** no remembered size exists and a note window opens
-- **THEN** it SHALL use the default width and height
-
-#### Scenario: Remembered size on next open
-- **WHEN** a user resizes a note window and later opens another note window
-- **THEN** the new window SHALL open at the last-resized width and height
 
 ### Requirement: Multiple windows with stacking
 The page SHALL allow multiple floating editor windows to be open at once. The most recently clicked window SHALL be brought to and kept at the top of the stacking order. Opening the editor for a section that already has an open window SHALL focus the existing window rather than open a second one, so no two windows edit the same section.
@@ -85,6 +56,8 @@ Edits in a floating window SHALL write through to the shared document immediatel
 - **WHEN** a user composes text with an IME (e.g. Chinese pinyin)
 - **THEN** write-through SHALL NOT fire mid-composition and the field SHALL NOT revert
 
+## ADDED Requirements
+
 ### Requirement: Floating window cannot create headings
 A floating window SHALL only edit leaf content and SHALL NOT introduce document structure. Any Markdown heading line (a line beginning with one or more `#` followed by a space) typed in a floating window SHALL be normalized to bold text when written through to the shared document, so a window can never add, remove, or change a heading. The window SHALL make this normalization visible to the user.
 
@@ -95,4 +68,3 @@ A floating window SHALL only edit leaf content and SHALL NOT introduce document 
 #### Scenario: Window never changes structure
 - **WHEN** any content is edited within a floating window
 - **THEN** the document's heading structure SHALL remain unchanged
-

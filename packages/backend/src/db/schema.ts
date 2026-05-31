@@ -1,5 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, index, unique, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
-import { sql } from 'drizzle-orm'
+import { sqliteTable, text, integer, primaryKey, index, unique, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // User accounts. Website credentials live here (not in config.yml).
 export const users = sqliteTable('users', {
@@ -102,24 +101,20 @@ export const highlights = sqliteTable('highlights', {
   created_at: text('created_at').notNull(),
 })
 
-// Per-user, per-paper notes: a single tree anchored by one lazily-created `root` note
-// (kind='root', the sole parent_id=null node), with `note` rows hanging beneath it via
-// self-referential `parent_id`. Anchors live inline in `body` as `paperland://` links,
-// so there is no anchor column.
+// Per-user, per-paper notes: ONE Markdown document per (user, paper). The whole note is a
+// single `body` string; the mind-map and walkthrough are derived from its Markdown headings,
+// not from rows. Anchors live inline in `body` as `paperland://` links, so there is no anchor
+// column. At most one row per (user, paper), guarded by the unique index (guards lazy creation
+// races and the optimistic-concurrency upsert).
 export const notes = sqliteTable('notes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   user_id: integer('user_id').notNull().references(() => users.id), // owner
   paper_id: integer('paper_id').notNull().references(() => papers.id),
-  kind: text('kind').notNull(), // 'root' | 'note'
-  parent_id: integer('parent_id').references((): AnySQLiteColumn => notes.id), // self-ref; null only for the `root` note
-  title: text('title'),
   body: text('body').notNull().default(''),
-  sort_order: integer('sort_order').notNull().default(0),
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 }, (table) => [
-  // At most one root note per (user, paper); guards lazy root creation against races.
-  uniqueIndex('notes_root_unq').on(table.user_id, table.paper_id).where(sql`${table.kind} = 'root'`),
+  uniqueIndex('notes_user_paper_unq').on(table.user_id, table.paper_id),
 ])
 
 // Per-user, per-paper reference links: a flat list of external resources (blog posts,
@@ -222,4 +217,22 @@ export const paperCitations = sqliteTable('paper_citations', {
   created_at: text('created_at').notNull(),
 }, (table) => [
   index('paper_citations_paper_dir_idx').on(table.paper_id, table.direction),
+])
+
+// Translation cache: one row per (source-text content hash, target language). The English→Chinese
+// translation of a piece of text is cached here and shared across ALL users (no user_id), so the
+// same text is never translated twice. "Re-translate" overwrites the existing row in place.
+export const translations = sqliteTable('translations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  source_hash: text('source_hash').notNull(),                 // SHA-256 hex of the normalized source text
+  source_text: text('source_text').notNull(),                 // normalized (outer-trimmed) source
+  source_lang: text('source_lang').notNull().default('en'),
+  target_lang: text('target_lang').notNull().default('zh'),
+  translated_text: text('translated_text').notNull(),
+  model_name: text('model_name'),                             // model used; nullable
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('translations_hash_lang_idx').on(table.source_hash, table.target_lang),
+  index('translations_hash_idx').on(table.source_hash),
 ])

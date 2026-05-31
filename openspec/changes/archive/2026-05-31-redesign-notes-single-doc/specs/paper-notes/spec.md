@@ -1,8 +1,5 @@
-# paper-notes Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-paper-notes. Update Purpose after archive.
-## Requirements
 ### Requirement: Note data model
 The system SHALL store notes in a `notes` table with fields: `id`, `user_id` (→ users.id, owner), `paper_id` (→ papers.id), `body` (Markdown text), `created_at`, `updated_at`. Each (user, paper) SHALL have at most one note row — the whole note is a single Markdown document held in `body`. A unique index SHALL enforce one row per `(user_id, paper_id)`. There SHALL be no `kind`, `parent_id`, `title`, or `sort_order` columns and no note tree. There SHALL be no structured anchor column — anchors live inline in `body` as `paperland://` links (see the `markdown-anchors` capability).
 
@@ -74,6 +71,8 @@ A paper's note SHALL count toward its note total only if the document `body`, af
 - **WHEN** a paper's note document has non-empty content
 - **THEN** the paper SHALL be counted as having a note
 
+## ADDED Requirements
+
 ### Requirement: Single note per user per paper, lazily created
 For each (user, paper) the system SHALL maintain at most one note row holding the whole Markdown document. A paper with no note SHALL have **zero** note rows; the row SHALL be created **lazily** — only when the user first writes content. `PUT /api/papers/:id/note` SHALL upsert the note: create the row (persisting the given `body`) if absent, otherwise update its `body`. At most one row SHALL exist per (user, paper), enforced by a unique index that guards concurrent first-writes.
 
@@ -104,3 +103,16 @@ The system SHALL provide a one-time migration that, after backing up the databas
 - **WHEN** the migrated document is rendered as a mind-map
 - **THEN** its node tree SHALL reproduce the pre-migration mind-map's nodes and hierarchy
 
+## REMOVED Requirements
+
+### Requirement: Hierarchical small notes
+**Reason**: The note tree is replaced by a single Markdown document; hierarchy now lives in the document's heading structure, not in note rows.
+**Migration**: Existing trees are flattened into the single document by the one-time migration (see "Migrate existing note trees into a single document"); structure is thereafter expressed via Markdown headings.
+
+### Requirement: Subtree deletion
+**Reason**: There are no longer child note rows to delete; removing a section is a Markdown edit on the single document.
+**Migration**: Delete a section by editing the document — remove its heading and content — in the left-panel editor or via the mind-map's delete operation.
+
+### Requirement: Root note per user per paper, lazily created
+**Reason**: There is no longer a root note distinct from child notes; each (user, paper) has a single note document.
+**Migration**: Replaced by "Single note per user per paper, lazily created"; the former root row becomes the single document row.
