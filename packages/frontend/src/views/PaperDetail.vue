@@ -20,6 +20,7 @@ import PaperNotesCard from '@/components/PaperNotesCard.vue'
 import ReferenceLinksSection from '@/components/ReferenceLinksSection.vue'
 import PaperCitations from '@/components/PaperCitations.vue'
 import QAInput from '@/components/QAInput.vue'
+import BilingualText from '@/components/BilingualText.vue'
 import PaperActionLauncher, { type LauncherAction } from '@/components/PaperActionLauncher.vue'
 import { useQAWindow, QA_DEFAULT_HEIGHT } from '@/composables/useQAWindow'
 import QAPanelNav from '@/components/QAPanelNav.vue'
@@ -149,13 +150,20 @@ function handleAnchorFromRoute() {
   if (typeof pdf === 'string' && pdf) {
     const page = parseInt(pdf, 10)
     if (!Number.isNaN(page)) {
+      const { rx, ry, rw, rh } = route.query
+      const rect = [rx, ry, rw, rh].every((v) => typeof v === 'string')
+        ? { x: Number(rx), y: Number(ry), w: Number(rw), h: Number(rh) }
+        : null
       const ts = route.query.ts
       const te = route.query.te
-      requestPdfNavigation(
-        typeof ts === 'string' && typeof te === 'string'
-          ? { page, ts: parseInt(ts, 10), te: parseInt(te, 10) }
-          : { page },
-      )
+      if (rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && rect.w > 0 && rect.h > 0) {
+        // Rectangle wins over a text selection.
+        requestPdfNavigation({ page, rect })
+      } else if (typeof ts === 'string' && typeof te === 'string') {
+        requestPdfNavigation({ page, ts: parseInt(ts, 10), te: parseInt(te, 10) })
+      } else {
+        requestPdfNavigation({ page })
+      }
     }
     return
   }
@@ -187,7 +195,7 @@ onMounted(async () => {
 
 // Anchor deep-links (`/papers/:id?h=`) and cross-paper anchor jumps. RouterView is not
 // keyed, so navigating paper→paper reuses this component — reload data on id change.
-watch(() => [route.params.id, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te], async (next, prev) => {
+watch(() => [route.params.id, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te, route.query.rx, route.query.ry, route.query.rw, route.query.rh], async (next, prev) => {
   if (next[0] !== prev[0]) {
     qaWin.close() // don't carry an open QA window across papers
     await loadPaperData()
@@ -515,7 +523,7 @@ async function promote() {
               <ReferenceLinksSection :paper-id="paperId" />
               <div v-if="store.currentPaper.abstract" class="space-y-2">
                 <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
-                <p class="text-sm text-muted-foreground leading-relaxed">{{ store.currentPaper.abstract }}</p>
+                <BilingualText :text="store.currentPaper.abstract || ''" />
               </div>
               <div v-if="s2meta" class="space-y-2">
                 <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Semantic Scholar</div>
@@ -664,7 +672,7 @@ async function promote() {
             <ReferenceLinksSection :paper-id="paperId" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">
               <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
-              <p class="text-sm text-muted-foreground leading-relaxed">{{ store.currentPaper.abstract }}</p>
+              <BilingualText :text="store.currentPaper.abstract || ''" />
             </div>
             <div v-if="s2meta" class="space-y-2">
               <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Semantic Scholar</div>

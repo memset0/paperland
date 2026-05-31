@@ -18,6 +18,12 @@ export interface PdfNavTarget {
   /** Half-open text-content offsets of a selection within the page (optional). */
   ts?: number
   te?: number
+  /**
+   * Normalized `[0,1]` page-space rectangle of a captured region (optional).
+   * When present it takes precedence over `ts`/`te`: the viewer highlights this
+   * rectangle directly instead of mapping text offsets.
+   */
+  rect?: { x: number; y: number; w: number; h: number }
 }
 
 export const requestedPdfTarget = ref<PdfNavTarget | null>(null)

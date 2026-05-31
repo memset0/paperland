@@ -213,18 +213,15 @@ highlights
   note            text      nullable
   created_at      text      not null
 
-notes                                          // 按用户私有的论文笔记（每 用户×论文 一棵树，根笔记锚定）
+notes                                          // 按用户私有的论文笔记（每 用户×论文 一篇 Markdown 大笔记）
   id              integer   primary key autoincrement
   user_id         integer   → users.id, not null     // 属主
   paper_id        integer   → papers.id, not null
-  kind            text      not null                 // 'root' | 'note'
-  parent_id       integer   → notes.id, nullable      // 自引用树；仅根笔记(kind='root')为 null，其余 note 都有父
-  title           text      nullable                 // 笔记标题；根笔记不用
-  body            text      not null default ''       // Markdown；锚点以 paperland:// 链接内联于 body
-  sort_order      integer   not null default 0        // 同级排序
+  body            text      not null default ''       // 整篇 Markdown；结构由标题派生，锚点以 paperland:// 链接内联于 body
   created_at      text      not null
   updated_at      text      not null
-  // 唯一索引 notes_root_unq (user_id, paper_id) WHERE kind='root' —— 每 用户×论文 至多一个根笔记；根笔记惰性创建
+  // 唯一索引 notes_user_paper_unq (user_id, paper_id) —— 每 用户×论文 至多一行；惰性创建（首次写入才建行）
+  // 旧的 kind/parent_id/title/sort_order 树字段已由迁移 0017 删除；旧树经 notes-migration.ts 压平为单篇 body
 
 paper_reference_links                          // 按用户私有的论文参考链接（博客解读 / 项目主页 / 讨论帖等）
   id              integer   primary key autoincrement
@@ -265,6 +262,18 @@ conference_papers                              // 候选池
   created_at      text      not null
   updated_at      text      not null
   index (conference_id, status)
+
+translations                                   // 英译中翻译缓存；按内容寻址，全体用户共享（无 user_id）
+  id              integer   primary key autoincrement
+  source_hash     text      not null           // 规范化(去首尾空白)源文的 SHA-256 hex
+  source_text     text      not null           // 规范化后的源文
+  source_lang     text      not null default 'en'
+  target_lang     text      not null default 'zh'
+  translated_text text      not null
+  model_name      text      nullable           // 实际使用的模型名
+  created_at      text      not null
+  updated_at      text      not null
+  // 唯一索引 (source_hash, target_lang)：命中/覆盖键；「重新翻译」原地覆盖同一行。另有 source_hash 索引
 ```
 
 ---
@@ -304,6 +313,9 @@ services:
     rate_limit_interval: 5          # papers.cool 限流保护
   qa:
     max_concurrency: 2
+  translation_service:              # 翻译服务的 AI 调用并发/限流
+    max_concurrency: 2
+    rate_limit_interval: 1
 
 # 模型配置
 models:
@@ -322,7 +334,21 @@ models:
 content_priority:
   - user_input
   - pdf_parsed
+
+# 翻译（英译中）。{TEXT} 占位符在翻译时替换为源文；model 可选，缺省回退 models.default。
+# 改 prompt 文案无需改代码。
+translation:
+  # model: gpt-4o
+  prompt: |
+    ...（保留格式的英译中 prompt，含 {TEXT} 占位符）
 ```
+
+**翻译服务（`translation_service`）**：通用「英译中」文本翻译，pure service（类 `qa_service`，不进依赖图）。核心 `translateText(text, { force? })`：按规范化源文的 SHA-256 查 `translations` 缓存，命中即返回；未命中（或 `force`）则用 `translation.prompt`（`{TEXT}` 占位符）调 `getTranslationModel()` 选定的模型，结果 upsert 到缓存（`force` 原地覆盖同一 `(source_hash, target_lang)` 行）。模型调用经 `services.translation_service` 的并发/限流约束。内部 API（`/api/*`，登录可用，缓存全体共享）：
+
+- `POST /api/translate` —— body `{ text, force? }` → `{ source_hash, source_text, translated_text, source_lang, target_lang, model_name, cached }`。`force:true` 绕过缓存重译并覆盖。
+- `GET /api/translations/:hash`（可选 `?target_lang=`，默认 `zh`）—— 仅查缓存，命中返回 `{ data }`，未命中 404，不触发 AI。
+
+`qa_service` 与 `translation_service` 共用 `services/model_invoke.ts` 的 `callModel(prompt, modelName)` 调用 openai_api / codex / cli。
 
 ---
 

@@ -67,6 +67,21 @@ export const highlightApi = {
     api.delete<{ success: boolean }>(`/api/highlights/${id}`),
 }
 
+// Translation API (English→Chinese, cache-first; shared cache across users)
+import type { TranslateResponse, Translation } from '@paperland/shared'
+
+export const translationApi = {
+  // Translate text; `force` bypasses the cache and overwrites the stored result (re-translate).
+  translate: (text: string, force?: boolean) =>
+    api.post<TranslateResponse>('/api/translate', { text, force }),
+
+  // Look up a cached translation by source hash without triggering a translation (404 when absent).
+  getCachedTranslation: (hash: string, targetLang?: string) =>
+    api.get<{ data: Translation }>(
+      `/api/translations/${hash}${targetLang ? `?target_lang=${encodeURIComponent(targetLang)}` : ''}`,
+    ),
+}
+
 // Auth + user management API
 import type { SessionUser, User, UserRole } from '@paperland/shared'
 
@@ -104,32 +119,42 @@ export const usersApi = {
 import type { Note, NoteWithPaper } from '@paperland/shared'
 
 export const notesApi = {
-  // Raw fetch: owner-scoped read returns empty for anonymous (and degrades silently
-  // to empty if the route/server isn't ready) — no global error toast.
-  async getForPaper(paperId: number): Promise<{ notes: Note[] }> {
+  // Raw fetch: owner-scoped read returns no note for anonymous (and degrades silently
+  // to none if the route/server isn't ready) — no global error toast.
+  async getForPaper(paperId: number): Promise<{ note: Note | null }> {
     try {
-      const res = await fetch(`/api/papers/${paperId}/notes`, { credentials: 'same-origin' })
-      if (!res.ok) return { notes: [] }
+      const res = await fetch(`/api/papers/${paperId}/note`, { credentials: 'same-origin' })
+      if (!res.ok) return { note: null }
       return await res.json()
     } catch {
-      return { notes: [] }
+      return { note: null }
     }
   },
 
-  saveRoot: (paperId: number, body: string, updated_at?: string) =>
-    api.put<{ data: Note }>(`/api/papers/${paperId}/root`, { body, updated_at }),
-
-  create: (paperId: number, data: { title?: string | null; body?: string; parent_id?: number | null }) =>
-    api.post<{ data: Note }>(`/api/papers/${paperId}/notes`, data),
-
-  update: (id: number, data: { title?: string | null; body?: string; updated_at?: string }) =>
-    api.patch<{ data: Note }>(`/api/notes/${id}`, data),
-
-  move: (id: number, data: { parent_id: number | null; sort_order: number }) =>
-    api.post<{ data: Note }>(`/api/notes/${id}/move`, data),
-
-  remove: (id: number) =>
-    api.delete<{ success: boolean; deleted: number }>(`/api/notes/${id}`),
+  // Upsert the whole single-document body with optimistic concurrency. Raw fetch so a 409
+  // ("modified elsewhere") is returned to the caller (with the latest server content) for
+  // the store to reconcile, rather than raising a global error toast.
+  async save(
+    paperId: number,
+    body: string,
+    updated_at?: string,
+  ): Promise<{ ok: true; data: Note } | { ok: false; conflict: true; data: Note }> {
+    const res = await fetch(`/api/papers/${paperId}/note`, {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body, updated_at }),
+    })
+    const json = await res.json().catch(() => ({}) as any)
+    if (res.status === 409) return { ok: false, conflict: true, data: json.data as Note }
+    if (!res.ok) {
+      const message = json?.error?.message || 'Save failed'
+      if (res.status === 401) dispatchUnauthorized()
+      else dispatchApiError(message)
+      throw new Error(message)
+    }
+    return { ok: true, data: json.data as Note }
+  },
 
   listAll: () => api.get<{ data: NoteWithPaper[] }>('/api/notes'),
 }
@@ -157,4 +182,23 @@ export const referenceLinksApi = {
 
   remove: (id: number) =>
     api.delete<{ success: boolean }>(`/api/reference-links/${id}`),
+}
+
+// Image host API
+import type { ImageWithUrl } from '@paperland/shared'
+
+export const imagesApi = {
+  list: () => api.get<{ data: ImageWithUrl[]; public_base_url: string }>('/api/images'),
+
+  // `data` is a base64 string or a data: URL; the backend dedupes on content hash.
+  upload: (data: string, filename?: string | null) =>
+    api.post<{ data: ImageWithUrl }>('/api/images', { data, filename }),
+
+  remove: (hash: string) =>
+    api.delete<{ success: boolean }>(`/api/images/${hash}`),
+}
+
+// Config (safe subset) exposed to the frontend via /api/config/*.
+export const configApi = {
+  pdf: () => api.get<{ screenshot_dpi: number }>('/api/config/pdf'),
 }

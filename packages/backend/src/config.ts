@@ -57,11 +57,34 @@ const qaTemplateSchema = z.object({
   prompt: z.string(),
 })
 
+// Default English→Chinese translation prompt. The `{TEXT}` placeholder is replaced with the
+// source text at translation time. Override `translation.prompt` in config.yml to tune wording
+// without touching code (see translation_service.ts).
+const DEFAULT_TRANSLATION_PROMPT = `You are a professional translator. Translate the following English text into Simplified Chinese.
+Strictly preserve the original formatting: keep all Markdown syntax, code blocks, inline code, LaTeX math,
+lists, tables, and line breaks exactly as in the source. Translate only the natural-language text; do NOT
+translate code, math, URLs, or identifiers. Output only the translation, with no extra explanation or wrapping.
+
+{TEXT}`
+
+const translationSchema = z.object({
+  // Which entry of models.available to use; falls back to models.default when absent.
+  model: z.string().optional(),
+  // Prompt template containing a {TEXT} placeholder for the source text.
+  prompt: z.string().default(DEFAULT_TRANSLATION_PROMPT),
+}).default({})
+
 const imageHostSchema = z.object({
   dir: z.string().default('./data/images'),
   max_size_mb: z.number().positive().default(18),
   allowed_types: z.array(z.string()).default(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
   public_base_url: z.string().default(''),
+})
+
+const pdfViewerSchema = z.object({
+  // DPI used when rendering a PDF region screenshot to PNG (PdfViewer "框选截图").
+  // Render scale = screenshot_dpi / 72 (PDF user-space units are 1/72 inch).
+  screenshot_dpi: z.number().positive().default(300),
 })
 
 const configSchema = z.object({
@@ -72,7 +95,12 @@ const configSchema = z.object({
   content_priority: z.array(z.string()).default(['user_input', 'pdf_parsed']),
   system_prompt: z.string(),
   qa: z.array(qaTemplateSchema).min(1),
+  translation: translationSchema,
   image_host: imageHostSchema.default({}),
+  // Note: `.default({})` on an object schema is returned as-is when the key is absent, so the
+  // inner `screenshot_dpi` default would NOT apply for a config.yml without a `pdf_viewer` block.
+  // Use an explicit literal default so the 300 fallback holds whether the key is absent or empty.
+  pdf_viewer: pdfViewerSchema.default({ screenshot_dpi: 300 }),
 })
 
 let _config: AppConfig | null = null

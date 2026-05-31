@@ -271,9 +271,10 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 - **当前页 / 跳转 / 缩放 / 适配模式**：滚动时按页矩形与视口中线判定「当前页」；工具栏含 上/下一页、页码跳转输入、缩放、**适配模式切换**（宽度铺满 ↔ 高度铺满，`MoveHorizontal`/`MoveVertical` 图标，**仅当前打开有效、不记忆**，默认宽度铺满；切换会把 zoom 重置为 1 使适配精确）。`effectiveScale = fitScale × zoom`，`fitScale` 由 `fitMode` 取「容器宽 / 首页宽」或「容器高 / 首页高」；缩放/适配后 canvas + 文本层按新尺度重渲染并保持对齐，文本层设 `--scale-factor`。
 - **拖动分屏不卡**：宽度变化时只即时缩放占位页与 CSS 填充的 canvas，昂贵的重栅格化（canvas + 文本层）去抖 ~320ms（`RE_RASTER_DEBOUNCE_MS`），待尺度真正稳定后只做一次；期间页面保持 CSS 缩放（略软）直到落定（高度铺满模式下拖动分屏宽度不改变 `fitScale`，更不触发重渲染）。
 - **选区 → 链接**：文本层支持原生选区；落定后用 `getSelectionOffsets`（复用 `useHighlight`）算出该页 `ts/te` 偏移，弹出「复制选区链接」浮钮，复制 `<选区文本> [#](paperland://paper/<id>?pdf=<page>&ts=<ts>&te=<te>)`；工具栏「复制本页链接」复制 `[PDF p.N](paperland://paper/<id>?pdf=N)`。
-- **跳转 + 高亮**：监听 `requestedPdfTarget`，`{page}` 滚动到该页；`{page,ts,te}` 先确保该页渲染，再用 `buildTextSegments` 把偏移映射为 `Range.getClientRects()`，在页面上叠加临时高亮 div（`pdf-region-flash`，2.2s 淡出，不落库）并滚动到选区中心；偏移越界则退化为仅跳页 + toast 提示。
+- **跳转 + 高亮**：监听 `requestedPdfTarget`，`{page}` 滚动到该页；`{page,ts,te}` 先确保该页渲染，再用 `buildTextSegments` 把偏移映射为 `Range.getClientRects()`，在页面上叠加临时高亮 div（`pdf-region-flash`，2.2s 淡出，不落库）并滚动到选区中心；`{page,rect}` 则把归一化 `[0,1]` 矩形直接换算到页面像素框画同款临时高亮（`highlightRect`）。`rect` 优先于 `ts/te`；偏移越界 / 矩形非法则退化为仅跳页 + toast 提示。
 - **失败兜底**：pdf.js 加载/解析失败时显示错误态并给出原始文件链接 `/api/files/<pdf_path>`；无 `pdf_path` 时保留「暂无 PDF」占位。
-- **未来图床前向兼容**：选区除偏移外还能算出归一化页内包围矩形；组件 `defineExpose` 了 `cropRegionToImage({page,x,y,w,h})`（离屏重渲染该页并裁剪为 PNG dataURL），供未来内部图床直接复用，本次不接 UI。
+- **框选截图 → 图床**：工具栏 `Crop` 图标进入截图模式（仅在传入 `paperId` 时显示，激活态高亮）。模式下滚动区 `cursor:crosshair`、文本层 `pointer-events:none` + `user-select:none`，从而拖拽画出橡皮筋矩形而非选中文字（`mousedown`→`mousemove`→`mouseup`，`Esc` 或再次点击取消）。松手后把该矩形钳制到所在 `.pdf-page`、归一化为 `{page,x,y,w,h}`，调 `cropRegionToImage(region, dpi)` 渲成 PNG，经 `utils/uploadImage` 上传图床，剪贴板写入 `[![](<image_url>)](paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=)`（坐标保留 4 位小数）并 toast 提示；上传期间 `capturing` 置位、忽略后续拖拽。
+- **DPI 可配置（不硬编码）**：`cropRegionToImage(region, dpi)` 按 `scale = dpi/72` **只渲染选区**（平移 transform `[1,0,0,-sx,-sy]`，避免高 DPI 下整页栅格化）。默认 DPI 来自 `config.yml` 的 `pdf_viewer.screenshot_dpi`，挂载时经 `GET /api/config/pdf`（`configApi.pdf()`）拉取存入 `screenshotDpi` ref，请求失败回退 300。
 
 #### 窄屏布局
 
@@ -1266,15 +1267,16 @@ paperland://paper/<id>?h=<content_hash>       // 定位某个 MarkdownContent �
 paperland://paper/<id>?h=<hash>&s=<start>&e=<end>  // 块内文本范围
 paperland://paper/<id>?pdf=<page>            // 跳到 PDF 第 page 页（1 起）
 paperland://paper/<id>?pdf=<page>&ts=<start>&te=<end>  // 跳到该页并高亮某段选区
+paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=      // 跳到该页并高亮某个矩形区域（归一化 [0,1]，框选截图生成）
 ```
 
-- 目标分两类且互斥：**Markdown 块**（`h`/`s`/`e`）或 **PDF 页/选区**（`pdf`/`ts`/`te`）。同时带 `h` 和 `pdf` 时 **`pdf` 优先**。
+- 目标分两类且互斥：**Markdown 块**（`h`/`s`/`e`）或 **PDF 页/选区/矩形**（`pdf` + `ts/te` 或 `rx/ry/rw/rh`）。同时带 `h` 和 `pdf` 时 **`pdf` 优先**；PDF 内 **`rect` 优先于 `ts/te`**，坐标非法则退化为仅跳页。跨论文点击把这些参数带进 `router.push` 的 query，`PaperDetail.handleAnchorFromRoute` 再还原成 `{page,rect}`/`{page,ts,te}` 导航。
 - 定位基于**块的 `content_hash`**（与高亮同一指纹），不依赖问题/回答的 id 或下标——多模型多回答、重新生成、重排序都不会跑偏。
 - `MarkdownContent` 给渲染容器挂 `data-content-hash`，并拦截 `paperland://` 链接点击：本页直接 `locateBlock`，跨页 `router.push('/papers/:id?h=...')`。
 - `composables/useBlockAnchor.ts` 的 **`locateBlock(paperId, hash, range?)`**：① DOM 命中 → 滚动 + 闪烁；② 未命中（折叠 / 未激活 tab）→ 遍历 Q&A store 现算 hash 反查归属，展开 `Collapsible` + 激活对应 result tab（`requestedResultId`）后再定位；③ 找不到 → toast 失效、不跳转。有 `s`/`e` 时在块内按 offset 高亮该片段（复用 `useHighlight` 的 segment 逻辑）。
-- 选区浮动工具栏（登录态）提供**两个复制按钮**，二者指向同一个 `paperland://paper/<id>?h=<hash>&s=<start>&e=<end>` 锚点，只是剪贴板的 Markdown 包裹形式不同：
+- 选区浮动工具栏（登录态）提供**两个复制按钮**，二者复制的都是同一个 `paperland://paper/<id>?h=<hash>&s=<start>&e=<end>` 锚点的 `[#]` 链接，区别只在**带不带正文**：
   - **复制内容和锚点链接**（`Copy` 图标，`copyContentAndAnchorLink`）：把**整段选区还原成 Markdown** 后，再追加一个紧凑的 `[#](paperland://...)` 锚点链接（形如 `<选区 Markdown> [#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`）。还原用 `turndown` + `turndown-plugin-gfm`（整表→GFM 管道表）；数学公式从各 KaTeX 元素的 `x-tex` annotation 还原为 `$…$`（行内）/独立成行的 `$$…$$`（行间），并用占位符在 turndown 转义后再回填，保证 LaTeX 不被破坏；选区内的高亮 `<mark>` 会被剥离。
-  - **复制锚点链接**（`Link2` 图标，`copyAnchorLinkOnly`）：只复制定位链接、不带正文，且用 Markdown **图片**语法包裹——`![#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`。`![#]` 作为「嵌入标记」（区别于会被点击拦截的 `[#]` 链接形式），其渲染为可点击/嵌入元素留作后续；当前点击拦截只处理 `a[href^="paperland://"]`。
+  - **复制锚点链接**（`Link2` 图标，`copyAnchorLinkOnly`）：只复制定位链接、不带正文，仍是紧凑的 `[#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`（普通链接、**无** `!` 前缀，不是图片）。因为是普通 `[#]` 链接，粘贴进笔记后照样被点击拦截而可跳转（与「内容+锚点链接」走同一渲染/拦截路径）。
 
   两者都从 `pendingAnchorUrl()` 取同一个 URL，登录态（`paperId` 存在）才显示。锚点的 `s`/`e` 仍取渲染态偏移，跳转逻辑不变。
 - **PDF 目标**走嵌入式 pdf.js 查看器（见 1.4「嵌入式 pdf.js 查看器」）：`MarkdownContent` 解析出 `pdf`/`ts`/`te` 后，本页直接调 `requestPdfNavigation(...)`（`composables/usePdfNavigation.ts` 的模块级 `requestedPdfTarget` ref，仿 `requestedResultId`），跨页 `router.push('/papers/:id?pdf=...&ts=...&te=...')`；`PaperDetail.handleAnchorFromRoute` 加载后读 query 设置同一 ref。`PaperViewerPanel` 监听该 ref 自动切到「PDF 原文」Tab，`PdfViewer` 监听后滚动到该页、把 `ts/te` 偏移映射回文本层矩形并画**临时高亮**（不落库，类似块锚点的闪烁）。`ts`/`te` 是该页**文本内容的字符偏移**（pdf.js `getTextContent()` 顺序，与高亮同一偏移模型），缩放无关。
@@ -1298,7 +1300,7 @@ paperland://paper/<id>?pdf=<page>&ts=<start>&te=<end>  // 跳到该页并高亮�
 
 ### 分支思维导图（heading 派生）
 
-`components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：由文档 heading 结构派生的分支导图。**中心节点 = 论文（其内容是前言）**，点它编辑前言；每个 heading 是一个节点（按相对深度成树），叶子正文非空时标题后显示灰色字符数徽章 `(N)`。连线由真实 DOM 位置量出的 SVG 曲线绘制（`data-nid` 用 section id）。点节点开其叶子浮窗；拖拽改父子（落到节点 → 成其子、落到中心/空白 → 顶层）= `store.reparent` 改写 heading；增子/增兄（`window.prompt` 命名 → `addChild`/`addSibling` 插入 heading）、改名（`rename` 改 heading 文本）、删除（确认连带子节点数 → `remove`）。中心节点不可拖拽/删除/增兄。表头 Undo 回退最近一次结构改动。
+`components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：由文档 heading 结构派生的分支导图。**中心节点标为 `(root)`（其内容是前言）**，点它编辑前言；每个 heading 是一个节点（按相对深度成树），叶子正文非空时标题后显示灰色字符数徽章 `(N)`。连线由真实 DOM 位置量出的 SVG 曲线绘制（`data-nid` 用 section id）。点节点开其叶子浮窗；拖拽改父子（落到节点 → 成其子、落到中心/空白 → 顶层）= `store.reparent` 改写 heading；增子/增兄（`window.prompt` 命名 → `addChild`/`addSibling` 插入 heading）、改名（`rename` 改 heading 文本）、删除（确认连带子节点数 → `remove`）。中心节点不可拖拽/删除/增兄。表头 Undo 回退最近一次结构改动。
 
 ### Walk-through / 文档视图（左面板，`NoteWalkthrough.vue`）
 
@@ -1310,7 +1312,7 @@ paperland://paper/<id>?pdf=<page>&ts=<start>&te=<end>  // 跳到该页并高亮�
 
 ### 入口与归属
 
-- 论文详情页右栏 `PaperNotesCard`：即思维导图（中心节点 = 论文 + 各 heading）；匿名显示「Sign in to take notes」。左侧查看器 `PaperViewerPanel` 的「Walk-through」Tab 即三模式文档视图（`noteCount > 0` 时出现）。
+- 论文详情页右栏 `PaperNotesCard`：即思维导图（中心节点 `(root)` + 各 heading）；匿名显示「Sign in to take notes」。左侧查看器 `PaperViewerPanel` 的「Walk-through」Tab 即三模式文档视图（`noteCount > 0` 时出现）。
 - 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：每篇论文一条（聚合 `GET /api/notes`，仅 body 非空）+ 客户端搜索（论文标题 + body），点击跳到 `/papers/:id`。
 - 访问控制沿用 auth：owner-scoped 读（匿名 `{ note: null }` 200）、写 `requireUser` + 属主校验。
 

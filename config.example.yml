@@ -43,6 +43,10 @@ services:
     rate_limit_interval: 5
   qa:
     max_concurrency: 2
+  # Translation service (English→Chinese). Concurrency + rate limit for its AI calls.
+  translation_service:
+    max_concurrency: 2
+    rate_limit_interval: 1
 
 models:
   default: gpt-4o
@@ -80,3 +84,22 @@ qa:
     prompt: "What are the main conclusions?"
   - name: summary
     prompt: "Summarize the main content of this paper and give a one-sentence takeaway."
+
+# Translation (English→Chinese). `{TEXT}` is replaced with the source text. `model` is optional
+# and falls back to models.default. Edit `prompt` to tune wording without touching code.
+translation:
+  # model: gpt-4o
+  prompt: |
+    You are a professional translator. Translate the following English text into Simplified Chinese.
+    Strictly preserve the original formatting: keep all Markdown syntax, code blocks, inline code, LaTeX
+    math, lists, tables, and line breaks exactly as in the source. Translate only the natural-language
+    text; do NOT translate code, math, URLs, or identifiers. Output only the translation, with no extra
+    explanation or wrapping.
+
+    {TEXT}
+
+# Embedded pdf.js viewer settings.
+pdf_viewer:
+  # DPI used when capturing a PDF region as a PNG screenshot (PdfViewer "框选截图" → 图床).
+  # Higher = sharper but larger files. Render scale = screenshot_dpi / 72.
+  screenshot_dpi: 300

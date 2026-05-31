@@ -183,12 +183,23 @@ async function createHighlight(color: HighlightColor) {
 
 // ---- paperland:// anchor links ----
 
-interface PdfAnchor { page: number; ts: number | null; te: number | null }
+interface PdfRect { x: number; y: number; w: number; h: number }
+interface PdfAnchor { page: number; ts: number | null; te: number | null; rect: PdfRect | null }
+
+/** Parse a normalized `[0,1]` page-space rectangle from `rx`/`ry`/`rw`/`rh`; null if absent/malformed. */
+function parsePdfRect(params: URLSearchParams): PdfRect | null {
+  const raw = ['rx', 'ry', 'rw', 'rh'].map((k) => params.get(k))
+  if (raw.some((v) => v == null)) return null
+  const [x, y, w, h] = raw.map((v) => Number(v))
+  if ([x, y, w, h].some((n) => !Number.isFinite(n)) || w <= 0 || h <= 0) return null
+  return { x, y, w, h }
+}
 
 /**
  * Parse a `paperland://paper/<id>` anchor. Supports a Markdown-block target
- * (`?h=<hash>&s=<start>&e=<end>`) or a PDF target (`?pdf=<page>&ts=<start>&te=<end>`).
- * `pdf` takes precedence when both `h` and `pdf` are present; all sub-params optional.
+ * (`?h=<hash>&s=<start>&e=<end>`) or a PDF target (`?pdf=<page>&ts=<start>&te=<end>`
+ * or `?pdf=<page>&rx=&ry=&rw=&rh=`). `pdf` takes precedence over `h`; within a PDF
+ * target the rectangle takes precedence over `ts`/`te`. All sub-params optional.
  */
 function parsePaperlandUrl(href: string): { paperId: number; hash: string | null; range: AnchorRange | null; pdf: PdfAnchor | null } | null {
   const m = href.match(/^paperland:\/\/paper\/(\d+)(?:\?(.*))?$/)
@@ -204,7 +215,7 @@ function parsePaperlandUrl(href: string): { paperId: number; hash: string | null
     hash: params.get('h'),
     range: s != null && e != null ? { start: parseInt(s, 10), end: parseInt(e, 10) } : null,
     pdf: pdf != null
-      ? { page: parseInt(pdf, 10), ts: ts != null ? parseInt(ts, 10) : null, te: te != null ? parseInt(te, 10) : null }
+      ? { page: parseInt(pdf, 10), ts: ts != null ? parseInt(ts, 10) : null, te: te != null ? parseInt(te, 10) : null, rect: parsePdfRect(params) }
       : null,
   }
 }
@@ -221,12 +232,19 @@ function onAnchorLinkClick(e: MouseEvent | Event) {
 
   // PDF target → embedded viewer (takes precedence over a block target).
   if (target.pdf) {
-    const { page, ts, te } = target.pdf
+    const { page, ts, te, rect } = target.pdf
     if (onSamePaper) {
-      requestPdfNavigation(ts != null && te != null ? { page, ts, te } : { page })
+      // Rectangle wins over a text selection when both are present.
+      if (rect) requestPdfNavigation({ page, rect })
+      else if (ts != null && te != null) requestPdfNavigation({ page, ts, te })
+      else requestPdfNavigation({ page })
     } else {
       const query: Record<string, string> = { pdf: String(page) }
-      if (ts != null && te != null) { query.ts = String(ts); query.te = String(te) }
+      if (rect) {
+        query.rx = String(rect.x); query.ry = String(rect.y); query.rw = String(rect.w); query.rh = String(rect.h)
+      } else if (ts != null && te != null) {
+        query.ts = String(ts); query.te = String(te)
+      }
       router.push({ path: `/papers/${target.paperId}`, query })
     }
     return
@@ -315,11 +333,11 @@ function copyContentAndAnchorLink() {
   closeAllPopups()
 }
 
-/** Copy only the positioning anchor, wrapped in Markdown image form `![#](paperland://…)`. */
+/** Copy only the positioning anchor as a compact `[#](paperland://…)` link, with no content. */
 function copyAnchorLinkOnly() {
   const url = pendingAnchorUrl()
   if (!url) return
-  navigator.clipboard.writeText(`![#](${url})`)
+  navigator.clipboard.writeText(`[#](${url})`)
   toast.success('已复制锚点链接', { position: 'bottom-center' })
   window.getSelection()?.removeAllRanges()
   closeAllPopups()
@@ -529,11 +547,20 @@ onBeforeUnmount(() => {
 .markdown-content :deep(a) { color: var(--primary); text-decoration: underline; word-break: break-all; }
 .markdown-content :deep(img) { max-width: 100%; height: auto; border-radius: 0.375rem; margin: 0.5em 0; }
 .markdown-content :deep(hr) { border: none; border-top: 1px solid #e5e7eb; margin: 0.75em 0; }
-/* KaTeX display math: center and handle overflow */
+/* KaTeX display math: center, hug content for the hover hint, scroll when too wide.
+   flex + `safe center` centers a formula that fits but falls back to a scrollable
+   left edge when it overflows; the inline-block child (flex-shrink:0) keeps its
+   content width so the .katex:hover background covers only the formula, and wide
+   formulas overflow into the horizontal scroll instead of being squished. */
 .markdown-content :deep(.katex-display) {
-  text-align: center; margin: 0.5em 0; overflow-x: auto; overflow-y: hidden;
+  display: flex;
+  justify-content: center;        /* fallback for browsers without `safe` */
+  justify-content: safe center;
+  margin: 0.5em 0; overflow-x: auto; overflow-y: hidden;
 }
-.markdown-content :deep(.katex-display > .katex) { text-align: center; }
+.markdown-content :deep(.katex-display > .katex) {
+  display: inline-block; flex-shrink: 0; text-align: center;
+}
 /* KaTeX click-to-copy cursor & hover */
 .markdown-content :deep(.katex) { cursor: pointer; border-radius: 6px; transition: background-color 0.15s; padding: 1px 3px; }
 .markdown-content :deep(.katex:hover) { background-color: color-mix(in oklch, var(--primary) 12%, transparent); }

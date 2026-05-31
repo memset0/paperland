@@ -1,7 +1,7 @@
 # pdfjs-viewer Specification
 
 ## Purpose
-Render a paper's PDF inline in the paper detail viewer with an embedded pdf.js renderer (in place of a native browser PDF plugin), providing selectable text, lazy continuous-scroll rendering, page navigation and zoom, capture of selections as page-relative offsets, copyable page/selection anchor links, external page/region navigation with transient highlighting, and a graceful raw-file fallback on failure.
+Render a paper's PDF inline in the paper detail viewer with an embedded pdf.js renderer (in place of a native browser PDF plugin), providing selectable text, lazy continuous-scroll rendering, page navigation and zoom, capture of selections as page-relative offsets, region screenshot capture (drag-to-select → DPI-configurable PNG → image host) with a copyable image+anchor snippet, copyable page/selection anchor links, external page/region (text-offset or rectangle) navigation with transient highlighting, and a graceful raw-file fallback on failure.
 
 ## Requirements
 ### Requirement: Embedded pdf.js rendering of the PDF tab
@@ -68,19 +68,59 @@ The viewer SHALL provide an action to copy a current‑page link whose href is `
 - **THEN** the clipboard SHALL contain a Markdown link whose href is `paperland://paper/<id>?pdf=N&ts=<start>&te=<end>` for that selection
 
 ### Requirement: Navigate to a page or region and transiently highlight
-The viewer SHALL accept an external navigation request of the form `{ page }` or `{ page, ts, te }`. On a `{ page }` request it SHALL scroll that page into view. On a `{ page, ts, te }` request it SHALL scroll the page into view, ensure that page is rendered, map the `[ts, te)` offsets back to text‑layer rectangles, and draw a transient highlight over them (a non‑persisted overlay that flashes, analogous to the Markdown anchor reveal). The highlight SHALL NOT be saved to the database.
+The viewer SHALL accept an external navigation request of the form `{ page }`, `{ page, ts, te }`, or `{ page, rect }` (where `rect` is a normalized `[0,1]` page-space rectangle `{ x, y, w, h }`). On a `{ page }` request it SHALL scroll that page into view. On a `{ page, ts, te }` request it SHALL scroll the page into view, ensure that page is rendered, map the `[ts, te)` offsets back to text‑layer rectangles, and draw a transient highlight over them. On a `{ page, rect }` request it SHALL scroll the page into view, ensure that page is rendered, convert the normalized rectangle to the rendered page's pixel box, and draw a transient highlight over that rectangle. All such highlights are non‑persisted overlays that flash (analogous to the Markdown anchor reveal) and SHALL NOT be saved to the database. When both a text‑offset region and a rectangle are present, the rectangle SHALL take precedence.
 
 #### Scenario: Navigate to a page
 - **WHEN** the viewer receives a `{ page: N }` navigation request
 - **THEN** it SHALL scroll page N into view
 
-#### Scenario: Navigate to a region and highlight
+#### Scenario: Navigate to a text region and highlight
 - **WHEN** the viewer receives a `{ page: N, ts, te }` navigation request
 - **THEN** it SHALL scroll page N into view and transiently highlight the text spanning `[ts, te)` without persisting any highlight
 
-#### Scenario: Stale region degrades to page jump
-- **WHEN** a region request's offsets are out of range for the page's text
+#### Scenario: Navigate to a rectangle region and highlight
+- **WHEN** the viewer receives a `{ page: N, rect: { x, y, w, h } }` navigation request
+- **THEN** it SHALL scroll page N into view and transiently highlight the rectangle (the normalized coordinates mapped to the rendered page's pixel box) without persisting any highlight
+
+#### Scenario: Stale or degenerate region degrades to page jump
+- **WHEN** a region request's offsets are out of range, or a rectangle is missing/degenerate
 - **THEN** the viewer SHALL still scroll to the page, skip the highlight, and surface a brief "anchor stale" notice rather than throwing
+
+### Requirement: Region screenshot capture to the image host
+The viewer SHALL provide a toolbar control that enters a "region capture" mode in which the user drags a rectangle over a single PDF page; on completion the viewer SHALL render that rectangle to a PNG at the configured capture DPI, upload it to the image host, and copy to the clipboard a Markdown snippet whose image is wrapped in a `paperland://` link back to the captured region. The control SHALL be available only when a `paperId` is provided (so the link can be built). The captured region SHALL be a normalized `{ page, x, y, w, h }` rectangle in `[0,1]` page space, constrained to the single page under the drag's start point.
+
+While capture mode is active, the viewer SHALL show a crosshair cursor and a drag overlay above the text layer so the drag draws a selection rectangle instead of selecting text, and SHALL restore normal text selection when capture mode is exited (via the toolbar control, `Esc`, or after a capture completes).
+
+The clipboard snippet SHALL have the form `[![](<image_url>)](paperland://paper/<id>?pdf=<page>&rx=<x>&ry=<y>&rw=<w>&rh=<h>)`, where `<image_url>` is the uploaded image's URL and `rx`,`ry`,`rw`,`rh` are the normalized region coordinates. A brief toast SHALL confirm success; an upload failure SHALL surface a brief error toast and SHALL NOT crash the viewer.
+
+#### Scenario: Enter capture mode and draw a region
+- **WHEN** the user activates the capture control and drags a rectangle on page N
+- **THEN** the viewer SHALL show a crosshair cursor and a drag rectangle, and SHALL NOT create a native text selection during the drag
+- **AND** on release it SHALL form a normalized `{ page: N, x, y, w, h }` region clamped to page N's bounds
+
+#### Scenario: Capture uploads and copies a snippet
+- **WHEN** a region on page N is captured for a paper with id <id>
+- **THEN** the viewer SHALL render the region to a PNG, upload it to the image host, and copy `[![](<image_url>)](paperland://paper/<id>?pdf=N&rx=<x>&ry=<y>&rw=<w>&rh=<h>)` to the clipboard
+- **AND** a confirmation toast SHALL appear
+
+#### Scenario: Upload failure is surfaced
+- **WHEN** the image upload fails (e.g. the rendered PNG exceeds the image host size limit)
+- **THEN** the viewer SHALL show a brief error toast and SHALL remain usable, with no snippet copied
+
+#### Scenario: Capture control hidden without a paper id
+- **WHEN** the viewer is shown without a `paperId`
+- **THEN** the region capture control SHALL NOT be available
+
+### Requirement: Configurable region-capture DPI
+The viewer SHALL render a captured region at a configurable DPI whose default is defined in `config.yml` (not hardcoded in the frontend), defaulting to 300. The render scale SHALL be derived from the DPI as `scale = dpi / 72` (PDF user-space units are 1/72 inch). To bound memory at high DPI, the viewer SHALL render only the captured region (a region-sized canvas), not the whole page rasterized then cropped.
+
+#### Scenario: Default DPI comes from config
+- **WHEN** no per-capture DPI override is provided
+- **THEN** the viewer SHALL render the region at the `config.yml`-defined capture DPI default (300 unless configured otherwise)
+
+#### Scenario: DPI determines render scale
+- **WHEN** the capture DPI is 300
+- **THEN** the region SHALL be rendered at scale `300 / 72` so the resulting PNG resolution matches that DPI
 
 ### Requirement: Graceful failure with a raw‑file fallback
 When pdf.js fails to load or the document fails to parse, the viewer SHALL show an error state that includes a plain link to the raw file at `/api/files/<pdf_path>` so the user can still open the PDF directly. The viewer SHALL NOT crash the surrounding page.
@@ -88,3 +128,44 @@ When pdf.js fails to load or the document fails to parse, the viewer SHALL show 
 #### Scenario: Document fails to load
 - **WHEN** pdf.js cannot load or parse the PDF
 - **THEN** the viewer SHALL show an error message with a working link to `/api/files/<pdf_path>`
+
+### Requirement: Theme-Aware PDF Rendering
+
+The system SHALL render PDF pages with colors matching the active theme: in light mode a white page background with the document's native colors, and in dark mode a gray page background with light (near-white) foreground text, using pdf.js's native `pageColors` render option to set background and foreground independently.
+
+#### Scenario: Rendering a page in light mode
+- **WHEN** the active resolved theme is light and a page is rendered
+- **THEN** the page SHALL render with a white background and the document's original colors
+- **AND** the `.pdf-page` background SHALL be white
+
+#### Scenario: Rendering a page in dark mode
+- **WHEN** the active resolved theme is dark and a page is rendered
+- **THEN** the page SHALL be rendered with `pageColors` set to a gray background and a light foreground
+- **AND** the `.pdf-page` background SHALL be a dark/gray tone rather than hard-coded white
+
+#### Scenario: Overlays remain theme-correct
+- **WHEN** a page is rendered in dark mode
+- **THEN** the text-selection highlight and the transient region-flash overlay SHALL continue to use the UI theme tokens and remain visible (they are not affected by `pageColors`, since they sit above the canvas raster)
+
+### Requirement: Flicker-Free PDF Rendering
+
+The system SHALL NOT show a flash of a wrongly-colored (e.g. white) canvas while a page is rendering. Because pdf.js fills the canvas with its background color at the start of a render and applies the `pageColors` recolor only at the end, the system SHALL render each page into an off-document canvas and insert (or swap in) that canvas only after rendering completes, so no intermediate frame is painted. Any previously-rendered canvas for the page SHALL remain visible until the new one is ready.
+
+#### Scenario: Opening a PDF in dark mode
+- **WHEN** a PDF page is rendered for the first time while the resolved theme is dark
+- **THEN** the page SHALL appear already dark (gray background, light text)
+- **AND** no white (or otherwise un-themed) frame SHALL be visible at any point during that render
+
+#### Scenario: Re-rastering on zoom keeps the page visible
+- **WHEN** a rendered page is re-rastered at a new scale
+- **THEN** the existing rendered canvas SHALL stay visible until the new one finishes
+- **AND** no blank or white frame SHALL appear during the re-raster
+
+### Requirement: Re-Render PDF Pages On Theme Change
+
+The system SHALL re-render the live (visible / near-viewport) PDF page(s) when the active resolved theme changes, since `pageColors` are baked into the rasterized canvas and cannot recolor in place; off-screen pages MAY re-render lazily when next scrolled into view.
+
+#### Scenario: Switching theme with a PDF open
+- **WHEN** a PDF is open and the resolved theme changes from light to dark (or dark to light)
+- **THEN** the live page(s) SHALL re-render with the new theme's colors
+- **AND** each page's previous canvas SHALL remain visible until its newly-colored canvas is ready, so the switch shows no blank or white flash
