@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import {
   parseNoteDoc, flattenSections, structureKey, sectionBaseline, demoteHeadings,
   reparentSection, insertChild, insertSibling, deleteSection, replaceLeafBody, replacePreamble,
-  topLevel, descendantCount, findSection,
+  topLevel, descendantCount, findSection, leadingBlockquotes,
 } from './markdown-doc'
 
 const DOC = 'Intro text\n\n## A\n\na body\n\n### A1\n\na1\n\n## B\n\nb body'
@@ -45,6 +45,27 @@ describe('structureKey / sectionBaseline', () => {
   it('sectionBaseline returns the leaf body of a section', () => {
     const t = parseNoteDoc(DOC)
     expect(sectionBaseline(t, t.sections[0].id)).toBe('a body')
+  })
+})
+
+describe('leadingBlockquotes', () => {
+  it('extracts a single leading blockquote', () => {
+    expect(leadingBlockquotes('> a caption\n\nbody text')).toEqual(['a caption'])
+  })
+  it('extracts multiple consecutive blockquote blocks (separated by blanks)', () => {
+    expect(leadingBlockquotes('> one\n\n> two\n> three\n\nrest')).toEqual(['one', 'two\nthree'])
+  })
+  it('ignores leading blank lines', () => {
+    expect(leadingBlockquotes('\n\n> x\n\ny')).toEqual(['x'])
+  })
+  it('returns none when the block does not start with a blockquote', () => {
+    expect(leadingBlockquotes('text first\n\n> later quote')).toEqual([])
+  })
+  it('handles a blockquote immediately followed by text (no blank)', () => {
+    expect(leadingBlockquotes('> q\ntext')).toEqual(['q'])
+  })
+  it('preserves image / formula markdown inside the blockquote', () => {
+    expect(leadingBlockquotes('> ![](u.png)\n\n> $$x^2$$')).toEqual(['![](u.png)', '$$x^2$$'])
   })
 })
 

@@ -1,32 +1,39 @@
 <script lang="ts">
 export const CENTER_ID = '__center__'
 
-/** View-model for a mind-map node, derived from the note document's heading sections. */
+/** View-model for a mind-map node, derived from the note document. */
 export interface MindNode {
-  id: string            // section id, or CENTER_ID for the center/preamble node
-  label: string         // heading text (or paper title for the center)
-  count: number         // leaf-body character count (preamble length for the center)
+  id: string            // section id, CENTER_ID for the center, or `<parentId>#c<i>` for a content node
+  label: string         // heading text (empty for content nodes)
+  count: number         // leaf-body character count (0 for content nodes)
   isCenter: boolean
+  /** Read-only content node derived from a leading blockquote (text / image / formula). */
+  isContent?: boolean
+  /** Raw blockquote Markdown for a content node. */
+  content?: string
   children: MindNode[]
 }
 </script>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useNotesStore } from '@/stores/notes'
 import { useWindowsStore } from '@/stores/windows'
 import { noteDrag } from '@/composables/useNoteDrag'
-import { Plus, Trash2, CornerDownRight, Pencil } from '@lucide/vue'
+import MarkdownContent from '@/components/MarkdownContent.vue'
+import { Plus, Trash2, CornerDownRight, Pencil, SquarePen } from '@lucide/vue'
 
 // One node in the heading-derived mind-map. A tap opens a floating editor for the node's leaf
 // content (the preamble for the center node); a drag re-parents it (rewriting headings). The
-// center node is the fixed anchor: it cannot be dragged, given siblings, renamed, or deleted.
+// per-node actions live in a hover tooltip below the node. Content nodes (derived from leading
+// blockquotes) are read-only: no tap-to-edit, no drag, no actions.
 const props = defineProps<{ node: MindNode; paperId: number }>()
 const store = useNotesStore()
 const windows = useWindowsStore()
 
-const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
 const isCenter = computed(() => props.node.isCenter)
+const isContent = computed(() => props.node.isContent === true)
 const label = computed(() => props.node.label || '(untitled)')
 
 function openWindow(sectionId: string | null, title: string) {
@@ -40,18 +47,21 @@ function promptHeading(initial: string): string | null {
   return v == null ? null : (v.trim() || 'New section')
 }
 async function addChild() {
+  closePanel()
   const name = promptHeading('New section')
   if (name == null) return
   const id = store.addChild(isCenter.value ? null : props.node.id, name)
   if (id) openWindow(id, name)
 }
 async function addSibling() {
+  closePanel()
   const name = promptHeading('New section')
   if (name == null) return
   const id = store.addSibling(props.node.id, name)
   if (id) openWindow(id, name)
 }
 function rename() {
+  closePanel()
   const name = window.prompt('Rename section', props.node.label)
   if (name == null) return
   store.rename(props.node.id, name)
@@ -60,6 +70,7 @@ function countDescendants(n: MindNode): number {
   return n.children.reduce((sum, c) => sum + 1 + countDescendants(c), 0)
 }
 function del() {
+  closePanel()
   const d = countDescendants(props.node)
   const msg = d > 0
     ? `Delete "${label.value}" and its ${d} descendant section${d > 1 ? 's' : ''}?`
@@ -67,6 +78,52 @@ function del() {
   if (!window.confirm(msg)) return
   store.remove(props.node.id)
 }
+
+// --- Action panel below the node ---
+// Desktop (hover-capable): reveal on hover, bridged so moving into the panel keeps it open;
+// clicking the node opens the editor. Touch (no hover): a tap shows the panel instead of editing
+// (to avoid mis-taps), and the panel carries an explicit Edit button; an outside tap dismisses it.
+const isTouch = useMediaQuery('(hover: none)')
+const boxRef = ref<HTMLElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
+const hovered = ref(false)
+const popStyle = ref<Record<string, string>>({})
+let closeTimer: ReturnType<typeof setTimeout> | null = null
+
+function positionPanel() {
+  const r = boxRef.value?.getBoundingClientRect()
+  if (r) popStyle.value = { left: `${r.left + r.width / 2}px`, top: `${r.bottom + 6}px` }
+}
+function cancelClose() { if (closeTimer) { clearTimeout(closeTimer); closeTimer = null } }
+function scheduleClose() {
+  if (isTouch.value) return // touch dismisses via outside-tap, not pointer leave
+  cancelClose()
+  closeTimer = setTimeout(() => { hovered.value = false }, 140)
+}
+function openActions() { // desktop hover
+  if (isContent.value || isTouch.value) return
+  positionPanel()
+  cancelClose()
+  hovered.value = true
+}
+function closePanel() {
+  hovered.value = false
+  document.removeEventListener('pointerdown', onOutside, true)
+}
+function onOutside(e: PointerEvent) {
+  const t = e.target as Node
+  if (panelRef.value?.contains(t) || boxRef.value?.contains(t)) return
+  closePanel()
+}
+function toggleTouchPanel() { // touch tap
+  if (hovered.value) { closePanel(); return }
+  positionPanel()
+  hovered.value = true
+  // Defer so the tap that opened the panel doesn't immediately dismiss it.
+  setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 0)
+}
+function editFromPanel() { closePanel(); open() }
+onUnmounted(() => document.removeEventListener('pointerdown', onOutside, true))
 
 // --- Unified pointer drag (touch + mouse) → structural reparent ---
 const DRAG_THRESHOLD = 6
@@ -76,13 +133,14 @@ let captureEl: HTMLElement | null = null
 function targetAt(x: number, y: number): { kind: 'node'; id: string } | { kind: 'canvas' } | null {
   const el = document.elementFromPoint(x, y)
   const box = el?.closest<HTMLElement>('[data-nid]')
-  if (box) return { kind: 'node', id: box.dataset.nid! }
+  // Content-node ids contain '#'; they are not real sections, so never treat them as drop targets.
+  if (box && !box.dataset.nid!.includes('#')) return { kind: 'node', id: box.dataset.nid! }
   if (el?.closest('.mm-canvas')) return { kind: 'canvas' }
   return null
 }
 
 function onPointerDown(e: PointerEvent) {
-  if ((e.target as Element).closest('.nn-actions')) return
+  if (isContent.value) return
   if (e.pointerType === 'mouse' && e.button !== 0) return
   startX = e.clientX; startY = e.clientY
   candidate = true; dragging = false
@@ -109,14 +167,13 @@ function onPointerUp(e: PointerEvent) {
   noteDrag.draggingId = null
   noteDrag.overId = null
 
-  if (!wasDragging) { open(); return } // a tap → open the editor
+  if (!wasDragging) { isTouch.value ? toggleTouchPanel() : open(); return } // tap: touch → panel, desktop → edit
   if (!wasMe) return
 
   const t = targetAt(e.clientX, e.clientY)
   if (!t) return
   if (t.kind === 'node') {
     if (t.id === props.node.id) return
-    // Dropping onto the center → top level; onto another node → child of that node.
     store.reparent(props.node.id, t.id === CENTER_ID ? null : t.id)
   } else {
     store.reparent(props.node.id, null) // dropped on empty canvas → top level
@@ -130,7 +187,15 @@ function onPointerCancel() {
 
 <template>
   <div class="nn-node">
+    <!-- Read-only content node (from a leading blockquote): text / image / formula, half-border. -->
+    <div v-if="isContent" class="nn-box nn-content" :data-nid="node.id">
+      <MarkdownContent :content="node.content || ''" :paper-id="paperId" :disable-highlights="true" class="nn-content-md" />
+    </div>
+
+    <!-- Heading / center node: tap to edit, drag to restructure, actions in a hover tooltip. -->
     <div
+      v-else
+      ref="boxRef"
       class="nn-box"
       :class="{ 'nn-root': isCenter, 'nn-drop': noteDrag.overId === node.id, 'nn-dragging': noteDrag.draggingId === node.id }"
       :data-nid="node.id"
@@ -138,16 +203,31 @@ function onPointerCancel() {
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerCancel"
+      @mouseenter="openActions"
+      @mouseleave="scheduleClose"
     >
       <span class="nn-title">{{ label }}</span>
       <span v-if="node.count > 0" class="nn-count">({{ node.count }})</span>
-      <span class="nn-actions" :class="{ 'nn-actions-touch': isTouch }">
-        <button title="Add child" @click.stop="addChild"><Plus /></button>
-        <button v-if="!isCenter" title="Add sibling" @click.stop="addSibling"><CornerDownRight /></button>
-        <button v-if="!isCenter" title="Rename" @click.stop="rename"><Pencil /></button>
-        <button v-if="!isCenter" title="Delete" @click.stop="del"><Trash2 /></button>
-      </span>
     </div>
+
+    <!-- Action tooltip, teleported to body + fixed-positioned so the scroll container can't clip it. -->
+    <Teleport to="body">
+      <div
+        v-if="hovered && !isContent"
+        ref="panelRef"
+        class="nn-actions-pop"
+        :style="popStyle"
+        @mouseenter="cancelClose"
+        @mouseleave="scheduleClose"
+      >
+        <button v-if="isTouch" title="Edit" @click="editFromPanel"><SquarePen /></button>
+        <button title="Add child" @click="addChild"><Plus /></button>
+        <button v-if="!isCenter" title="Add sibling" @click="addSibling"><CornerDownRight /></button>
+        <button v-if="!isCenter" title="Rename" @click="rename"><Pencil /></button>
+        <button v-if="!isCenter" title="Delete" @click="del"><Trash2 /></button>
+      </div>
+    </Teleport>
+
     <div v-if="node.children.length" class="nn-kids">
       <NoteNode v-for="c in node.children" :key="c.id" :node="c" :paper-id="paperId" />
     </div>
@@ -171,11 +251,40 @@ function onPointerCancel() {
 .nn-dragging { opacity: 0.5; }
 .nn-title { overflow: hidden; text-overflow: ellipsis; }
 .nn-count { flex-shrink: 0; color: var(--muted-foreground); font-size: 11px; pointer-events: none; }
-.nn-actions { display: none; gap: 1px; }
-.nn-box:hover .nn-actions { display: inline-flex; }
-.nn-actions.nn-actions-touch { display: inline-flex; }
-.nn-actions button { padding: 2px; border-radius: 4px; color: var(--muted-foreground); }
-.nn-actions button:hover { background: var(--accent); color: var(--accent-foreground); }
-.nn-actions :deep(svg) { width: 12px; height: 12px; }
+
+/* Content node: read-only, no full border — only a bottom "tray" (lower half of the left/right
+   edges + bottom edge + rounded bottom corners), content sitting above it. */
+.nn-content {
+  border: none; background: transparent; cursor: default;
+  padding: 2px 10px 3px; white-space: normal; max-width: 260px;
+  touch-action: auto; user-select: text; -webkit-user-select: text;
+}
+.nn-content::after {
+  /* Tray border starts at the vertical middle — where the connector joins the node. */
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
+  border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px;
+  pointer-events: none;
+}
+.nn-content-md { position: relative; z-index: 1; font-size: 12px; }
+/* Drop the rendered Markdown's outer margins so the node hugs its content (no large bottom gap). */
+.nn-content-md :deep(:first-child) { margin-top: 0; }
+.nn-content-md :deep(:last-child) { margin-bottom: 0; }
 .nn-kids { display: flex; flex-direction: column; gap: 10px; margin-left: 34px; }
+</style>
+
+<style>
+/* Teleported action tooltip (global: it lives on <body>). Centered below the node. */
+.nn-actions-pop {
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: inline-flex; gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--popover); color: var(--popover-foreground);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+}
+.nn-actions-pop button { padding: 3px; border-radius: 4px; color: var(--muted-foreground); }
+.nn-actions-pop button:hover { background: var(--accent); color: var(--accent-foreground); }
+.nn-actions-pop svg { width: 13px; height: 13px; }
 </style>

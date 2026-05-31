@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useNotesStore } from '@/stores/notes'
+import { leadingBlockquotes } from '@/lib/markdown-doc'
 import type { NoteSection } from '@paperland/shared'
 import NoteNode, { type MindNode, CENTER_ID } from './NoteNode.vue'
 import { Undo2 } from '@lucide/vue'
@@ -13,18 +14,30 @@ defineProps<{ paperId: number }>()
 const store = useNotesStore()
 
 const innerRef = ref<HTMLElement | null>(null)
-const edges = ref<string[]>([])
+const edges = ref<{ d: string; content: boolean }[]>([])
 let ro: ResizeObserver | null = null
 
+// Read-only content nodes derived from a node's leading blockquotes; sorted BEFORE heading children.
+function contentNodes(parentId: string, content: string): MindNode[] {
+  return leadingBlockquotes(content).map((bq, i) => ({
+    id: `${parentId}#c${i}`, label: '', count: 0, isCenter: false, isContent: true, content: bq, children: [],
+  }))
+}
 function toMind(s: NoteSection): MindNode {
-  return { id: s.id, label: s.heading || '(untitled)', count: s.leafBody.trim().length, isCenter: false, children: s.children.map(toMind) }
+  return {
+    id: s.id,
+    label: s.heading || '(untitled)',
+    count: s.leafBody.trim().length,
+    isCenter: false,
+    children: [...contentNodes(s.id, s.leafBody), ...s.children.map(toMind)],
+  }
 }
 const root = computed<MindNode>(() => ({
   id: CENTER_ID,
   label: '(root)',
   count: store.tree.preamble.trim().length,
   isCenter: true,
-  children: store.tree.sections.map(toMind),
+  children: [...contentNodes(CENTER_ID, store.tree.preamble), ...store.tree.sections.map(toMind)],
 }))
 
 /** Flatten parent→child id pairs (center → top-level, section → children) for connectors. */
@@ -39,7 +52,7 @@ function recompute() {
   const inner = innerRef.value
   if (!inner) { edges.value = []; return }
   const irect = inner.getBoundingClientRect()
-  const paths: string[] = []
+  const paths: { d: string; content: boolean }[] = []
   for (const [pid, cid] of edgePairs.value) {
     const parentEl = inner.querySelector<HTMLElement>(`[data-nid="${cssEscape(pid)}"]`)
     const childEl = inner.querySelector<HTMLElement>(`[data-nid="${cssEscape(cid)}"]`)
@@ -51,7 +64,8 @@ function recompute() {
     const cx = cr.left - irect.left
     const cy = cr.top + cr.height / 2 - irect.top
     const mx = px + Math.max(12, (cx - px) / 2)
-    paths.push(`M ${px} ${py} C ${mx} ${py} ${mx} ${cy} ${cx} ${cy}`)
+    // Connectors to content nodes (synthetic ids contain '#') are as thin as the border.
+    paths.push({ d: `M ${px} ${py} C ${mx} ${py} ${mx} ${cy} ${cx} ${cy}`, content: cid.includes('#') })
   }
   edges.value = paths
 }
@@ -89,7 +103,7 @@ watch(() => store.body, scheduleRecompute)
     <div class="mm-canvas">
       <div ref="innerRef" class="mm-inner">
         <svg class="mm-links">
-          <path v-for="(d, i) in edges" :key="i" :d="d" fill="none" stroke="var(--border)" stroke-width="1.5" />
+          <path v-for="(e, i) in edges" :key="i" :d="e.d" fill="none" stroke="var(--border)" :stroke-width="e.content ? 1 : 1.5" />
         </svg>
         <div class="mm-nodes">
           <NoteNode :node="root" :paper-id="paperId" />

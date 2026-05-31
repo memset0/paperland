@@ -97,3 +97,67 @@ The mind-map SHALL maintain a front-end-only undo history of structural edits (d
 - **WHEN** a user performs several structural edits and activates Undo repeatedly
 - **THEN** each Undo SHALL revert the most recent remaining structural edit in turn
 
+### Requirement: Content nodes from leading blockquotes
+The mind-map SHALL derive read-only **content nodes** from the leading blockquotes of each node's content block. A node's content block is the document **preamble** for the center node, or the **leaf body** for a heading node. Scanning the content block from its start (ignoring leading blank lines, respecting fenced code blocks), each maximal run of consecutive `>`-prefixed lines that appears **before** the first non-blank, non-blockquote line SHALL become one content node, in document order. A content node SHALL render its blockquote's inner Markdown (the leading `> ` stripped) using the project's Markdown renderer, so plain text, images, and formulas all display. Content nodes SHALL be attached to their node and SHALL be ordered **before** that node's heading children.
+
+#### Scenario: A leading blockquote becomes a content node
+- **WHEN** a node's content block begins with a blockquote
+- **THEN** the mind-map SHALL show a content node rendering that blockquote's content, attached to the node
+
+#### Scenario: Multiple consecutive blockquotes become multiple content nodes
+- **WHEN** a node's content block begins with several consecutive blockquote blocks (separated by blank lines)
+- **THEN** the mind-map SHALL show one content node per blockquote block, in order
+
+#### Scenario: Content nodes precede heading children
+- **WHEN** a node has both leading-blockquote content nodes and heading children
+- **THEN** the content nodes SHALL be displayed before the heading children
+
+#### Scenario: Only leading blockquotes count
+- **WHEN** a blockquote appears after non-blockquote content in a node's content block
+- **THEN** it SHALL NOT become a content node (it remains ordinary rendered Markdown in the section body)
+
+#### Scenario: Rich content renders
+- **WHEN** a leading blockquote contains an image or a formula
+- **THEN** the content node SHALL render the image or formula (not raw Markdown)
+
+### Requirement: Content nodes are read-only and visually distinct
+Content nodes SHALL NOT be interactive: they SHALL NOT open an editor on click, SHALL NOT be draggable, and SHALL NOT offer add / rename / delete actions. Content nodes SHALL be visually distinguished from heading nodes: a heading/center node SHALL keep a full border, while a content node SHALL render with only a **bottom-half border** (the lower portion of the left and right edges with rounded bottom corners plus the bottom edge), its content sitting above that border. The connector line drawn from a parent to a content node SHALL be **as thin as the node border** — thinner than the connector drawn to a heading node.
+
+#### Scenario: Content node is not clickable or editable
+- **WHEN** a user clicks or tries to drag a content node
+- **THEN** no editor SHALL open and the node SHALL NOT move, and no action menu SHALL appear
+
+#### Scenario: Content node has the bottom-half border style
+- **WHEN** a content node is displayed
+- **THEN** it SHALL render with the bottom-half-border style, distinct from the full border of heading/center nodes
+
+#### Scenario: Connector to a content node is thinner
+- **WHEN** a connector is drawn to a content node
+- **THEN** its stroke SHALL be as thin as the node border, thinner than a connector drawn to a heading node
+
+### Requirement: Node actions in a tooltip below the node
+The per-node actions (add child, add sibling, rename, delete — the center node offers only add child) SHALL NOT be shown inline within the node. Instead they SHALL appear in a tooltip positioned **directly below** the node. The reveal and the node-tap behavior SHALL differ by device:
+
+- **Hover-capable (desktop)**: hovering a node SHALL reveal the tooltip; it SHALL remain open while the pointer is over either the node or the tooltip (so the user can move into it to click an action) and SHALL dismiss when neither is hovered. **Clicking the node body SHALL open its floating editor** (unchanged).
+- **Touch (no hover)**: to avoid mis-taps, **tapping a node SHALL reveal the tooltip instead of opening the editor**. The touch tooltip SHALL additionally include an **Edit** action that opens the floating editor. The tooltip SHALL dismiss on an outside tap (or when an action is chosen).
+
+#### Scenario: Actions are hidden until revealed
+- **WHEN** a node is shown and not hovered (desktop) / not tapped (touch)
+- **THEN** its action buttons SHALL NOT be visible inline in the node
+
+#### Scenario: Hover reveals the tooltip and click edits (desktop)
+- **WHEN** on a hover-capable device the user hovers a node, then clicks the node body
+- **THEN** the tooltip SHALL appear directly below the node, and clicking the node SHALL open its floating editor
+
+#### Scenario: Tooltip stays open while moving into it (desktop)
+- **WHEN** the user moves the pointer from the node into the tooltip
+- **THEN** the tooltip SHALL remain open so an action can be clicked
+
+#### Scenario: Tap reveals the tooltip on touch (no direct edit)
+- **WHEN** on a touch device (no hover) the user taps a node
+- **THEN** the tooltip SHALL appear directly below the node and the editor SHALL NOT open directly; the tooltip SHALL include an Edit action to open the editor
+
+#### Scenario: Tooltip dismisses
+- **WHEN** the pointer leaves both the node and its tooltip (desktop) or the user taps outside / chooses an action (touch)
+- **THEN** the tooltip SHALL dismiss
+

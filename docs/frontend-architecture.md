@@ -242,7 +242,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 #### 摘要中英双语（BilingualText）
 
-信息区的「摘要」用通用组件 `components/BilingualText.vue` 渲染（详情页宽 / 窄两处布局均接入）。组件接收一段**纯文本**（不做 Markdown 渲染，`whitespace-pre-wrap` 保留换行），默认只展示英文原文，下方有一个小 **Translate** 按钮（lucide `Languages` 图标）。**仅登录用户**点击才翻译：未登录则唤起登录框（`useLoginPrompt().openLogin()`）、不发请求。点击后调 `translationApi.translate(text)`（`POST /api/translate`，由前端把文本喂入），翻译期间按钮显示 `Loader2` 并禁用；返回后在英文下方**追加**中文译文（带 muted「Translation」小标签），并提供 **Hide/Show** 折叠与 **Re-translate**（`force` 绕过缓存重译并覆盖）。翻译缓存由后端按内容寻址、**全体用户共享**（见 tech-stack.md「翻译服务」），同一段文本任意用户翻过一次后其他人点 Translate 即秒回。组件为通用叶子组件，可复用于其它纯文本（如未来 TLDR）。
+信息区的「摘要」用通用组件 `components/BilingualText.vue` 渲染（详情页宽 / 窄两处布局均接入）。组件接收一段**纯文本**（不做 Markdown 渲染，`whitespace-pre-wrap` 保留换行），默认只展示英文原文，下方有一个小 **Translate** 按钮（lucide `Languages` 图标）。**仅登录用户**点击才翻译：未登录则唤起登录框（`useLoginPrompt().openLogin()`）、不发请求。点击后调 `translationApi.translate(text)`（`POST /api/translate`，由前端把文本喂入），翻译期间按钮显示 `Loader2` 并禁用；返回后在英文下方**追加**中文译文。译文区头部为一行：muted「Translation」标签 + 紧随其右、同一行的 **Hide/Show** 折叠与 **Re-translate**（`force` 重译覆盖），按钮用更小的 `size="xs"`。**已翻译过默认展开**：挂载时（及 text/登录态变化时）对登录用户调 `translationApi.peek(text)`（`POST /api/translate {cache_only:true}`，由**后端判断**是否已翻译、不调 AI、不报 404、前端不算 hash），命中则默认展开。翻译缓存由后端按内容寻址、**全体用户共享**（见 tech-stack.md「翻译服务」），同一段文本任意用户翻过一次后其他人进来即由 peek 命中、默认展开。组件为通用叶子组件，可复用于其它纯文本（如未来 TLDR）。
 
 #### 多模式查看器（PaperViewerPanel）
 
@@ -1300,7 +1300,9 @@ paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=      // 跳到该页并高亮�
 
 ### 分支思维导图（heading 派生）
 
-`components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：由文档 heading 结构派生的分支导图。**中心节点标为 `(root)`（其内容是前言）**，点它编辑前言；每个 heading 是一个节点（按相对深度成树），叶子正文非空时标题后显示灰色字符数徽章 `(N)`。连线由真实 DOM 位置量出的 SVG 曲线绘制（`data-nid` 用 section id）。点节点开其叶子浮窗；拖拽改父子（落到节点 → 成其子、落到中心/空白 → 顶层）= `store.reparent` 改写 heading；增子/增兄（`window.prompt` 命名 → `addChild`/`addSibling` 插入 heading）、改名（`rename` 改 heading 文本）、删除（确认连带子节点数 → `remove`）。中心节点不可拖拽/删除/增兄。表头 Undo 回退最近一次结构改动。
+`components/notes/NoteMindmap.vue` + 递归 `NoteNode.vue`：由文档 heading 结构派生的分支导图。**中心节点标为 `(root)`（其内容是前言）**，点它编辑前言；每个 heading 是一个节点（按相对深度成树），叶子正文非空时标题后显示灰色字符数徽章 `(N)`。连线由真实 DOM 位置量出的 SVG 曲线绘制（`data-nid` 用 section id）。点节点开其叶子浮窗；拖拽改父子（落到节点 → 成其子、落到中心/空白 → 顶层）= `store.reparent` 改写 heading。**节点操作收进 tooltip（节点正下方）**：四个操作（增子 `addChild`、增兄 `addSibling`、改名 `rename`、删除 `remove`；中心节点只有增子）不再内联在节点里，而在节点**正下方**弹出 tooltip（`Teleport` 到 body + `position:fixed`，避开 `.mm-canvas` 的 `overflow` 裁剪）。**桌面**（`(hover:none)` 为 false）：hover 出面板（140ms 延迟桥接、移进不消失），点击节点 = 编辑。**触屏**（无 hover）：为避免误触，点击节点改为**弹面板而非直接编辑**，面板额外带一个 **Edit** 按钮（`SquarePen`）打开编辑器，点击面板外（`document` capture pointerdown）关闭。中心节点不可拖拽/删除/增兄。表头 Undo 回退最近一次结构改动。
+
+**内容节点（leading blockquote）**：每个节点的内容块（中心=前言，heading 节点=叶子正文）开头若是连续的 blockquote（`>`），由 `lib/markdown-doc.ts` 的 `leadingBlockquotes()` 抽取成只读**内容节点**——`MarkdownContent` 渲染（纯文本/图文/公式），排在该节点所有 heading 子节点**之前**，不可点击/拖拽/编辑（合成 id `<parentId>#c<i>`，不作 drop target）。视觉上：标题节点整圈边框，内容节点只有「下半托盘」边框（`.nn-content::after`：左右下半 + 底边 + 下圆角），内容盛在上方；连到内容节点的连线也更细（`stroke-width` 1，与边框同宽，标题节点连线为 1.5）。宽高细节后续再调。
 
 ### Walk-through / 文档视图（左面板，`NoteWalkthrough.vue`）
 

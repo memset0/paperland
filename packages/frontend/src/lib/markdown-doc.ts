@@ -148,6 +148,33 @@ export function sectionBaseline(tree: NoteDocTree, id: string): string | null {
   return s ? s.leafBody : null
 }
 
+// ── Content-node extraction: leading blockquotes of a content block ──
+
+/**
+ * Return the inner Markdown of each LEADING consecutive blockquote block of a content block
+ * (a section's leaf body or the preamble). Leading blank lines are ignored; scanning stops at
+ * the first non-blank, non-blockquote line. Consecutive blockquote blocks separated by blank
+ * lines yield separate entries. Each entry has the per-line `> ` prefix stripped. Used by the
+ * mind-map to surface read-only content nodes (text / image / formula).
+ */
+export function leadingBlockquotes(content: string): string[] {
+  const blocks: string[] = []
+  let cur: string[] | null = null
+  for (const line of content.split('\n')) {
+    const m = /^\s*>\s?(.*)$/.exec(line)
+    if (m) {
+      if (cur === null) cur = []
+      cur.push(m[1])
+    } else if (line.trim() === '') {
+      if (cur) { blocks.push(cur.join('\n')); cur = null } // blank ends a block (leading blanks skipped)
+    } else {
+      break // first non-blank, non-blockquote line ends the leading region
+    }
+  }
+  if (cur) blocks.push(cur.join('\n'))
+  return blocks.map((b) => b.trim()).filter((b) => b !== '')
+}
+
 // ── Leaf-only normalizer: a floating window may never introduce headings ──
 
 /** Demote any ATX heading line to bold so window edits can't change document structure. */
