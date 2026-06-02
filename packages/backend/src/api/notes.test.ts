@@ -8,7 +8,7 @@ import * as schema from '../db/schema.js'
 import { notesRoutes } from './notes.js'
 import { setDatabaseForTesting } from '../db/index.js'
 import { flattenTreeToMarkdown, migrateNotesToSingleDoc } from '../db/notes-migration.js'
-import type { Note } from '@paperland/shared'
+import type { Note, NoteWithAuthor, PublicNoteSummary } from '@paperland/shared'
 
 /**
  * Tests for the single-document notes model. In-memory SQLite + drizzle (no network, no
@@ -150,6 +150,10 @@ describe('notes routes (Fastify inject)', () => {
     migrate(db, { migrationsFolder: MIGRATIONS_DIR })
     setDatabaseForTesting(db)
     sqlite.exec(`INSERT INTO papers (id, title, authors, listed, created_at, updated_at) VALUES (${PAPER}, 'P', '[]', 1, 't', 't')`)
+    // Users referenced by note FKs + the username joins in the cross-user reads. (Roles here are
+    // for the FK only; per-request role comes from `currentUser`.)
+    sqlite.exec(`INSERT INTO users (id, username, password_hash, role, created_at) VALUES
+      (1, 'u1', 'h', 'admin', 't'), (2, 'u2', 'h', 'user', 't'), (3, 'u3', 'h', 'user', 't')`)
     currentUser = null
 
     app = Fastify()
@@ -217,5 +221,125 @@ describe('notes routes (Fastify inject)', () => {
     await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: '   ' } })
     const rows = (await app.inject({ method: 'GET', url: '/api/notes' })).json().data as Note[]
     expect(rows.length).toBe(0)
+  })
+
+  it('completed defaults false; toggle sets it; aggregate reflects it; body PUT preserves it', async () => {
+    currentUser = { id: 1, username: 'u', role: 'admin' }
+    const created = (await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'x' } })).json().data as Note
+    expect(created.completed).toBe(false)
+
+    const done = await app.inject({ method: 'POST', url: `/api/papers/${PAPER}/note/completed`, payload: { completed: true } })
+    expect(done.statusCode).toBe(200)
+    expect(done.json().data.completed).toBe(true)
+    expect(((await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/note` })).json().note as Note).completed).toBe(true)
+    const agg = (await app.inject({ method: 'GET', url: '/api/notes' })).json().data as Note[]
+    expect(agg.find((n) => n.paper_id === PAPER)?.completed).toBe(true)
+
+    // Body upsert leaves completion untouched.
+    const cur = (await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/note` })).json().note as Note
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'y', updated_at: cur.updated_at } })
+    expect(((await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/note` })).json().note as Note).completed).toBe(true)
+
+    await app.inject({ method: 'POST', url: `/api/papers/${PAPER}/note/completed`, payload: { completed: false } })
+    expect(((await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/note` })).json().note as Note).completed).toBe(false)
+  })
+
+  it('cannot complete a paper with no note (400); anonymous toggle is 401', async () => {
+    currentUser = { id: 1, username: 'u', role: 'admin' }
+    const noNote = await app.inject({ method: 'POST', url: `/api/papers/${PAPER}/note/completed`, payload: { completed: true } })
+    expect(noNote.statusCode).toBe(400)
+    currentUser = null
+    const anon = await app.inject({ method: 'POST', url: `/api/papers/${PAPER}/note/completed`, payload: { completed: true } })
+    expect(anon.statusCode).toBe(401)
+  })
+
+  // ── public notes ─────────────────────────────────────────────────────────────
+  it('visibility: defaults private; publishing needs a non-empty note; owner toggles; anon 401', async () => {
+    currentUser = { id: 1, username: 'u1', role: 'admin' }
+    // No note yet → cannot publish.
+    expect((await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })).statusCode).toBe(400)
+    // Empty note → still cannot publish.
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: '   ' } })
+    expect((await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })).statusCode).toBe(400)
+    // Non-empty note → publish, then unpublish.
+    const created = (await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'doc' } })).json().data as Note
+    expect(created.is_public).toBe(false)
+    const pub = await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
+    expect(pub.statusCode).toBe(200)
+    expect(pub.json().data.is_public).toBe(true)
+    expect((await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: false } })).json().data.is_public).toBe(false)
+    // Anonymous cannot toggle.
+    currentUser = null
+    expect((await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })).statusCode).toBe(401)
+  })
+
+  it('single-note fetch: public to anyone; private to owner/admin only; else 404', async () => {
+    currentUser = { id: 1, username: 'u1', role: 'admin' }
+    const noteId = ((await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'doc' } })).json().data as Note).id
+    // Owner reads own private note (annotated with paper title + author).
+    const owner = await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })
+    expect(owner.statusCode).toBe(200)
+    expect(owner.json().data.username).toBe('u1')
+    expect(owner.json().data.paper_title).toBe('P')
+    // A different non-admin user → 404 (existence not revealed).
+    currentUser = { id: 2, username: 'u2', role: 'user' }
+    expect((await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })).statusCode).toBe(404)
+    // An admin (other user) → 200.
+    currentUser = { id: 3, username: 'u3', role: 'admin' }
+    expect((await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })).statusCode).toBe(200)
+    // Once public, anonymous can read.
+    currentUser = { id: 1, username: 'u1', role: 'admin' }
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
+    currentUser = null
+    expect((await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })).statusCode).toBe(200)
+    // Unknown id → 404.
+    expect((await app.inject({ method: 'GET', url: `/api/notes/99999` })).statusCode).toBe(404)
+  })
+
+  it('per-paper public list: others public only, excludes own + private, body-less', async () => {
+    currentUser = { id: 1, username: 'u1', role: 'user' }
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'one' } })
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
+    currentUser = { id: 2, username: 'u2', role: 'user' }
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'two' } })
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
+    currentUser = { id: 3, username: 'u3', role: 'user' }
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'three' } }) // private
+    // As user 1: sees only user 2 (public, other), not own, not user 3 (private), and no body.
+    currentUser = { id: 1, username: 'u1', role: 'user' }
+    const list = (await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/public-notes` })).json().data as PublicNoteSummary[]
+    expect(list.map((n) => n.user_id)).toEqual([2])
+    expect(list[0].username).toBe('u2')
+    expect((list[0] as Record<string, unknown>).body).toBeUndefined()
+    // Anonymous sees both public notes, not the private one.
+    currentUser = null
+    const anon = (await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/public-notes` })).json().data as PublicNoteSummary[]
+    expect(anon.map((n) => n.user_id).sort()).toEqual([1, 2])
+  })
+
+  it('aggregate scope: mine (own) vs all (public+own); admin include_private adds others private', async () => {
+    currentUser = { id: 1, username: 'u1', role: 'user' }
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'pub1' } })
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
+    currentUser = { id: 2, username: 'u2', role: 'user' }
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'priv2' } }) // private
+    // User 3 owns nothing: scope=mine empty; scope=all sees only user 1's public note.
+    currentUser = { id: 3, username: 'u3', role: 'user' }
+    expect(((await app.inject({ method: 'GET', url: '/api/notes?scope=mine' })).json().data as Note[]).length).toBe(0)
+    const all3 = (await app.inject({ method: 'GET', url: '/api/notes?scope=all' })).json().data as NoteWithAuthor[]
+    expect(all3.map((n) => n.user_id)).toEqual([1])
+    expect(all3[0].username).toBe('u1')
+    expect(all3[0].is_public).toBe(true)
+    // Non-admin include_private has no effect.
+    expect(((await app.inject({ method: 'GET', url: '/api/notes?scope=all&include_private=true' })).json().data as Note[]).map((n) => n.user_id)).toEqual([1])
+    // Anonymous scope=all → public only, HTTP 200.
+    currentUser = null
+    const anonAll = await app.inject({ method: 'GET', url: '/api/notes?scope=all' })
+    expect(anonAll.statusCode).toBe(200)
+    expect((anonAll.json().data as Note[]).map((n) => n.user_id)).toEqual([1])
+    // Admin include_private also pulls user 2's private note.
+    currentUser = { id: 3, username: 'u3', role: 'admin' }
+    const adminAll = (await app.inject({ method: 'GET', url: '/api/notes?scope=all&include_private=true' })).json().data as Note[]
+    expect(adminAll.map((n) => n.user_id).sort()).toEqual([1, 2])
   })
 })

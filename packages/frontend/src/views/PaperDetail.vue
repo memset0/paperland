@@ -5,13 +5,16 @@ import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
 import { useBlockAnchor } from '@/composables/useBlockAnchor'
 import { usePdfNavigation } from '@/composables/usePdfNavigation'
+import { usePublicNoteOpen } from '@/composables/usePublicNoteOpen'
+import { useAuthStore } from '@/stores/auth'
+import { toast } from 'vue-sonner'
 import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
 import TagSelector from '@/components/TagSelector.vue'
 import { useTagsStore } from '@/stores/tags'
-import { api } from '@/api/client'
+import { api, notesApi } from '@/api/client'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import { usePageTitle } from '@/composables/usePageTitle'
 import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
@@ -44,6 +47,8 @@ const tagsStore = useTagsStore()
 const { isEmbed } = useEmbedMode()
 const { locateBlock } = useBlockAnchor()
 const { requestPdfNavigation } = usePdfNavigation()
+const { requestPublicNote } = usePublicNoteOpen()
+const auth = useAuthStore()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
 
 // Browser tab title follows the paper; shows a placeholder until it loads.
@@ -143,8 +148,30 @@ const paperActions = computed<LauncherAction[]>(() => [
   { key: 'ask', label: '提问', icon: Bot, onSelect: openQA },
 ])
 
-/** Jump to a `?h=<hash>` or `?pdf=<page>` deep-link target once the paper is present. */
+/**
+ * A `?note=<id>` link auto-opens another user's public note in the right panel. If the note is the
+ * viewer's own, it's already in their Note tab — show a hint and don't auto-open. Unavailable notes
+ * (deleted / not readable) get a brief notice and we just stay on the paper.
+ */
+async function handleNoteDeepLink(noteId: number) {
+  const note = await notesApi.getById(noteId)
+  if (!note) { toast.error('Note unavailable'); return }
+  if (auth.user && note.user_id === auth.user.id) {
+    toast.info('This is your own note — open it from the Note tab')
+    return
+  }
+  requestPublicNote(noteId)
+}
+
+/** Jump to a `?note=<id>`, `?h=<hash>`, or `?pdf=<page>` deep-link target once the paper is present. */
 function handleAnchorFromRoute() {
+  // A note link opens the addressed public note in the right panel (own-note → hint, no auto-open).
+  const note = route.query.note
+  if (typeof note === 'string' && note) {
+    const noteId = parseInt(note, 10)
+    if (!Number.isNaN(noteId)) handleNoteDeepLink(noteId)
+    return
+  }
   // PDF page/region anchor takes precedence and routes to the embedded viewer.
   const pdf = route.query.pdf
   if (typeof pdf === 'string' && pdf) {
@@ -195,7 +222,7 @@ onMounted(async () => {
 
 // Anchor deep-links (`/papers/:id?h=`) and cross-paper anchor jumps. RouterView is not
 // keyed, so navigating paper→paper reuses this component — reload data on id change.
-watch(() => [route.params.id, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te, route.query.rx, route.query.ry, route.query.rw, route.query.rh], async (next, prev) => {
+watch(() => [route.params.id, route.query.note, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te, route.query.rx, route.query.ry, route.query.rw, route.query.rh], async (next, prev) => {
   if (next[0] !== prev[0]) {
     qaWin.close() // don't carry an open QA window across papers
     await loadPaperData()
@@ -536,6 +563,10 @@ async function promote() {
             </template>
           </Card>
 
+          <PaperCitations :paper-id="paperId" />
+
+          <PaperNotesCard :paper-id="paperId" />
+
           <Card v-if="summaryFaqs" class="overflow-hidden gap-0 py-0">
             <div class="flex items-center justify-between border-b px-5 py-3">
               <div class="flex items-center gap-2">
@@ -572,10 +603,6 @@ async function promote() {
               </Collapsible>
             </div>
           </Card>
-
-          <PaperCitations :paper-id="paperId" />
-
-          <PaperNotesCard :paper-id="paperId" />
 
           <QAList :paper-id="paperId" />
         </div>
@@ -685,6 +712,10 @@ async function promote() {
           </template>
         </Card>
 
+        <PaperCitations :paper-id="paperId" />
+
+        <PaperNotesCard :paper-id="paperId" />
+
         <Card v-if="summaryFaqs" class="overflow-hidden gap-0 py-0">
           <div class="flex items-center justify-between border-b px-5 py-3">
             <div class="flex items-center gap-2">
@@ -721,10 +752,6 @@ async function promote() {
             </Collapsible>
           </div>
         </Card>
-
-        <PaperCitations :paper-id="paperId" />
-
-        <PaperNotesCard :paper-id="paperId" />
 
         <QAList :paper-id="paperId" />
       </div>

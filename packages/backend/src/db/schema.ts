@@ -111,6 +111,8 @@ export const notes = sqliteTable('notes', {
   user_id: integer('user_id').notNull().references(() => users.id), // owner
   paper_id: integer('paper_id').notNull().references(() => papers.id),
   body: text('body').notNull().default(''),
+  completed: integer('completed').notNull().default(0), // 1 = user marked this note's reading complete
+  is_public: integer('is_public').notNull().default(0), // 1 = published; readable by anyone (incl. anonymous)
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 }, (table) => [

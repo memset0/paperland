@@ -2,16 +2,20 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useNotesStore } from '@/stores/notes'
 import { leadingBlockquotes } from '@/lib/markdown-doc'
-import type { NoteSection } from '@paperland/shared'
+import type { NoteSection, NoteDocTree } from '@paperland/shared'
 import NoteNode, { type MindNode, CENTER_ID } from './NoteNode.vue'
 import { Undo2 } from '@lucide/vue'
 
-// Branching mind-map DERIVED from the note document's heading structure. The center node is the
+// Branching mind-map DERIVED from a note document's heading structure. The center node is the
 // paper (its content is the preamble); every heading becomes a node by relative depth. Connectors
-// are SVG curves measured from real DOM positions. Editing happens in floating windows (tap a
-// node) or by dragging to restructure (which rewrites the document's headings).
-defineProps<{ paperId: number }>()
+// are SVG curves measured from real DOM positions. By default it renders the current user's editing
+// document from the store (editing happens in floating windows / by dragging). Passing `doc` +
+// `readonly` renders ANOTHER user's note read-only (public-note view): no edit, no drag, no undo.
+const props = defineProps<{ paperId: number; readonly?: boolean; doc?: NoteDocTree }>()
 const store = useNotesStore()
+
+// The document to render: an explicit `doc` (read-only public note) or the store's editing tree.
+const source = computed<NoteDocTree>(() => props.doc ?? store.tree)
 
 const innerRef = ref<HTMLElement | null>(null)
 const edges = ref<{ d: string; content: boolean }[]>([])
@@ -35,9 +39,9 @@ function toMind(s: NoteSection): MindNode {
 const root = computed<MindNode>(() => ({
   id: CENTER_ID,
   label: '(root)',
-  count: store.tree.preamble.trim().length,
+  count: source.value.preamble.trim().length,
   isCenter: true,
-  children: [...contentNodes(CENTER_ID, store.tree.preamble), ...store.tree.sections.map(toMind)],
+  children: [...contentNodes(CENTER_ID, source.value.preamble), ...source.value.sections.map(toMind)],
 }))
 
 /** Flatten parent→child id pairs (center → top-level, section → children) for connectors. */
@@ -86,12 +90,12 @@ onMounted(() => {
 })
 onUnmounted(() => ro?.disconnect())
 
-watch(() => store.body, scheduleRecompute)
+watch(() => [props.doc, store.body], scheduleRecompute)
 </script>
 
 <template>
   <div class="space-y-2">
-    <div v-if="store.canUndo" class="flex items-center justify-end">
+    <div v-if="!readonly && store.canUndo" class="flex items-center justify-end">
       <button
         class="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5"
         :title="`Undo last structural change (${store.undoStack.length})`"
@@ -106,7 +110,7 @@ watch(() => store.body, scheduleRecompute)
           <path v-for="(e, i) in edges" :key="i" :d="e.d" fill="none" stroke="var(--border)" :stroke-width="e.content ? 1 : 1.5" />
         </svg>
         <div class="mm-nodes">
-          <NoteNode :node="root" :paper-id="paperId" />
+          <NoteNode :node="root" :paper-id="paperId" :readonly="readonly" />
         </div>
       </div>
     </div>

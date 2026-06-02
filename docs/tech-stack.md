@@ -218,6 +218,8 @@ notes                                          // 按用户私有的论文笔记
   user_id         integer   → users.id, not null     // 属主
   paper_id        integer   → papers.id, not null
   body            text      not null default ''       // 整篇 Markdown；结构由标题派生，锚点以 paperland:// 链接内联于 body
+  completed       integer   not null default 0         // 1 = 用户标记该笔记「精读完成」（论文列表 note-status 列 + 详情页功能栏切换）
+  is_public       integer   not null default 0         // 1 = 已公开（任何人含匿名可只读思维导图+全文）；属主经 PUT .../note/visibility 切换（迁移 0020）
   created_at      text      not null
   updated_at      text      not null
   // 唯一索引 notes_user_paper_unq (user_id, paper_id) —— 每 用户×论文 至多一行；惰性创建（首次写入才建行）

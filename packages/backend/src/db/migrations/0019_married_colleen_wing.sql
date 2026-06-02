@@ -1,0 +1,1 @@
+ALTER TABLE `notes` ADD `completed` integer DEFAULT 0 NOT NULL;

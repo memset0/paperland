@@ -28,7 +28,9 @@ import { Plus, Trash2, CornerDownRight, Pencil, SquarePen } from '@lucide/vue'
 // content (the preamble for the center node); a drag re-parents it (rewriting headings). The
 // per-node actions live in a hover tooltip below the node. Content nodes (derived from leading
 // blockquotes) are read-only: no tap-to-edit, no drag, no actions.
-const props = defineProps<{ node: MindNode; paperId: number }>()
+// `readonly` renders the node for viewing another user's public note: no tap-to-edit, no drag,
+// no action tooltip, and content-node Markdown renders in public-note mode (inert Q&A anchors).
+const props = defineProps<{ node: MindNode; paperId: number; readonly?: boolean }>()
 const store = useNotesStore()
 const windows = useWindowsStore()
 
@@ -101,7 +103,7 @@ function scheduleClose() {
   closeTimer = setTimeout(() => { hovered.value = false }, 140)
 }
 function openActions() { // desktop hover
-  if (isContent.value || isTouch.value) return
+  if (props.readonly || isContent.value || isTouch.value) return
   positionPanel()
   cancelClose()
   hovered.value = true
@@ -140,7 +142,7 @@ function targetAt(x: number, y: number): { kind: 'node'; id: string } | { kind: 
 }
 
 function onPointerDown(e: PointerEvent) {
-  if (isContent.value) return
+  if (props.readonly || isContent.value) return // read-only: no drag, no tap-to-edit
   if (e.pointerType === 'mouse' && e.button !== 0) return
   startX = e.clientX; startY = e.clientY
   candidate = true; dragging = false
@@ -189,7 +191,7 @@ function onPointerCancel() {
   <div class="nn-node">
     <!-- Read-only content node (from a leading blockquote): text / image / formula, half-border. -->
     <div v-if="isContent" class="nn-box nn-content" :data-nid="node.id">
-      <MarkdownContent :content="node.content || ''" :paper-id="paperId" :disable-highlights="true" class="nn-content-md" />
+      <MarkdownContent :content="node.content || ''" :paper-id="paperId" :disable-highlights="true" :public-note="readonly" class="nn-content-md" />
     </div>
 
     <!-- Heading / center node: tap to edit, drag to restructure, actions in a hover tooltip. -->
@@ -197,7 +199,7 @@ function onPointerCancel() {
       v-else
       ref="boxRef"
       class="nn-box"
-      :class="{ 'nn-root': isCenter, 'nn-drop': noteDrag.overId === node.id, 'nn-dragging': noteDrag.draggingId === node.id }"
+      :class="{ 'nn-root': isCenter, 'nn-readonly': readonly, 'nn-drop': noteDrag.overId === node.id, 'nn-dragging': noteDrag.draggingId === node.id }"
       :data-nid="node.id"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
@@ -229,7 +231,7 @@ function onPointerCancel() {
     </Teleport>
 
     <div v-if="node.children.length" class="nn-kids">
-      <NoteNode v-for="c in node.children" :key="c.id" :node="c" :paper-id="paperId" />
+      <NoteNode v-for="c in node.children" :key="c.id" :node="c" :paper-id="paperId" :readonly="readonly" />
     </div>
   </div>
 </template>
@@ -247,6 +249,8 @@ function onPointerCancel() {
 }
 .nn-box:hover { border-color: var(--ring); }
 .nn-root { border-color: var(--primary); font-weight: 600; cursor: pointer; }
+.nn-readonly { cursor: default; }
+.nn-readonly:hover { border-color: var(--border); }
 .nn-drop { outline: 2px solid var(--primary); outline-offset: 1px; }
 .nn-dragging { opacity: 0.5; }
 .nn-title { overflow: hidden; text-overflow: ellipsis; }

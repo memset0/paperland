@@ -20,7 +20,9 @@ import type { HighlightColor } from '@paperland/shared'
 // highlights, no highlight click-menu. Anchor-link and KaTeX-copy clicks still work.
 // Used by the walkthrough view, whose dynamically-assembled content is incompatible with
 // the content-hash-keyed highlight model.
-const props = defineProps<{ content: string; highlightPathname?: string; paperId?: number; disableHighlights?: boolean }>()
+// `publicNote` renders another user's note: Q&A/block (`?h=`) anchors are made inert (they
+// resolve against THIS viewer's Q&A, not the author's), while PDF (`?pdf=`) anchors stay live.
+const props = defineProps<{ content: string; highlightPathname?: string; paperId?: number; disableHighlights?: boolean; publicNote?: boolean }>()
 
 const highlightStore = useHighlightStore()
 const auth = useAuthStore()
@@ -72,6 +74,9 @@ function renderAndHighlight() {
 
   // Render markdown to HTML
   el.innerHTML = md.render(props.content)
+
+  // Public-note mode: neutralize Q&A/block anchors so they can't resolve against this viewer's Q&A.
+  if (props.publicNote) deactivateBlockAnchors(el)
 
   // Apply highlights after DOM update
   nextTick(() => {
@@ -220,6 +225,23 @@ function parsePaperlandUrl(href: string): { paperId: number; hash: string | null
   }
 }
 
+/**
+ * Public-note mode: turn Q&A/block (`?h=`) anchors into inert plain text (a `?h=` target
+ * resolves against the current viewer's Q&A, so it's meaningless on someone else's note).
+ * PDF (`?pdf=`) anchors and bare paper links are left untouched (still clickable).
+ */
+function deactivateBlockAnchors(el: HTMLElement) {
+  for (const a of Array.from(el.querySelectorAll('a[href^="paperland://"]'))) {
+    const target = parsePaperlandUrl(a.getAttribute('href') || '')
+    if (target && target.pdf == null && target.hash != null) {
+      const span = document.createElement('span')
+      span.className = 'anchor-inert'
+      span.textContent = a.textContent || ''
+      a.replaceWith(span)
+    }
+  }
+}
+
 /** Intercept clicks on `paperland://` links: jump in-app instead of navigating the browser. */
 function onAnchorLinkClick(e: MouseEvent | Event) {
   const a = (e.target as Element)?.closest('a[href^="paperland://"]') as HTMLAnchorElement | null
@@ -228,6 +250,8 @@ function onAnchorLinkClick(e: MouseEvent | Event) {
   e.stopPropagation()
   const target = parsePaperlandUrl(a.getAttribute('href') || '')
   if (!target) return
+  // Backstop for public-note mode: never resolve a Q&A/block target against this viewer's Q&A.
+  if (props.publicNote && target.pdf == null && target.hash != null) return
   const onSamePaper = route.name === 'paper-detail' && parseInt(route.params.id as string, 10) === target.paperId
 
   // PDF target → embedded viewer (takes precedence over a block target).
@@ -515,6 +539,8 @@ onBeforeUnmount(() => {
    overflow-wrap is inherited, so this covers p / li / headings too. Code blocks
    (<pre>) keep white-space:pre + their own overflow-x:auto and are unaffected. */
 .markdown-content { overflow-wrap: anywhere; }
+/* Inert Q&A/block anchor in public-note mode: looks like its text, not actionable. */
+.markdown-content :deep(.anchor-inert) { color: var(--muted-foreground); text-decoration: underline dotted; text-underline-offset: 2px; cursor: default; }
 .markdown-content :deep(h1) { font-size: 1.25em; font-weight: 700; margin: 1em 0 0.5em; }
 .markdown-content :deep(h2) { font-size: 1.125em; font-weight: 600; margin: 0.8em 0 0.4em; }
 .markdown-content :deep(h3) { font-size: 1em; font-weight: 600; margin: 0.6em 0 0.3em; }

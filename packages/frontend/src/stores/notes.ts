@@ -26,9 +26,26 @@ export const useNotesStore = defineStore('notes', () => {
   const loading = ref(false)
   const panelMode = ref<PanelMode>('render')
   const undoStack = ref<string[]>([])
+  const windowsStore = useWindowsStore()
 
   const tree = computed<NoteDocTree>(() => parseNoteDoc(body.value))
   const canUndo = computed(() => undoStack.value.length > 0)
+  /** Whether the whole-document floating editor is open for the current paper. */
+  const docWindowOpen = computed(() => {
+    const id = currentPaperId.value
+    return id != null && windowsStore.windows.some((w) => w.paperId === id && w.kind === 'doc')
+  })
+  /** Whether the user marked this note's reading complete. */
+  const completed = computed(() => noteRow.value?.completed === true)
+  /** Whether this note is published (readable by anyone). */
+  const isPublic = computed(() => noteRow.value?.is_public === true)
+  /** Shareable deep-link to this note (empty until the note row + paper exist). */
+  const shareLink = computed(() => {
+    const id = noteRow.value?.id
+    const pid = currentPaperId.value
+    if (id == null || pid == null) return ''
+    return `${window.location.origin}/papers/${pid}?note=${id}`
+  })
   /** Count of nodes (sections + the preamble/center) whose content is non-empty after trimming. */
   const noteCount = computed(() => {
     const sections = flattenSections(tree.value).filter((s) => s.leafBody.trim() !== '').length
@@ -96,9 +113,38 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   function setPanelMode(mode: PanelMode) {
+    // The left panel is locked to render while the whole-document editor is open.
+    if (docWindowOpen.value && mode !== 'render') return
     // Entering full-document editing closes floating windows (mutually-exclusive contexts).
     if (mode !== 'render') closeWindows()
     panelMode.value = mode
+  }
+
+  /** Open the whole-document floating editor: lock the left panel to render; the windows store
+   *  closes any section windows (mutual exclusion). */
+  function openDocEditor() {
+    const paperId = currentPaperId.value
+    if (paperId == null) return
+    panelMode.value = 'render'
+    windowsStore.open({ paperId, kind: 'doc', sectionId: null, title: 'Note' })
+  }
+
+  /** Mark the note's reading complete (or not). No-op when completing an empty note. */
+  async function toggleCompleted(next: boolean) {
+    const paperId = currentPaperId.value
+    if (paperId == null) return
+    if (next && body.value.trim() === '') return
+    const res = await notesApi.setCompleted(paperId, next)
+    if (currentPaperId.value === paperId && res?.data) noteRow.value = res.data
+  }
+
+  /** Publish / unpublish this note. No-op when publishing an empty note. */
+  async function setPublic(next: boolean) {
+    const paperId = currentPaperId.value
+    if (paperId == null) return
+    if (next && body.value.trim() === '') return
+    const res = await notesApi.setVisibility(paperId, next)
+    if (currentPaperId.value === paperId && res?.data) noteRow.value = res.data
   }
 
   // ── Leaf editing (floating windows) ──
@@ -178,9 +224,9 @@ export const useNotesStore = defineStore('notes', () => {
     // state
     currentPaperId, body, noteRow, loading, panelMode, undoStack,
     // computed
-    tree, noteCount, canUndo,
+    tree, noteCount, canUndo, docWindowOpen, completed, isPublic, shareLink,
     // actions
-    fetchForPaper, setBody, setPanelMode, updateLeaf, updatePreamble,
+    fetchForPaper, setBody, setPanelMode, openDocEditor, toggleCompleted, setPublic, updateLeaf, updatePreamble,
     reparent, remove, rename, addChild, addSibling, undo,
     structureKey, sectionBaseline, getSection,
   }

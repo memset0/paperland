@@ -121,7 +121,7 @@ export const usersApi = {
 }
 
 // Notes API
-import type { Note, NoteWithPaper } from '@paperland/shared'
+import type { Note, NoteWithPaper, NoteWithAuthor, PublicNoteSummary } from '@paperland/shared'
 
 export const notesApi = {
   // Raw fetch: owner-scoped read returns no note for anonymous (and degrades silently
@@ -161,7 +161,48 @@ export const notesApi = {
     return { ok: true, data: json.data as Note }
   },
 
-  listAll: () => api.get<{ data: NoteWithPaper[] }>('/api/notes'),
+  // Cross-paper aggregate. `scope=all` lists everyone's public notes (+ own); admins may pass
+  // `include_private` to also pull others' unpublished notes. Default (no opts) = the caller's own.
+  listAll: (opts?: { scope?: 'mine' | 'all'; include_private?: boolean }) => {
+    const qs = new URLSearchParams()
+    if (opts?.scope) qs.set('scope', opts.scope)
+    if (opts?.include_private) qs.set('include_private', 'true')
+    const q = qs.toString()
+    return api.get<{ data: NoteWithAuthor[] }>(`/api/notes${q ? `?${q}` : ''}`)
+  },
+
+  // Toggle the note's "reading complete" flag (the note must already exist).
+  setCompleted: (paperId: number, completed: boolean) =>
+    api.post<{ data: Note }>(`/api/papers/${paperId}/note/completed`, { completed }),
+
+  // Publish / unpublish the caller's note (the note must already exist and be non-empty).
+  setVisibility: (paperId: number, is_public: boolean) =>
+    api.put<{ data: Note }>(`/api/papers/${paperId}/note/visibility`, { is_public }),
+
+  // Body-less list of OTHER users' public notes for a paper (right-panel section). Degrades to
+  // empty for anonymous / not-yet-ready routes.
+  async listPublicForPaper(paperId: number): Promise<{ data: PublicNoteSummary[] }> {
+    try {
+      const res = await fetch(`/api/papers/${paperId}/public-notes`, { credentials: 'same-origin' })
+      if (!res.ok) return { data: [] }
+      return await res.json()
+    } catch {
+      return { data: [] }
+    }
+  },
+
+  // Fetch one note's full content with author (public / own / admin authorized). Returns null when
+  // unavailable (404 / not readable), so callers can surface their own "note unavailable" notice.
+  async getById(noteId: number): Promise<NoteWithAuthor | null> {
+    try {
+      const res = await fetch(`/api/notes/${noteId}`, { credentials: 'same-origin' })
+      if (!res.ok) return null
+      const json = await res.json().catch(() => null as any)
+      return (json?.data ?? null) as NoteWithAuthor | null
+    } catch {
+      return null
+    }
+  },
 }
 
 // Reference links API

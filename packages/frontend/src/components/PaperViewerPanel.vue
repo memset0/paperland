@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { FileText } from '@lucide/vue'
 import PdfViewer from '@/components/PdfViewer.vue'
 import NoteWalkthrough from '@/components/notes/NoteWalkthrough.vue'
-import { useNotesStore } from '@/stores/notes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { requestedPdfTarget } from '@/composables/usePdfNavigation'
+import { requestedPublicNote } from '@/composables/usePublicNoteOpen'
 
 interface ViewerMode {
   id: string
@@ -20,8 +21,6 @@ const props = defineProps<{
   arxivId: string | null
   paperId?: number | null
 }>()
-
-const notesStore = useNotesStore()
 
 const modes = computed<ViewerMode[]>(() => {
   const list: ViewerMode[] = []
@@ -38,11 +37,12 @@ const modes = computed<ViewerMode[]>(() => {
     type: 'iframe',
     url: props.arxivId ? `https://hjfy.top/arxiv/${props.arxivId}` : null,
   })
-  // Walkthrough renders the small-notes tree as one Markdown doc; only when notes exist.
+  // The note document view ("Note") is always available — it renders an empty state when the
+  // paper has no note yet (or for anonymous users).
   list.push({
     id: 'walkthrough',
-    label: 'Walk-through',
-    available: notesStore.noteCount > 0,
+    label: 'Note',
+    available: true,
     type: 'walkthrough',
   })
   return list
@@ -62,6 +62,18 @@ watch(availableModes, (newModes) => {
 watch(requestedPdfTarget, (t) => {
   if (t && props.pdfPath && activeId.value !== 'pdf') activeId.value = 'pdf'
 })
+
+// A `?note=` deep link (another user's public note) activates the Note tab; PublicNotesPanel
+// then expands that entry and scrolls to it.
+watch(requestedPublicNote, (r) => {
+  if (r && activeId.value !== 'walkthrough') activeId.value = 'walkthrough'
+})
+
+// Opened from the paper list's note-status link (`?view=note`): activate the "Note" tab.
+const route = useRoute()
+watch(() => route.query.view, (v) => {
+  if (v === 'note' && availableModes.value.some((m) => m.id === 'walkthrough')) activeId.value = 'walkthrough'
+}, { immediate: true })
 </script>
 
 <template>
