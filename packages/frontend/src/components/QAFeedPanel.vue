@@ -5,7 +5,7 @@ import { useHighlightStore } from '@/stores/highlights'
 import type { QAFeedEntry } from '@paperland/shared'
 import {
   CheckCircle2, Loader2, AlertCircle,
-  RefreshCw, ExternalLink
+  RefreshCw, ExternalLink, User
 } from '@lucide/vue'
 import QAResultView from './QAResultView.vue'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -88,7 +88,17 @@ async function onDeleteResult(resultId: number) {
       >
         <ExternalLink class="h-3 w-3 inline mr-0.5 -mt-0.5" />{{ entry.paper_title }}
       </router-link>
-      <span class="ml-auto shrink-0 text-[10px] text-muted-foreground">{{ formatDate(entry.created_at) }}</span>
+      <!-- Asker username only matters when viewing all users' Q&A (admin all-scope). -->
+      <span
+        v-if="store.feedScope === 'all' && entry.username"
+        class="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
+      >
+        <User class="h-2.5 w-2.5" />{{ entry.username }}
+      </span>
+      <span
+        class="shrink-0 text-[10px] text-muted-foreground"
+        :class="!(store.feedScope === 'all' && entry.username) && 'ml-auto'"
+      >{{ formatDate(entry.created_at) }}</span>
     </div>
 
     <Collapsible v-model:open="isOpen">

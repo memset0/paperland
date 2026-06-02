@@ -252,7 +252,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 |------|------|------|
 | PDF 原文 | 论文有 `pdf_path` | 嵌入式 **pdf.js** 查看器（PdfViewer 组件，见下方「嵌入式 pdf.js 查看器」） |
 | 幻觉翻译 | 论文有 `arxiv_id` | 嵌入 `https://hjfy.top/arxiv/{arxiv_id}` iframe |
-| Walk-through | 该 (用户, 论文) 有非空笔记（`store.noteCount > 0`） | 整篇大笔记的三模式文档视图（render / edit / split，见下方「Walk-through / 文档视图」） |
+| Note | **始终可用**（空笔记/匿名时渲染空状态） | 整篇大笔记的三模式文档视图（render / edit / split，见下方「Note / 文档视图」）；从论文列表 note 列点进来（`?view=note`）会自动选中此 Tab |
 
 - 自动选中第一个可用模式（Walk-through 排在 modes 数组末位，PDF/幻觉翻译优先；笔记加载后该 Tab 才出现，且不抢占当前选中）
 - 无可用模式时显示占位提示
@@ -471,9 +471,9 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 | 入口 | 说明 |
 |------|------|
 | 论文详情页内嵌 | 针对当前论文提问，paper_id 自动绑定，展示模板提问和自由提问 |
-| 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接，支持重新生成、删除、复制、Pin 等操作 |
+| 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接，支持重新生成、删除、复制、Pin 等操作。默认仅展示当前用户自己的提问；**管理员**额外可在标题栏切换「My Q&A / All Q&A」查看所有用户的提问，此时每条额外显示提问者用户名 |
 
-**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = **card 外上方的一行「论文标题（左，可用整行、不截断成窄宽）+ 提问时间（`ml-auto` 右对齐）」** + 下方一张内容简单的 shadcn `Card`。这样论文标题作为分组标签放在卡外，card 内层级更简单。card 由 `<Collapsible v-model:open>` 驱动展开/折叠（`CollapsibleTrigger as-child` 套在 `CardHeader` 上，合并后 DOM 的 `data-slot` 为 `collapsible-trigger`；`CollapsibleContent` 是卡片体，头/体间用 `<Separator>` 分隔）。card 头部保持**单行**：状态图标（`Tooltip` 标注 已完成/生成中/生成失败）+ **加粗问题**（`font-semibold`，与详情页问题一致）+ 右侧回答数或模型 `Badge`，**无展开 chevron**（整行可点切换）。论文链接在 card 外，点击只跳转、不影响折叠。组件根是单个 `<div>`（论文行 + card + 对话框），使外层列表的 `space-y-3` 按"条目"分隔。重新生成对话框用 `Checkbox` + `Label` 行做模型多选。卡片体复用 `QAResultView.vue`（多模型 `Tabs`、markdown、操作按钮）——其图标操作（Pin/复制/重生成/删除）改用 `Tooltip` 标注、分隔用 `Separator`，论文详情页同享此改进。页面外壳 `QAPage.vue` 在 `AppPage` 的 `#actions` 槽放刷新按钮（加载时 spin），加载态用一组**结构化骨架卡**（与真实条目同构：card 外的论文/时间行 + card 内的 状态点/问题行/badge 的 `Skeleton` 块；数量取 `feedPagination.page_size`（即一页条数）而非写死，使加载前后列表高度一致、不跳动）。注意：列表/骨架的滚动容器要带 `pt`（如 `pt-2`），否则 `overflow-y-auto` 会把最上方卡片的 ring 描边裁掉。`Skeleton` 组件默认底色已从 shadcn 原版的 `bg-accent` 改为 `bg-foreground/10`——本主题把 `--accent` 定制成了蓝色（同 primary），原版骨架会变成蓝块。**分页**：feed 走后端分页（`GET /api/qa/free?page=&page_size=`，默认 20/页，返回 `{ data, pagination }`，复用 `PaginatedResponse<T>`，与论文列表一致）；`QAPage` 在 fill 布局底部固定 上一页/下一页 + "当前/总页数" 控件（`total_pages > 1` 时显示），翻页后把列表滚回顶部；轮询只重拉当前页。**性能**：模型列表（重新生成对话框用）由 `QAPage` 在页面级经 store 的 `fetchModels()` 只请求一次、通过 `store.availableModels` 共享给所有卡片——此前每张 `QAFeedPanel` 都在 `onMounted` 各发一次 `/api/config/models`，条目多时（如 200+）会产生上百个重复请求,是页面卡顿的主因。
+**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = **card 外上方的一行「论文标题（左，可用整行、不截断成窄宽）+ 提问时间（`ml-auto` 右对齐）」** + 下方一张内容简单的 shadcn `Card`。这样论文标题作为分组标签放在卡外，card 内层级更简单。card 由 `<Collapsible v-model:open>` 驱动展开/折叠（`CollapsibleTrigger as-child` 套在 `CardHeader` 上，合并后 DOM 的 `data-slot` 为 `collapsible-trigger`；`CollapsibleContent` 是卡片体，头/体间用 `<Separator>` 分隔）。card 头部保持**单行**：状态图标（`Tooltip` 标注 已完成/生成中/生成失败）+ **加粗问题**（`font-semibold`，与详情页问题一致）+ 右侧回答数或模型 `Badge`，**无展开 chevron**（整行可点切换）。论文链接在 card 外，点击只跳转、不影响折叠。组件根是单个 `<div>`（论文行 + card + 对话框），使外层列表的 `space-y-3` 按"条目"分隔。重新生成对话框用 `Checkbox` + `Label` 行做模型多选。卡片体复用 `QAResultView.vue`（多模型 `Tabs`、markdown、操作按钮）——其图标操作（Pin/复制/重生成/删除）改用 `Tooltip` 标注、分隔用 `Separator`，论文详情页同享此改进。页面外壳 `QAPage.vue` 在 `AppPage` 的 `#actions` 槽放刷新按钮（加载时 spin），加载态用一组**结构化骨架卡**（与真实条目同构：card 外的论文/时间行 + card 内的 状态点/问题行/badge 的 `Skeleton` 块；数量取 `feedPagination.page_size`（即一页条数）而非写死，使加载前后列表高度一致、不跳动）。注意：列表/骨架的滚动容器要带 `pt`（如 `pt-2`），否则 `overflow-y-auto` 会把最上方卡片的 ring 描边裁掉。`Skeleton` 组件默认底色已从 shadcn 原版的 `bg-accent` 改为 `bg-foreground/10`——本主题把 `--accent` 定制成了蓝色（同 primary），原版骨架会变成蓝块。**分页**：feed 走后端分页（`GET /api/qa/free?page=&page_size=&scope=`，默认 20/页，返回 `{ data, pagination }`，复用 `PaginatedResponse<T>`，与论文列表一致）；`QAPage` 在 fill 布局底部固定 上一页/下一页 + "当前/总页数" 控件（`total_pages > 1` 时显示），翻页后把列表滚回顶部；轮询只重拉当前页。**管理员视图范围（scope）**：`scope` 取 `mine`（默认，仅自己）或 `all`（所有用户）；`all` 仅对管理员生效，后端对非管理员强制降级为 `mine`（不信任前端）。store 持有 `feedScope` 并在请求时带上 `&scope=`；`QAPage` 仅在 `auth.isAdmin` 时于 `#actions` 槽渲染 My Q&A / All Q&A 分段切换，切换即从第 1 页重拉。后端每条返回 `user_id`/`username`（创建者），`QAFeedPanel` 仅在 `scope==='all'` 且有 `username` 时于论文/时间行右侧显示提问者用户名。**性能**：模型列表（重新生成对话框用）由 `QAPage` 在页面级经 store 的 `fetchModels()` 只请求一次、通过 `store.availableModels` 共享给所有卡片——此前每张 `QAFeedPanel` 都在 `onMounted` 各发一次 `/api/config/models`，条目多时（如 200+）会产生上百个重复请求,是页面卡顿的主因。
 
 ### 2.5 提问的文本上下文来源
 
@@ -848,8 +848,8 @@ models:
 
 | 层级 | 范围 |
 |------|------|
-| **公开（免登录）** | 论文列表 / 详情、模板问答（template Q&A）、PDF / 查看器、`/api/health`、`login`、`me` |
-| **公开但按属主过滤** | `GET /api/papers/:id/qa`（template 全量 + free 仅本人）、`GET /api/highlights`、`GET /api/papers/:id/tags`（匿名返回空、200） |
+| **公开（免登录）** | 论文列表 / 详情、模板问答（template Q&A）、PDF / 查看器、`/api/health`、`login`、`me`、**公开笔记读**（`GET /api/papers/:id/public-notes`、`GET /api/notes/:noteId` 公开/属主/管理员）、`GET /api/notes?scope=all`（匿名得公开部分） |
+| **公开但按属主过滤** | `GET /api/papers/:id/qa`（template 全量 + free 仅本人）、`GET /api/highlights`、`GET /api/papers/:id/tags`（匿名返回空、200）、`GET /api/papers/:id/note`（仅本人、含 `is_public`） |
 | **需登录（任意用户）** | 增 / 改 / 删论文、所有问答触发与重生成、高亮增改删、标签管理、`/qa` 列表、Idea Forge、单篇论文服务状态 / 触发、改本人账户 |
 | **仅管理员** | 服务管理 Dashboard（`/api/services*`）、设置页 Token 管理（`/api/settings/tokens*`）、用户管理（`/api/users*`） |
 
@@ -1253,6 +1253,7 @@ Idea Forge 是集成在 Paperland 中的研究想法管理系统。数据存储�
 单表 `notes`（见 tech-stack.md）：每 (用户, 论文) 至多一行，整篇笔记就是一个 `body` 字符串；`(user_id, paper_id)` 唯一索引。无 `kind`/`parent_id`/`title`/`sort_order`、无结构化 anchor 字段（锚点写在 `body` 里，见下）。
 
 - **惰性创建**：没有内容的论文在库中零行，首次写入时才建行。`PUT /api/papers/:id/note` upsert 整篇 body，乐观 `updated_at`（首次创建无需 `updated_at`，409 返回最新）。
+- **可见性（公开/私有）**：`is_public`（整数 0/1，默认 0=私有，经 `toNote()` 在 API 边界转布尔）。`PUT /api/papers/:id/note/visibility { is_public }` 由属主切换（需已存在非空笔记，否则 400；匿名 401；**与 body 自动保存解耦**，不走乐观锁）。公开后任何人（含匿名）可读，详见下方「公开笔记」。
 - **结构来自标题**：前端 `lib/markdown-doc.ts` 把 body 解析成 heading-section 树——层级按 heading **相对深度**（最浅的标题层级即顶层，故 `#` 或 `##` 起头都可用）；每个 section 的「叶子正文」= 该标题到下一个标题之间的文本；第一个标题之前的「前言（preamble）」= 思维导图中心节点的内容。
 - **按内容计数**：`store.noteCount` = 叶子正文非空的 section 数 + 前言非空（中心节点）；空文档不计数、不出现在 `/api/notes` 聚合里。
 - **旧数据迁移**：`db/notes-migration.ts` 的 `migrateNotesToSingleDoc()` 在 `migrate()` 之前运行（需要旧列），把每 (用户, 论文) 的旧笔记树按 walkthrough 方式压平成一篇 Markdown（标题→按深度的 heading、正文跟随、正文内标题重定级、根 body 作前言；无编号）写入存活行、删其余行；随后 drizzle 迁移 `0017` 删旧列 + 建唯一索引。幂等（旧列没了即跳过）、转换前自动备份。
@@ -1312,12 +1313,29 @@ paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=      // 跳到该页并高亮�
 - **split**：编辑器 + render 并排。
 - 进入 edit/split 关闭所有浮窗；任一改动（叶子/结构/整篇）都实时重渲染。无内容时显示「No notes yet」。
 
+**功能栏**（`NoteWalkthrough` 顶部）：左侧 = 精读状态 button group（`Circle` In progress / `CircleCheck` Done，绑 `store.completed`/`store.toggleCompleted`；空笔记时 Done 禁用）+ Last updated 时间；右侧 = `?` 帮助（`NoteHelpDialog`：讲 heading+blockquote 生成思维导图、PDF 框选得图片链接）、**Pop out**（`store.openDocEditor()` 开整篇浮窗编辑器）、三模式开关。
+
+**整篇浮窗编辑器**：`store.openDocEditor()` 开一个 `kind:'doc'` 浮窗（`windows.ts` 按 `${paperId}:doc` 唯一、与 section 浮窗互斥），`NoteEditor` 的 doc 分支直接绑 `store.body`（三视图、不降级 heading）。开启时左侧锁定 render（`store.docWindowOpen` → `NoteWalkthrough` 禁用 edit/split），避免同页两个活跃整篇编辑器；进 edit/split 或开 section 浮窗则关掉它。右栏 notes card 也有同一个入口。
+
 ### 入口与归属
 
-- 论文详情页右栏 `PaperNotesCard`：即思维导图（中心节点 `(root)` + 各 heading）；匿名显示「Sign in to take notes」。左侧查看器 `PaperViewerPanel` 的「Walk-through」Tab 即三模式文档视图（`noteCount > 0` 时出现）。
-- 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：每篇论文一条（聚合 `GET /api/notes`，仅 body 非空）+ 客户端搜索（论文标题 + body），点击跳到 `/papers/:id`。
-- 访问控制沿用 auth：owner-scoped 读（匿名 `{ note: null }` 200）、写 `requireUser` + 属主校验。
+- 论文详情页右栏 `PaperNotesCard`：即思维导图（中心节点 `(root)` + 各 heading）+ 标题栏一个 `ExternalLink` 打开整篇浮窗编辑器；匿名显示「Sign in to take notes」。**Kimi 自动摘要 card 紧贴 notes card 下方**。左侧查看器 `PaperViewerPanel` 的「Note」Tab（始终可用、由 Walk-through 改名）即三模式文档视图。
+- **论文列表 note-status 列**（`views/PaperList.vue`）：按当前用户的 `GET /api/notes`（含 `completed`）建 `paperId → completed` 映射，每行显示三态图标——无笔记 `CircleDashed`（灰）、有笔记 `Circle`、精读完成 `CircleCheck`（primary）；点击 `?view=note` 跳到该论文 Note Tab。
+- 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：每条笔记一行 + 客户端搜索（论文标题 + body + 作者）。**范围切换 Mine / Everyone**（Mine = 自己的；Everyone = 所有人公开的 + 自己的，`GET /api/notes?scope=all`），每行显示作者 `username` + Public/Private 徽章；**管理员**额外有「Include private」开关（`include_private=true`，仅 Everyone 时可见，把别人未公开的也列出）。点击：别人的笔记走 `?note=<id>` 深链（右侧面板自动展开该笔记），自己的笔记直接跳 `/papers/:id`（自己的笔记本就在自己的 Note Tab）。
+- 访问控制沿用 auth：owner-scoped 读（匿名 `{ note: null }` 200）、写 `requireUser` + 属主校验；公开笔记的跨用户读是单独的、对匿名开放的路由（见下）。
 
-### 后端 API（`api/notes.ts`，owner-scoped）
+### 公开笔记 (Public notes)
 
-`GET /api/papers/:id/note`（返回 `{ note }` 或 `{ note: null }`；匿名 200 空）、`PUT /api/papers/:id/note`（upsert 整篇 body + 乐观 `updated_at`；首次创建无需 `updated_at`，stale → 409 带最新；唯一索引冲突回读胜出者）、`GET /api/notes`（跨论文聚合，每篇一条 + `paper_title`，排除空 body；**鉴权在 handler 内联判断而非 `requireUser` preHandler**——本 fastify 版本下 preHandler 发 401 不能可靠中止 GET handler，故内联以免二次发送）。已移除旧的 tree 端点（create/move/subtree-delete/`PUT /root`）与 `ensureRoot`。
+属主可把整篇笔记设为公开，供任何人（含未登录）只读查看其思维导图 + 全文。
+
+- **后端跨用户读**（都不需要登录、各自在 handler 内做授权）：
+  - `GET /api/papers/:id/public-notes` → 该论文**其他用户**的公开非空笔记的**无 body** 摘要列表（`{ id, user_id, username, updated_at }`，匿名不排除任何作者）。供右侧面板懒加载用。
+  - `GET /api/notes/:noteId` → 单篇笔记全文 + 作者（`NoteWithAuthor`）。授权：公开 OR 属主 OR 管理员，否则 **404**（不泄露存在性）。
+- **右侧面板「Public notes from others」**（`components/notes/PublicNotesPanel.vue`，挂在 `NoteWalkthrough` render 区底部）：挂载时拉 `public-notes` 列表，每条**默认折叠 + 不渲染**；首次展开才 `GET /api/notes/:noteId` 取 body 并渲染。永不列出自己的笔记。匿名也可见。
+- **只读渲染**（`components/notes/PublicNoteView.vue`）：**先思维导图、后全文**。思维导图复用 `NoteMindmap` 的 `readonly` + `doc` 模式（传入外部解析的文档树，禁用拖拽/undo/节点操作/点开编辑器；`NoteNode` 同步加 `readonly`）。全文用 `MarkdownContent` 的 `:public-note` 模式渲染——**Q&A/块锚点（`?h=`）失活为普通文本**（`.anchor-inert`，因为它只会对**当前查看者**的 Q&A 寻址、对别人的笔记无意义），**PDF 锚点（`?pdf=`）仍可点**。
+- **属主操作**（`NoteWalkthrough` 顶部功能栏，仅自己的非空笔记可见）：发布/取消发布开关（`Globe`/`Lock`，绑 `store.setPublic`）；公开后出现「复制链接」（`Link2`，复制 `store.shareLink` = `<origin>/papers/<paperId>?note=<noteId>`）。
+- **分享深链 `?note=<id>`**：`PaperDetail.handleNoteDeepLink` 先 `notesApi.getById` 取该笔记——若是**自己的**笔记则 toast 提示「这是你自己的笔记」并**不自动展开**（它本就在自己的 Note Tab）；否则 `requestPublicNote(noteId)`。模块级 `composables/usePublicNoteOpen.ts` 的 `requestedPublicNote` ref（仿 `usePdfNavigation`）解耦：`PaperViewerPanel` 监听后切到「Note」Tab，`PublicNotesPanel` 监听（`immediate`，兼容「面板在请求之后才挂载」）后展开该条 + 懒取 body + 滚动到它，处理完清空请求。取不到（删了/不可读）→ toast「Note unavailable」并停留在论文页。
+
+### 后端 API（`api/notes.ts`，owner-scoped + 公开读）
+
+`GET /api/papers/:id/note`（返回 `{ note }` 或 `{ note: null }`；匿名 200 空；含 `completed` + `is_public` 布尔）、`PUT /api/papers/:id/note`（upsert 整篇 body + 乐观 `updated_at`；首次创建无需 `updated_at`，stale → 409 带最新；唯一索引冲突回读胜出者；**保留 `completed`/`is_public` 不动**）、`POST /api/papers/:id/note/completed`（`{ completed }` 切换精读完成；需已存在笔记行，否则 400；匿名 401；内联鉴权）、`PUT /api/papers/:id/note/visibility`（`{ is_public }` 切换公开；需已存在非空笔记，否则 400；匿名 401；内联鉴权）、`GET /api/papers/:id/public-notes`（其他用户公开非空笔记的无 body 摘要；免登录）、`GET /api/notes/:noteId`（单篇全文 + 作者；公开/属主/管理员可读，否则 404；免登录）、`GET /api/notes`（跨论文聚合，每篇一条 + `paper_title` + `username` + `completed` + `is_public`，排除空 body；`?scope=mine|all`（默认 mine；mine 匿名 401）、`?include_private=true` 仅管理员且 scope=all 时生效；**鉴权在 handler 内联判断而非 `requireUser` preHandler**）。`completed`/`is_public` 在 SQLite 为 0/1，API 边界经 `toNote()` 转布尔。已移除旧的 tree 端点（create/move/subtree-delete/`PUT /root`）与 `ensureRoot`。

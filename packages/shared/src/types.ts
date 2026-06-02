@@ -72,6 +72,8 @@ export interface QAFeedEntry {
   error: string | null
   prompt: string | null
   created_at: string
+  user_id: number | null
+  username: string | null
   results: QAResult[]
 }
 
@@ -282,6 +284,10 @@ export interface Note {
   user_id: number
   paper_id: number
   body: string
+  /** Whether the user marked this note's reading complete. */
+  completed: boolean
+  /** Whether the note is published — readable by anyone, including anonymous visitors. */
+  is_public: boolean
   created_at: string
   updated_at: string
 }
@@ -289,6 +295,23 @@ export interface Note {
 // A note annotated with its paper's title (for the cross-paper /notes aggregate).
 export interface NoteWithPaper extends Note {
   paper_title: string
+}
+
+// A note annotated with its paper title AND author username — used by cross-user
+// reads: the single-note fetch (`GET /api/notes/:noteId`) and the `scope=all`
+// aggregate (`GET /api/notes?scope=all`).
+export interface NoteWithAuthor extends NoteWithPaper {
+  username: string
+}
+
+// A body-less summary of another user's public note for a paper, listed in the
+// right-panel "public notes from others" section (`GET /api/papers/:id/public-notes`).
+// The body is fetched lazily per entry via `GET /api/notes/:noteId`.
+export interface PublicNoteSummary {
+  id: number
+  user_id: number
+  username: string
+  updated_at: string
 }
 
 // ── Heading-section model (derived view of a note document) ──

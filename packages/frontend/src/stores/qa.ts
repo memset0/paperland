@@ -202,6 +202,8 @@ export const useQAStore = defineStore('qa', () => {
   const feedEntries = ref<QAFeedEntry[]>([])
   const feedLoading = ref(false)
   const feedPagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 0 })
+  // Feed scope: 'mine' (own entries, default) or 'all' (every user's — admin only, enforced server-side).
+  const feedScope = ref<'mine' | 'all'>('mine')
   let feedPollTimer: ReturnType<typeof setInterval> | null = null
 
   // Available models for the regenerate dialog. Fetched once and shared across all
@@ -223,7 +225,7 @@ export const useQAStore = defineStore('qa', () => {
     if (showLoading) feedLoading.value = true
     try {
       const res = await api.get<PaginatedResponse<QAFeedEntry>>(
-        `/api/qa/free?page=${page}&page_size=${feedPagination.value.page_size}`,
+        `/api/qa/free?page=${page}&page_size=${feedPagination.value.page_size}&scope=${feedScope.value}`,
       )
       feedEntries.value = res.data
       feedPagination.value = res.pagination
@@ -259,7 +261,7 @@ export const useQAStore = defineStore('qa', () => {
     fetchTemplates, fetchQA, switchPaper, triggerAllTemplates, regenerateTemplate,
     submitFreeQuestion, regenerateEntry, deleteResult,
     startPolling, stopPolling, hasInProgress,
-    feedEntries, feedLoading, feedPagination, fetchFeed, startFeedPolling, stopFeedPolling, feedHasInProgress,
+    feedEntries, feedLoading, feedPagination, feedScope, fetchFeed, startFeedPolling, stopFeedPolling, feedHasInProgress,
     availableModels, fetchModels,
   }
 })

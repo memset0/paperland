@@ -67,20 +67,37 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     return { screenshot_dpi: config.pdf_viewer.screenshot_dpi }
   })
 
-  // List the current user's free QA entries across all papers (for /qa feed page), paginated
-  app.get<{ Querystring: { page?: string; page_size?: string } }>('/api/qa/free', { preHandler: requireUser }, async (request) => {
+  // List free QA entries across all papers (for /qa feed page), paginated. By default returns
+  // only the current user's entries; admins may pass scope=all to see every user's free QA.
+  app.get<{ Querystring: { page?: string; page_size?: string; scope?: string } }>('/api/qa/free', { preHandler: requireUser }, async (request) => {
     const db = getDatabase()
     const userId = request.user!.id
     const page = parseInt(request.query.page || '1', 10)
     const pageSize = parseInt(request.query.page_size || '20', 10)
+    // scope=all is honored only for admins; any non-admin request is downgraded to own entries.
+    const allScope = request.query.scope === 'all' && request.user!.role === 'admin'
 
+    const where = allScope
+      ? eq(schema.qaEntries.type, 'free')
+      : and(eq(schema.qaEntries.type, 'free'), eq(schema.qaEntries.user_id, userId))
     const entries = db.select().from(schema.qaEntries)
-      .where(and(eq(schema.qaEntries.type, 'free'), eq(schema.qaEntries.user_id, userId)))
+      .where(where)
       .orderBy(desc(schema.qaEntries.created_at))
       .all()
 
     const total = entries.length
     const pageEntries = entries.slice((page - 1) * pageSize, page * pageSize)
+
+    // Resolve creator usernames once for this page (small, bounded by page_size).
+    const usernameById = new Map<number, string>()
+    for (const entry of pageEntries) {
+      if (entry.user_id != null && !usernameById.has(entry.user_id)) {
+        const u = db.select({ username: schema.users.username }).from(schema.users)
+          .where(eq(schema.users.id, entry.user_id))
+          .get()
+        if (u) usernameById.set(entry.user_id, u.username)
+      }
+    }
 
     const data = []
     for (const entry of pageEntries) {
@@ -101,6 +118,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
         error: entry.error,
         prompt: results[0]?.prompt || null,
         created_at: entry.created_at,
+        user_id: entry.user_id ?? null,
+        username: entry.user_id != null ? (usernameById.get(entry.user_id) ?? null) : null,
         results,
       })
     }
