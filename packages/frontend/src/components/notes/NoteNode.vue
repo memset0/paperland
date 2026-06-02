@@ -237,14 +237,14 @@ function onPointerCancel() {
 </template>
 
 <style scoped>
-.nn-node { display: flex; align-items: center; }
+.nn-node { display: flex; align-items: center; --nn-node-max-width: 360px; }
 .nn-box {
   position: relative;
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px;
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--card); cursor: pointer;
-  font-size: 13px; white-space: nowrap; max-width: 240px;
+  font-size: 13px; white-space: normal; max-width: var(--nn-node-max-width);
   touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .nn-box:hover { border-color: var(--ring); }
@@ -253,14 +253,14 @@ function onPointerCancel() {
 .nn-readonly:hover { border-color: var(--border); }
 .nn-drop { outline: 2px solid var(--primary); outline-offset: 1px; }
 .nn-dragging { opacity: 0.5; }
-.nn-title { overflow: hidden; text-overflow: ellipsis; }
+.nn-title { overflow-wrap: anywhere; }
 .nn-count { flex-shrink: 0; color: var(--muted-foreground); font-size: 11px; pointer-events: none; }
 
 /* Content node: read-only, no full border — only a bottom "tray" (lower half of the left/right
    edges + bottom edge + rounded bottom corners), content sitting above it. */
 .nn-content {
   border: none; background: transparent; cursor: default;
-  padding: 2px 10px 3px; white-space: normal; max-width: 260px;
+  padding: 2px 10px 3px; white-space: normal; max-width: var(--nn-node-max-width);
   touch-action: auto; user-select: text; -webkit-user-select: text;
 }
 .nn-content::after {
