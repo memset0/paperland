@@ -353,16 +353,27 @@ export interface NoteDocTree {
 }
 
 // Per-user reference link attached to a paper (blog post, project page, …).
-// `title` and `url` are required; `description` is optional.
+// Only `url` is required. `title` is an optional label kept for legacy rows and as
+// a display fallback; `description` is auto-derived from the page at preview time
+// (`${document.title} (${hostname})`). Display label resolves `title → description → url`.
 export interface PaperReferenceLink {
   id: number
   user_id: number
   paper_id: number
-  title: string
+  title: string | null
   url: string
   description: string | null
   created_at: string
   updated_at: string
+}
+
+// Result of crawling a url server-side to derive a reference link's description.
+// `title` is the raw page `<title>` (null if unavailable); `description` is the
+// composed `${title} (${hostname})` (or null when the page could not be crawled).
+export interface ReferenceLinkPreview {
+  title: string | null
+  hostname: string
+  description: string | null
 }
 
 // Conferences

@@ -199,11 +199,14 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 信息卡片中（标签区块下方）有「参考链接」区块（`components/ReferenceLinksSection.vue`），用于挂载论文之外的外部资源（博客解读、项目主页、讨论帖等）。**按 用户×论文 私有**（与笔记/标签一致，匿名只读返回空）。
 
-- 每条链接含 `title`（标题，必填）、`url`（链接，必填）、`description`（描述，可选）；标题渲染为超链接，`target="_blank" rel="noopener noreferrer"` 新标签页打开，描述作为次要灰字显示在标题下方
-- 列表按添加顺序（`created_at` 升序）展示；每条 hover 显示编辑 / 删除按钮
-- 标题旁「+」按钮（无链接时为 "+ 添加链接"）展开内联表单（标题 / 链接 / 描述三个输入），增删改后就地刷新，不整页刷新
-- 组件自取自管（`referenceLinksApi`：`getForPaper` / `create` / `update` / `remove`），无需 Pinia store；宽屏 split view 与窄屏 single column 两处均渲染
-- 后端 `GET|POST /api/papers/:id/reference-links`、`PATCH|DELETE /api/reference-links/:id`，写操作经 `requireUser` + owner 校验，`url` 仅放行 http/https
+- 每条链接**只有 `url` 必填**；`description`（描述）由后端爬取链接页 `<title>` 自动生成，形如 `${document.title} (${hostname})`（例：`Build software better, together (github.com)`），**用户不可手动编辑**；`title` 为可选字段，仅保留给历史数据 / 显示回退
+- **显示标签按回退链 `title → description → url` 解析**：有 `title` 用 `title`（历史数据），否则用自动 `description`，再否则用原始 `url`。链接渲染为超链接，`target="_blank" rel="noopener noreferrer"` 新标签页打开；当 `title` 与 `description` 同时存在时，`description` 作为次要灰字显示在标题下方
+- 列表按添加顺序（`created_at` 升序）展示
+- **管理控件（「+」添加、编辑、删除）仅对已登录用户显示**（`useAuthStore().isAuthenticated` 门控；匿名用户看不到任何增删改入口）；编辑/删除按钮常驻显示（hover 加深），删除前用 `window.confirm` 弹窗二次确认
+- 内联表单只有一个 URL 输入：用户输入合法 http(s) 链接后，前端 debounce（~500ms，回车/保存前也会触发）调用 `referenceLinksApi.preview(url)` 自动拉取描述，期间显示加载态，结果作为只读次要文字预览；保存提交 `{ url, description }`（不含 title），增删改后就地刷新，不整页刷新
+- 组件自取自管（`referenceLinksApi`：`getForPaper` / `preview` / `create` / `update` / `remove`），无需 Pinia store；宽屏 split view 与窄屏 single column 两处均渲染
+- 后端 `GET|POST /api/papers/:id/reference-links`、`GET /api/reference-links/preview?url=…`、`PATCH|DELETE /api/reference-links/:id`，写操作与 preview 均经 `requireUser`（preview 同时只放行登录用户，避免成为开放抓取代理）+ owner 校验，`url` 仅放行 http/https
+- preview 端点服务端抓取链接页 `<title>`：超时 / 最大字节数 / User-Agent 由 `config.yml` 的 `reference_links` 配置块控制；抓取失败（超时、非 2xx、无 `<title>`）不报错而是返回 `description: null`，链接仍可仅凭 url 保存（显示回退到 url）
 
 #### 删除论文
 
@@ -254,11 +257,12 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 | 幻觉翻译 | 论文有 `arxiv_id` | 嵌入 `https://hjfy.top/arxiv/{arxiv_id}` iframe |
 | Note | **始终可用**（空笔记/匿名时渲染空状态） | 整篇大笔记的三模式文档视图（render / edit / split，见下方「Note / 文档视图」）；从论文列表 note 列点进来（`?view=note`）会自动选中此 Tab |
 
-- 自动选中第一个可用模式（Walk-through 排在 modes 数组末位，PDF/幻觉翻译优先；笔记加载后该 Tab 才出现，且不抢占当前选中）
+- 默认选中第一个可用的**主查看器**（PDF / 幻觉翻译），Note 永不作为自动默认——除非它是唯一可用模式（论文既无 `pdf_path` 也无 `arxiv_id`）。这是因为 Note Tab **始终可用**，而面板在 paper 数据（`pdf_path`/`arxiv_id`）加载前就挂载了：若按「第一个可用模式」选，加载窗口期只有 Note 可用就会被选中，且加载完成后 Note 仍有效便不会切走。故默认逻辑用 `pickDefault()` 跳过 Note，并在主模式后到时重新选中它
+- 用户的**显式选择**（点击 Tab，或 `?view=note`/`?note=`/`?pdf=` 深链）会置 `userChose` 标志，此后 available 模式集变化不再覆盖该选择（仅当所选模式消失才重选）
 - 无可用模式时显示占位提示
 - 模式系统可扩展：添加新模式只需在 modes 数组中增加条目
-- Walk-through Tab 的可用性来自 `useNotesStore().noteCount`，故 `PaperViewerPanel` 直接读 notes store（笔记由始终挂载的 `PaperNotesCard` 拉取）
-- `PaperViewerPanel` 还监听 `usePdfNavigation` 的 `requestedPdfTarget`：一旦有 PDF 锚点跳转请求且 PDF 可用，自动把 active Tab 切到「PDF 原文」
+- Note Tab 始终可用（`available: true`），内容是当前论文那篇单文档笔记（空笔记/匿名时渲染空状态），由始终挂载的 `PaperNotesCard` 负责拉取
+- `PaperViewerPanel` 还监听 `usePdfNavigation` 的 `requestedPdfTarget`：一旦有 PDF 锚点跳转请求且 PDF 可用，自动把 active Tab 切到「PDF 原文」（并置 `userChose`）
 
 #### 嵌入式 pdf.js 查看器（PdfViewer）
 
@@ -497,6 +501,21 @@ content_priority:
 ### 渲染组件
 
 `MarkdownContent.vue` 是全站统一的 Markdown 渲染组件，基于 `markdown-it` + `@traptitech/markdown-it-katex` + `KaTeX`。
+
+### 图片宽度指令（alt 文本 `w=`）
+
+在图片 **alt 文本**里写一个 `w=` token 控制该图渲染宽度（约定语法，作者手写，类似 `paperland://` 锚点）：
+
+| 写法 | 效果 |
+|------|------|
+| `w=sm` / `w=md` / `w=lg` | 选三档预设 `max-width`（默认 **240 / 480 / 720 px**，见 config.yml `notes.image_width_tiers`） |
+| `w=100`（直接数字） | 显式设 `max-width` 为该像素值（钳制到 `[16, 4096]`；0/负数/未知关键字 → 无指令） |
+| 无 `w=` token | 不变：`width:100%` 充满列宽，仅受容器约束 |
+
+- **仅作上限、不溢出**：指令只叠加一个 `max-width`，不替换默认的 `width:100%`。实现为 `max-width: min(档位值, 100%)`，所以无论档位多大都不会超出容器宽度。
+- **解析时机**：在 `renderAndHighlight()` 渲染后那次 DOM 遍历里（与高亮同一处），`parseImageWidthDirective(alt)` 用正则 `(?:^|\s)w=(sm|md|lg|\d+)(?=\s|$)`（大小写不敏感、词边界）抠出**第一个**有效 token，把它从 alt 里剥掉（`![figure 1 w=md]` → alt 变 `figure 1`），档位加 class `md-img-w-{sm|md|lg}`、数字写内联 `style.maxWidth`。对带锚点的截图 `[![w=lg](url)](paperland://…)` 同样生效（`<img>` 仍带 alt，外层 `<a>` 不动）。
+- **档位值可配置**：三档 px 来自 `config.yml` 的 `notes.image_width_tiers`，前端登录后经 `GET /api/config/notes`（`configApi.notes()`）拉取，由 `App.vue` 注入为 `:root` 的 `--note-img-w-sm/md/lg` CSS 变量；scoped CSS 用 `var(--note-img-w-md, 480px)` 形式，**把设计默认值作为 fallback**，所以公开/匿名笔记（不拉 config）也按 240/480/720 正确渲染。
+- **不影响思维导图**：指令只作用于笔记**直接渲染**。`MarkdownContent` 的 `applyImageWidth`（默认 `true`）prop 为 `false` 时（`NoteNode` 内容节点）只剥 token、不加宽度上限，思维导图图片尺寸仍由节点布局决定。（将来若要让思维导图也响应，此 prop 即接入点。）
 
 ### 数学公式支持
 
@@ -1296,7 +1315,8 @@ paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=      // 跳到该页并高亮�
 
 - `stores/windows.ts`：多窗管理、z-index 栈、全局尺寸记忆（localStorage）。窗口按 `${paperId}:${sectionId ?? 'preamble'}` 唯一键——一个 section 至多一个窗（再次打开只聚焦）。
 - `FloatingNoteWindow.vue`：桌面可拖拽（标题栏）+ 缩放（右下角），手机端全屏。
-- `NoteEditor.vue`：编辑**单个 section 的叶子正文**（中心节点 → 编辑前言）；三显示模式（Editor / Split / Preview）；预览用 `demoteHeadings(editBody)` 渲染（所见即所存）；写穿到 `store.updateLeaf(sectionId, text)` / `store.updatePreamble(text)`，1.2s 防抖 + 失焦/Ctrl+S/关窗即提交，IME 安全；冲突时顶部红条提示。标题栏显示该 section 的标题（只读——改名是结构操作，在思维导图里做）。
+- `NoteEditor.vue`：编辑**单个 section 的叶子正文**（中心节点 → 编辑前言）；三显示模式（Editor / Split / Preview）；编辑面用共享的 `MonacoMarkdownEditor`；预览用 `demoteHeadings(editBody)` 渲染（所见即所存）；写穿到 `store.updateLeaf(sectionId, text)` / `store.updatePreamble(text)`，1.2s 防抖 + 失焦/Ctrl+S/关窗即提交，IME 安全；冲突时顶部红条提示。标题栏显示该 section 的标题（只读——改名是结构操作，在思维导图里做）。
+- `MonacoMarkdownEditor.vue`：**全站笔记编辑统一用的 Markdown 编辑器**（Monaco，替代原 `<textarea>`），同时用于浮窗（section/doc，`NoteEditor`）与左面板 edit/split（`NoteWalkthrough`）。Markdown 语法高亮（含 **LaTeX 数学**：`lib/monaco.ts` 用 `withMath` 扩展 Monaco 自带 markdown Monarch 文法，给 `$…$` 行内 / `$$…$$` 块级数学加 token，块内还高亮 `\命令` 与花括号——KaTeX 用的就是这套定界符）、**显示行号**、跟随明暗主题（`stores/theme` → 透明背景融入面板，`*.math` token 配色随主题）、**按需懒加载**（`lib/monaco.ts` 动态 `import()` 仅取 `editor.api` + markdown 文法；用 `editor.worker?worker` 注册到 `MonacoEnvironment`，Vite `worker.format:'es'`，故 Monaco 是独立 async chunk，不进首包）。散文化配置（自动换行、无 minimap/补全弹窗）。对外暴露 `v-model` 及 `compositionstart/end`、`blur`、`save`(Ctrl/Cmd+S)、`paste`(原生 `ClipboardEvent`) 事件与 `insertAtCursor()`/`focus()`/`getEditor()`，内部在 IME 合成期间不触发 `update:modelValue`（同 Vue v-model 语义）——**自动保存/IME 守卫/粘贴上传/heading 降级/冲突检测全部仍留在父组件**，零行为回归。注意 markdown 是自行 `register` + `setMonarchTokensProvider`（不走 `.contribution` 的惰性 loader），以免扩展文法被覆盖。
 - `NoteWindowHost.vue`：在 `App.vue` 挂载一次，渲染所有窗口。
 
 ### 分支思维导图（heading 派生）
@@ -1309,7 +1329,7 @@ paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=      // 跳到该页并高亮�
 
 左侧面板对整篇大笔记的三模式视图（`store.panelMode`）：
 - **render（默认）**：阅读型渲染——前言 + 各 section 的可点击、自动编号标题（`1.`、`1.1.`、`1.1.1.`，由 heading 层级在渲染时推导）+ 叶子正文（`MarkdownContent`，`:disable-highlights="true"`，因动态编号内容与基于内容哈希的高亮不兼容）。点标题开该 section 的浮窗。标题层级 `min(2+depth, 6)`，阅读型绝对 rem 字号（仅本视图）。
-- **edit**：整篇 Markdown 文本框（`v-model` → `store.setBody`），可自由增删/重排 heading。
+- **edit**：整篇 Markdown 编辑器（共享的 `MonacoMarkdownEditor`，`v-model` → `store.setBody`），可自由增删/重排 heading。
 - **split**：编辑器 + render 并排。
 - 进入 edit/split 关闭所有浮窗；任一改动（叶子/结构/整篇）都实时重渲染。无内容时显示「No notes yet」。
 

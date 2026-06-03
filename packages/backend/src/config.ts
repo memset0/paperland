@@ -87,6 +87,32 @@ const pdfViewerSchema = z.object({
   screenshot_dpi: z.number().positive().default(300),
 })
 
+// Browser-like UA: many sites (e.g. blogs behind CDNs) return a usable <title> only for a
+// real-looking browser agent and 403 obvious bots. Note: some sites (e.g. zhihu) still block
+// server-side fetches entirely — those simply yield no description and fall back to url/title.
+const DEFAULT_LINK_PREVIEW_UA =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+
+const referenceLinksSchema = z.object({
+  // Server-side crawl tunables for the 参考链接 description auto-fetch (page <title>).
+  fetch_timeout_ms: z.number().int().positive().default(8000),
+  max_bytes: z.number().int().positive().default(524288), // 512KB — enough to reach <title>
+  user_agent: z.string().default(DEFAULT_LINK_PREVIEW_UA),
+})
+
+// Pixel `max-width` for the three note-image width tiers selected via the `w=sm|md|lg`
+// directive in a markdown image's alt text (see frontend MarkdownContent). The cap is layered
+// on top of the default `width:100%` and never causes overflow (applied as min(tier, 100%)).
+const notesImageWidthTiersSchema = z.object({
+  sm: z.number().int().positive().default(240),
+  md: z.number().int().positive().default(480),
+  lg: z.number().int().positive().default(720),
+})
+
+const notesSchema = z.object({
+  image_width_tiers: notesImageWidthTiersSchema.default({ sm: 240, md: 480, lg: 720 }),
+})
+
 const configSchema = z.object({
   database: databaseSchema,
   auth: authSchema,
@@ -101,6 +127,10 @@ const configSchema = z.object({
   // inner `screenshot_dpi` default would NOT apply for a config.yml without a `pdf_viewer` block.
   // Use an explicit literal default so the 300 fallback holds whether the key is absent or empty.
   pdf_viewer: pdfViewerSchema.default({ screenshot_dpi: 300 }),
+  // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
+  reference_links: referenceLinksSchema.default({ fetch_timeout_ms: 8000, max_bytes: 524288, user_agent: DEFAULT_LINK_PREVIEW_UA }),
+  // Explicit literal default (not `.default({})`) so inner tier defaults hold when the key is absent.
+  notes: notesSchema.default({ image_width_tiers: { sm: 240, md: 480, lg: 720 } }),
 })
 
 let _config: AppConfig | null = null

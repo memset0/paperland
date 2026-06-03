@@ -343,6 +343,21 @@ translation:
   # model: gpt-4o
   prompt: |
     ...（保留格式的英译中 prompt，含 {TEXT} 占位符）
+
+# 「参考链接」描述自动抓取（爬取链接页 <title> 生成 `${title} (${hostname})` 描述）。
+# 整块可省略，省略时用下列默认值（注意：内层默认靠 config.ts 的显式 .default 提供）。
+reference_links:
+  fetch_timeout_ms: 8000              # 单次抓取超时（毫秒）
+  max_bytes: 524288                   # 读取响应的最大字节数（512KB，足够取到 <title>）
+  user_agent: paperland-link-preview/1.0   # 抓取时使用的 User-Agent
+
+# 笔记渲染。image_width_tiers = 图片 alt 里 `w=sm|md|lg` 指令对应的 px max-width 三档。
+# 整块/字段可省略，省略时用下列默认（靠 config.ts 显式 .default 提供）。详见 frontend-architecture.md。
+notes:
+  image_width_tiers:
+    sm: 240
+    md: 480
+    lg: 720
 ```
 
 **翻译服务（`translation_service`）**：通用「英译中」文本翻译，pure service（类 `qa_service`，不进依赖图）。核心 `translateText(text, { force? })`：按规范化源文的 SHA-256 查 `translations` 缓存，命中即返回；未命中（或 `force`）则用 `translation.prompt`（`{TEXT}` 占位符）调 `getTranslationModel()` 选定的模型，结果 upsert 到缓存（`force` 原地覆盖同一 `(source_hash, target_lang)` 行）。模型调用经 `services.translation_service` 的并发/限流约束。内部 API（`/api/*`，登录可用，缓存全体共享）：
@@ -388,6 +403,7 @@ translation:
 | vuedraggable | 拖拽（idea-forge Kanban） |
 | pdfjs-dist | 嵌入式 PDF 查看器（替代浏览器原生插件）：canvas 渲染 + 文本层选区，支撑 `paperland://…?pdf=…` 页面/选区锚点。**版本精确 pin**（`ts/te` 为 pdf.js 文本偏移，需跨版本稳定）；动态 `import()` code-split，worker 经 `pdf.worker.min.mjs?url` 注册到 `GlobalWorkerOptions.workerSrc` |
 | turndown + turndown-plugin-gfm | 选区 HTML→Markdown 还原（「复制为锚点链接」：GFM 表格、数学按 `$`/`$$` 还原） |
+| monaco-editor | 笔记编辑器（`MonacoMarkdownEditor.vue`，浮窗 + 左面板 edit/split）：Markdown 语法高亮（`lib/monaco.ts` 用 `withMath` 扩展自带文法，加 `$…$`/`$$…$$` LaTeX 数学 token）、显示行号、跟随明暗主题。**懒加载**：`lib/monaco.ts` 动态 `import()` 仅取 `editor.api` + markdown 文法（独立 async chunk，不进首包），`editor.worker?worker` 注册到 `self.MonacoEnvironment`，`vite.config.ts` 设 `worker.format:'es'` |
 
 ### Python (scripts/)
 

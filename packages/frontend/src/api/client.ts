@@ -206,7 +206,7 @@ export const notesApi = {
 }
 
 // Reference links API
-import type { PaperReferenceLink } from '@paperland/shared'
+import type { PaperReferenceLink, ReferenceLinkPreview } from '@paperland/shared'
 
 export const referenceLinksApi = {
   // Owner-scoped read; anonymous (or a not-yet-ready route) degrades silently to empty.
@@ -220,10 +220,15 @@ export const referenceLinksApi = {
     }
   },
 
-  create: (paperId: number, data: { title: string; url: string; description?: string | null }) =>
+  // Crawl a url server-side to derive `${document.title} (${hostname})`. Authenticated only.
+  preview: (url: string) =>
+    api.get<{ data: ReferenceLinkPreview }>(`/api/reference-links/preview?url=${encodeURIComponent(url)}`),
+
+  // Only `url` is required; `title` is optional and `description` is the auto-derived preview string.
+  create: (paperId: number, data: { url: string; title?: string | null; description?: string | null }) =>
     api.post<{ data: PaperReferenceLink }>(`/api/papers/${paperId}/reference-links`, data),
 
-  update: (id: number, data: { title?: string; url?: string; description?: string | null }) =>
+  update: (id: number, data: { title?: string | null; url?: string; description?: string | null }) =>
     api.patch<{ data: PaperReferenceLink }>(`/api/reference-links/${id}`, data),
 
   remove: (id: number) =>
@@ -247,4 +252,5 @@ export const imagesApi = {
 // Config (safe subset) exposed to the frontend via /api/config/*.
 export const configApi = {
   pdf: () => api.get<{ screenshot_dpi: number }>('/api/config/pdf'),
+  notes: () => api.get<{ image_width_tiers: { sm: number; md: number; lg: number } }>('/api/config/notes'),
 }

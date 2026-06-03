@@ -69,12 +69,24 @@ describe('POST /api/papers/:id/reference-links', () => {
     expect(blank.json().data.description).toBeNull()
   })
 
-  it('rejects an empty title or a missing url with 400', async () => {
+  it('creates a link with only a url (null title)', async () => {
     const u = makeUser('alice'); const paper = makePaper()
     currentUser = { id: u.id, username: 'alice', role: 'user' }
 
-    const noTitle = await app.inject({ method: 'POST', url: `/api/papers/${paper}/reference-links`, payload: { title: '   ', url: 'https://a.io' } })
-    expect(noTitle.statusCode).toBe(400)
+    const res = await app.inject({ method: 'POST', url: `/api/papers/${paper}/reference-links`, payload: { url: 'https://a.io', description: 'A (a.io)' } })
+    expect(res.statusCode).toBe(201)
+    const link = res.json().data
+    expect(link.title).toBeNull()
+    expect(link).toMatchObject({ url: 'https://a.io', description: 'A (a.io)' })
+  })
+
+  it('accepts a blank/whitespace title (stored as null) and rejects only a missing url', async () => {
+    const u = makeUser('alice'); const paper = makePaper()
+    currentUser = { id: u.id, username: 'alice', role: 'user' }
+
+    const blankTitle = await app.inject({ method: 'POST', url: `/api/papers/${paper}/reference-links`, payload: { title: '   ', url: 'https://a.io' } })
+    expect(blankTitle.statusCode).toBe(201)
+    expect(blankTitle.json().data.title).toBeNull()
     const noUrl = await app.inject({ method: 'POST', url: `/api/papers/${paper}/reference-links`, payload: { title: 'T' } })
     expect(noUrl.statusCode).toBe(400)
   })
@@ -154,6 +166,28 @@ describe('PATCH /api/reference-links/:id', () => {
     currentUser = { id: bob.id, username: 'bob', role: 'user' }
     const res = await app.inject({ method: 'PATCH', url: `/api/reference-links/${created.id}`, payload: { title: 'hijack' } })
     expect(res.statusCode).toBe(404)
+  })
+})
+
+describe('GET /api/reference-links/preview', () => {
+  // Only the pre-crawl guards (auth + url validation) are exercised here — they short-circuit
+  // before any network fetch, so no external request is made and no config is required.
+  it('rejects an unauthenticated preview with 401', async () => {
+    currentUser = null
+    const res = await app.inject({ method: 'GET', url: `/api/reference-links/preview?url=${encodeURIComponent('https://example.com')}` })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('rejects a missing or non-http(s) url with 400 (no crawl attempted)', async () => {
+    const u = makeUser('alice')
+    currentUser = { id: u.id, username: 'alice', role: 'user' }
+
+    const missing = await app.inject({ method: 'GET', url: '/api/reference-links/preview' })
+    expect(missing.statusCode).toBe(400)
+    for (const url of ['javascript:alert(1)', 'not a url', 'ftp://files.example.com']) {
+      const res = await app.inject({ method: 'GET', url: `/api/reference-links/preview?url=${encodeURIComponent(url)}` })
+      expect(res.statusCode).toBe(400)
+    }
   })
 })
 

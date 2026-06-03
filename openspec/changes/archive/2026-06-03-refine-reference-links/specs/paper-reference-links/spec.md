@@ -1,22 +1,4 @@
-# paper-reference-links Specification
-
-## Purpose
-Per-user reference links on papers — each user maintains a private list of named hyperlinks (title, url, optional description) for any paper, with create/update/delete/list API endpoints and a "参考链接" section in the paper detail page.
-## Requirements
-### Requirement: Per-user reference link list per paper
-The system SHALL let each user maintain a private list of reference links for each paper, keyed by `(user_id, paper_id)`. A user's reference links for a paper SHALL be visible only to that user and SHALL NOT be affected by other users' reference links on the same paper. Each link SHALL be stored as its own row carrying a stable `id`, the owning `user_id`, the `paper_id`, and `created_at`/`updated_at` timestamps.
-
-#### Scenario: Links are private to the owner
-- **WHEN** user A adds a reference link to paper 123 and user B requests paper 123's reference links
-- **THEN** user B's list SHALL NOT include user A's link
-
-#### Scenario: Links are scoped per paper
-- **WHEN** a user requests the reference links for a given paper
-- **THEN** the system SHALL return only that user's links for that paper, and no links belonging to other papers
-
-#### Scenario: Removing a paper removes its reference links
-- **WHEN** a paper is deleted
-- **THEN** all reference links belonging to that paper (across all users) SHALL be removed
+## MODIFIED Requirements
 
 ### Requirement: Reference link fields
 Each reference link SHALL have a required `url`, an optional `title`, and a `description`. The `url` SHALL be a syntactically valid absolute URL whose scheme is `http` or `https`. The `title` MAY be omitted, `null`, or empty (all stored as "no title", `null`); when a non-empty `title` is provided it SHALL be trimmed and SHALL NOT exceed the title length limit. The `description` is normally auto-derived (see "Auto-derived link description") and is not entered by the user; it MAY be `null` (e.g. when the page could not be crawled) and, when present, SHALL be trimmed and SHALL NOT exceed the description length limit.
@@ -56,17 +38,6 @@ The system SHALL expose authenticated endpoints to create, update, and delete a 
 - **WHEN** an unauthenticated request attempts to create, update, or delete a reference link
 - **THEN** the system SHALL reject it with an authentication error and SHALL NOT modify any data
 
-### Requirement: List reference links
-The system SHALL expose `GET /api/papers/:id/reference-links` returning the requesting user's reference links for that paper, ordered by `created_at` ascending (insertion order) with `id` as a tiebreaker. For an unauthenticated request the endpoint SHALL return an empty list rather than an error.
-
-#### Scenario: List in insertion order
-- **WHEN** an authenticated user has added several links to a paper and requests the list
-- **THEN** the system SHALL return that user's links for that paper ordered oldest-first
-
-#### Scenario: Anonymous list is empty
-- **WHEN** an unauthenticated client requests a paper's reference links
-- **THEN** the system SHALL respond with an empty list and no error
-
 ### Requirement: Reference links section in the paper detail page
 The paper detail page SHALL present a "参考链接" section that lists the current user's reference links for the paper. The controls to add, edit, and delete links SHALL be presented only to an authenticated user; an unauthenticated viewer SHALL NOT see add/edit/delete affordances. Each link SHALL render as a hyperlink to its `url` that opens in a new tab with `rel="noopener noreferrer"`, using a display label resolved by the fallback chain `title → description → url` (the `title` when present, otherwise the `description`, otherwise the raw `url`). After a successful add/edit/delete the displayed list SHALL reflect the change without a full page reload.
 
@@ -93,6 +64,8 @@ The paper detail page SHALL present a "参考链接" section that lists the curr
 #### Scenario: Deleting a link asks for confirmation
 - **WHEN** an authenticated user clicks delete on a reference link
 - **THEN** the UI SHALL ask for confirmation first, and SHALL only remove the link if the user confirms (cancelling leaves it untouched)
+
+## ADDED Requirements
 
 ### Requirement: Auto-derived link description
 When adding or editing a reference link, the description SHALL be derived automatically from the linked page rather than typed by the user. The frontend SHALL, after the user provides a valid `http(s)` url, request a server-side preview and populate the link's description with the derived value; the description field SHALL be read-only in the UI. The derived description SHALL have the form `${page_title} (${hostname})` when a page title is available, where `hostname` is the url's host. When no page title is available but the page was reachable, the description MAY be the `hostname` alone. When the page cannot be crawled, the description SHALL be `null` and the link SHALL still be saveable on the url alone.
@@ -123,4 +96,3 @@ The system SHALL expose an authenticated endpoint `GET /api/reference-links/prev
 #### Scenario: Failed crawl returns a null description without error
 - **WHEN** an authenticated user previews a url that times out, errors, or has no usable title
 - **THEN** the system SHALL respond `200` with a `null` description rather than a 4xx/5xx error
-

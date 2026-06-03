@@ -10,6 +10,12 @@ database:
 # allowed_hosts:
 #   - localhost
 
+# Optional: 「参考链接」描述自动抓取（爬取链接页 <title> 生成描述）。省略则用下列默认值。
+# reference_links:
+#   fetch_timeout_ms: 8000        # 单次抓取超时（毫秒）
+#   max_bytes: 524288             # 读取响应的最大字节数（512KB）
+#   user_agent: paperland-link-preview/1.0
+
 auth:
   # true  = 会话登录 + 三级访问分层（公开只读 / 登录 / 仅管理员）
   # false = 开发期免登录（所有 /api 以 admin 身份访问）
@@ -103,3 +109,14 @@ pdf_viewer:
   # DPI used when capturing a PDF region as a PNG screenshot (PdfViewer "框选截图" → 图床).
   # Higher = sharper but larger files. Render scale = screenshot_dpi / 72.
   screenshot_dpi: 300
+
+# Notes rendering.
+notes:
+  # Note image width tiers (px). In a markdown image's alt text, write `w=sm|md|lg` to pick a
+  # tier, or `w=100` for an explicit px max-width. The cap layers on top of the default
+  # width:100% (applied as min(tier, 100%) so it never overflows the container) and affects
+  # direct note rendering only — not image sizing inside the mindmap.
+  image_width_tiers:
+    sm: 240
+    md: 480
+    lg: 720

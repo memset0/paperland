@@ -121,15 +121,16 @@ export const notes = sqliteTable('notes', {
 
 // Per-user, per-paper reference links: a flat list of external resources (blog posts,
 // project pages, discussions, …) the user manually attaches to a paper. Private to the
-// owning user (like notes/tags); ordered by created_at (insertion order). `description`
-// is optional.
+// owning user (like notes/tags); ordered by created_at (insertion order). Only `url`
+// is required: `title` is an optional legacy/override label, and `description` is
+// auto-derived from the page (`${document.title} (${hostname})`) at preview time.
 export const paperReferenceLinks = sqliteTable('paper_reference_links', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   user_id: integer('user_id').notNull().references(() => users.id), // owner
   paper_id: integer('paper_id').notNull().references(() => papers.id),
-  title: text('title').notNull(),
+  title: text('title'), // optional (legacy rows + display fallback `title → description → url`)
   url: text('url').notNull(),
-  description: text('description'), // optional
+  description: text('description'), // optional; normally the auto-derived preview string
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 }, (table) => [
