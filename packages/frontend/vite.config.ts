@@ -33,6 +33,11 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
+  // Monaco's editor worker (lib/monaco.ts) is imported with `?worker`; emit workers
+  // as ES modules so they bundle cleanly. Markdown needs only the base editor worker.
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 5173,
     host: '0.0.0.0',
@@ -47,6 +52,13 @@ export default defineConfig({
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
         ws: true,
+      },
+      // Trailing slash is required: a bare '/image' prefix would also capture the
+      // '/images' SPA page route and proxy it to the backend (404). '/image/' only
+      // matches actual image files (/image/YYYY/MM/DD/{hash}.{ext}).
+      '/image/': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
       },
     },
   },

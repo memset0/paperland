@@ -4,6 +4,7 @@ import { useNotesStore, type PanelMode } from '@/stores/notes'
 import { useWindowsStore } from '@/stores/windows'
 import type { NoteSection } from '@paperland/shared'
 import MarkdownContent from '@/components/MarkdownContent.vue'
+import MonacoMarkdownEditor from '@/components/notes/MonacoMarkdownEditor.vue'
 import NoteHelpDialog from './NoteHelpDialog.vue'
 import PublicNotesPanel from './PublicNotesPanel.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -159,10 +160,9 @@ const modes: { value: PanelMode; icon: typeof Pencil; label: string }[] = [
 
     <div class="flex-1 min-h-0 flex">
       <!-- Editor (edit + split) -->
-      <textarea
+      <MonacoMarkdownEditor
         v-if="activeMode !== 'render'"
         v-model="bodyModel"
-        class="min-w-0 resize-none p-4 text-sm font-mono outline-none bg-transparent overflow-y-auto"
         :class="activeMode === 'split' ? 'w-1/2 border-r' : 'w-full'"
         placeholder="Write your note in Markdown. Headings define the mind-map structure…"
       />
