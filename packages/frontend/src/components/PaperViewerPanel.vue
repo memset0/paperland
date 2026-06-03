@@ -52,27 +52,55 @@ const availableModes = computed(() => modes.value.filter(m => m.available))
 
 const activeId = ref<string>('')
 
+// Whether the active tab was chosen explicitly — by a user click or a deep link — rather than
+// by the automatic default. Once chosen, the auto-default below stops overriding it.
+const userChose = ref(false)
+
+// The "Note" tab is always available, so before the paper's pdf_path / arxiv_id finish loading
+// it is the *only* available mode — and a naive "first available" rule would latch onto it and
+// never switch away once PDF / translation appear (Note stays valid). To avoid defaulting into
+// the note, the automatic default prefers a primary viewer (PDF / translation) and only falls
+// back to Note when it is the sole available mode. Explicit selections are never overridden.
+function pickDefault(list: ViewerMode[]) {
+  return list.find(m => m.id !== 'walkthrough') ?? list[0]
+}
+
 watch(availableModes, (newModes) => {
-  if (newModes.length > 0 && !newModes.find(m => m.id === activeId.value)) {
-    activeId.value = newModes[0].id
+  if (userChose.value) {
+    // Keep the explicit choice; only re-pick if that mode has disappeared.
+    if (newModes.length > 0 && !newModes.find(m => m.id === activeId.value)) {
+      activeId.value = newModes[0].id
+    }
+    return
   }
+  const preferred = pickDefault(newModes)
+  activeId.value = preferred ? preferred.id : ''
 }, { immediate: true })
+
+// A user clicking a tab pins that mode as their explicit choice.
+function selectMode(id: string | number) {
+  activeId.value = String(id)
+  userChose.value = true
+}
 
 // A `paperland://…?pdf=…` anchor jump activates the PDF tab; PdfViewer then scrolls/highlights.
 watch(requestedPdfTarget, (t) => {
-  if (t && props.pdfPath && activeId.value !== 'pdf') activeId.value = 'pdf'
+  if (t && props.pdfPath) { activeId.value = 'pdf'; userChose.value = true }
 })
 
 // A `?note=` deep link (another user's public note) activates the Note tab; PublicNotesPanel
 // then expands that entry and scrolls to it.
 watch(requestedPublicNote, (r) => {
-  if (r && activeId.value !== 'walkthrough') activeId.value = 'walkthrough'
+  if (r) { activeId.value = 'walkthrough'; userChose.value = true }
 })
 
 // Opened from the paper list's note-status link (`?view=note`): activate the "Note" tab.
 const route = useRoute()
 watch(() => route.query.view, (v) => {
-  if (v === 'note' && availableModes.value.some((m) => m.id === 'walkthrough')) activeId.value = 'walkthrough'
+  if (v === 'note' && availableModes.value.some((m) => m.id === 'walkthrough')) {
+    activeId.value = 'walkthrough'
+    userChose.value = true
+  }
 }, { immediate: true })
 </script>
 
@@ -84,7 +112,7 @@ watch(() => route.query.view, (v) => {
       <p class="text-xs mt-1">等待服务下载 PDF 或补充 arXiv ID...</p>
     </div>
 
-    <Tabs v-else v-model="activeId" class="h-full flex flex-col gap-0">
+    <Tabs v-else :model-value="activeId" @update:model-value="selectMode" class="h-full flex flex-col gap-0">
       <div class="flex justify-center border-b bg-background shrink-0">
         <TabsList variant="line" class="h-9 rounded-none p-0">
           <TabsTrigger
