@@ -12,12 +12,12 @@ two — "content + link" and "link only" — covers both needs directly from the
 - Split the highlight selection toolbar's single copy action into **two buttons**:
   - **Copy content + anchor link** — the *current* behavior unchanged (`<markdown> [#](paperland://…)`),
     but moved onto a **new icon**: the conventional "copy" glyph (`Copy`, two overlapping squares).
-  - **Copy anchor link only** — a *new* action that copies **only** the positioning link, wrapped in
-    Markdown **image** syntax: `![#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)`. This keeps the
-    **current** `Link2` icon.
+  - **Copy anchor link only** — a *new* action that copies **only** the positioning link as a compact
+    Markdown link `[#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)` (a plain link, NOT an image —
+    no leading `!`). This keeps the **current** `Link2` icon.
 - Each action shows its own distinct success toast (e.g. "已复制内容和锚点链接" vs "已复制锚点链接").
-- The `paperland://` link scheme/format itself is unchanged — only the Markdown wrapper around the
-  URL differs between the two actions (`[#]` link form vs `![#]` image form).
+- The `paperland://` link scheme/format itself is unchanged, and both actions emit the same `[#]` link
+  form — the only difference is whether the selected content precedes the link.
 
 ## Capabilities
 
@@ -37,7 +37,6 @@ two — "content + link" and "link only" — covers both needs directly from the
   ("浮动工具栏（4 色 + 复制为锚点链接）") gains the second copy action.
 - **No backend / API / DB / config changes.** `markdown-anchors` (the `paperland://` scheme) is
   unaffected.
-- **Known limitation (out of scope)**: the new `![#](paperland://…)` *image* form is not yet
-  rendered as a clickable in-app anchor — only the `[#]` *link* form is intercepted by
-  `MarkdownContent`. The image form is a deliberate "embed marker" for the copied link; rendering
-  it as a clickable/embedded element is a possible follow-up, not part of this change.
+- Because the link-only action emits a plain `[#]` link (not an image), the copied link stays
+  clickable when pasted — it goes through the same `paperland://` click interception as the
+  content+link form, with no rendering caveat.

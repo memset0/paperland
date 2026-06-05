@@ -20,16 +20,16 @@ single-component change, but it touches a behavior that is specified (`markdown-
 **Goals:**
 - Two distinct copy actions in the selection toolbar, each with its own icon and toast:
   - **Content + link** (existing behavior, unchanged output) → conventional **`Copy`** icon.
-  - **Link only** → keeps the existing **`Link2`** icon, copies `![#](paperland://…)` (image form).
+  - **Link only** → keeps the existing **`Link2`** icon, copies a plain `[#](paperland://…)` link (no content).
 - Preserve the existing content+link clipboard format byte-for-byte (Markdown conversion, math
   reconstruction, GFM tables) — only the *icon* changes for that action.
 - Keep both actions login-gated exactly as the single action is today.
 
 **Non-Goals:**
 - Changing the `paperland://` URL scheme or its parameters (`markdown-anchors` is untouched).
-- Rendering the `![#](paperland://…)` image form as a clickable / embedded in-app anchor. Only the
-  `[#]` link form is intercepted today; the `![#]` form is a copied "embed marker" whose rendering
-  is a separate, future concern (see Risks).
+- Any new rendering work: both actions emit the same `[#]` link form, which the existing
+  `paperland://` click interception already handles — so the link-only output is clickable when
+  pasted, with no extra rendering needed.
 - Any change to the PDF viewer's "复制选区链接" floating button (`PdfViewer.vue`) — that's a
   different component and out of scope for this change.
 
@@ -48,18 +48,17 @@ and hide the less-used action.
   icon copies a link") now maps to the pure-link action — which is arguably more intuitive than
   before, where `Link2` copied content+link.
 
-### 3. Link-only uses Markdown **image** syntax `![#](…)`
-The link-only output is `![#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)` (note the leading
-`!`), per the explicit request. Rationale for the image form over a plain `[#]` link: a bare `[#]`
-link pasted on its own line renders as a tiny, easy-to-miss `#`; the image form is a deliberate,
-visually distinct "embed marker" intended for future inline-region/preview rendering (it pairs with
-the existing content-addressed image-host direction). The URL inside is identical to what the
-content+link action emits — only the wrapper differs.
+### 3. Link-only emits a plain `[#](…)` link (no `!`)
+The link-only output is `[#](paperland://paper/<id>?h=<hash>&s=<start>&e=<end>)` — the *same* compact
+Markdown link the content+link action appends, just without the preceding selected content. It is a
+plain link, NOT an image (no leading `!`), per the explicit request. Because it's the same `[#]` link
+form, it stays clickable when pasted (handled by the existing `a[href^="paperland://"]` interception)
+and needs no new rendering. The URL inside is identical to what the content+link action emits.
 
 ### 4. Implementation shape
 Split `copyAnchorLink()` into two small handlers sharing URL construction:
 - `copyContentAndAnchorLink()` — exactly today's `copyAnchorLink()` body (rename + keep behavior).
-- `copyAnchorLinkOnly()` — builds the same `paperland://…` URL, writes `![#](<url>)`, fires its own
+- `copyAnchorLinkOnly()` — builds the same `paperland://…` URL, writes `[#](<url>)`, fires its own
   toast, clears the selection, and closes popups (same teardown as the existing handler).
 
 Both read `pendingSelection`, `contentHash`, and `props.paperId`, and both no-op when any is missing
@@ -67,13 +66,10 @@ Both read `pendingSelection`, `contentHash`, and `props.paperId`, and both no-op
 
 ## Risks / Trade-offs
 
-- **[The copied `![#](paperland://…)` does not render as a functional anchor]** → A pasted `![#]`
-  becomes `<img src="paperland://…">`, which the browser shows as a broken image and which the
-  `paperland://` click interceptor (scoped to `a[href^="paperland://"]`) does not handle. This is
-  accepted for now: the copied string is correct Markdown and the link-only output is intended as an
-  embed marker for a future rendering pass. Mitigation/follow-up: a later change can teach
-  `MarkdownContent` to render `img[src^="paperland://"]` as a clickable chip or an embedded region
-  preview. Called out in the proposal's Impact section so it isn't mistaken for a regression.
+- **[A bare `[#]` link is visually small when pasted]** → the link-only output renders as a compact
+  `#` link rather than a prominent element. Accepted: it is intentionally compact and, crucially, it
+  is a real clickable `paperland://` link (handled by the existing interception), so it functions
+  correctly when pasted — no broken-image / non-functional-anchor caveat.
 - **[Toolbar crowding on narrow mobile viewports]** → adding a second icon button widens the
   toolbar slightly. Low risk: the toolbar already clamps to the container bounds (existing
   "Toolbar viewport boundary clamping" requirement); two icon buttons + 4 swatches remain narrow.

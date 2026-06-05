@@ -4,7 +4,7 @@
 The selection floating toolbar (the same one offering highlight colors) SHALL provide **two** copy actions for authenticated users:
 
 1. **Copy content + anchor link** (icon: the conventional `Copy` glyph). Choosing it SHALL place on the clipboard the **full selected content converted back to Markdown**, immediately followed by a compact anchor link of the form `[#](paperland://paper/<id>?h=<content_hash>&s=<start>&e=<end>)` that addresses the selection (paper id + the block's `content_hash` + the selection's rendered `start`/`end` offsets). The copied content SHALL be the complete selection — NOT a truncated label and NOT the render-stripped plain text.
-2. **Copy anchor link only** (icon: `Link2`). Choosing it SHALL place on the clipboard **only** the positioning link — no selected content — wrapped in Markdown **image** syntax: `![#](paperland://paper/<id>?h=<content_hash>&s=<start>&e=<end>)`. The link target SHALL be identical to the one emitted by the content + anchor link action; only the wrapping form differs (`![#]` image form vs `[#]` link form).
+2. **Copy anchor link only** (icon: `Link2`). Choosing it SHALL place on the clipboard **only** the positioning link — no selected content — as a compact Markdown link `[#](paperland://paper/<id>?h=<content_hash>&s=<start>&e=<end>)` (a plain link, NOT an image — no leading `!`). The link target and `[#]` link form SHALL be identical to the one emitted by the content + anchor link action; the only difference is that this action omits the preceding selected content.
 
 Each action SHALL show a distinct success toast (e.g. content + link → "已复制内容和锚点链接"; link only → "已复制锚点链接"). Both actions SHALL clear the current selection and dismiss the toolbar after copying.
 
@@ -21,7 +21,7 @@ For the **content + anchor link** action, the Markdown conversion SHALL behave a
 
 #### Scenario: Copy anchor link only
 - **WHEN** an authenticated user selects text and chooses the link-only action (the `Link2` icon)
-- **THEN** the clipboard SHALL contain exactly `![#](paperland://paper/<id>?h=<content_hash>&s=<start>&e=<end>)` and SHALL NOT contain any of the selected content
+- **THEN** the clipboard SHALL contain exactly `[#](paperland://paper/<id>?h=<content_hash>&s=<start>&e=<end>)` (a plain link, no leading `!`) and SHALL NOT contain any of the selected content
 
 #### Scenario: Both actions address the same location
 - **WHEN** a user copies content + link and then copies link-only for the same unchanged selection
