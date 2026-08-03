@@ -2,52 +2,72 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Development Workflow
+## OpenSpec and Git Workflow
 
-This project follows the **OpenSpec** workflow. All changes must go through:
-1. `/opsx:propose` — create proposal, design, specs, tasks
-2. `/opsx:apply` — implement tasks
-3. `/opsx:archive` — archive completed changes
+- Use the repository's generated OpenSpec workflows.
+- Before implementation, read `openspec/config.yaml`, the relevant main specs under `openspec/specs/`, and the active change artifacts under `openspec/changes/`.
+- Keep OpenSpec artifacts aligned with the implementation and validate the completed change before archiving.
 
-**Every code change must also update the corresponding docs in `docs/`** (frontend-architecture.md, external-api.md, tech-stack.md).
+### Installation and updates
 
-### Keep the spec in sync during apply
+- After every successful OpenSpec installation, reinstallation, repair, or update, create a separate Git commit containing only the repository files that operation modified or created.
+- Stage the exact affected paths explicitly. Do not mix application changes, archive changes, or unrelated work into the OpenSpec setup commit.
+- Create the commit on `main` and follow the commit-message rules below. Prefer `chore(openspec): install OpenSpec tooling`, `chore(openspec): reinstall OpenSpec tooling`, or `chore(openspec): update OpenSpec tooling`, as applicable.
+- Do not create an empty commit when the operation changed no repository files. Do not commit when the installation or update failed.
+- Keep this setup commit separate from the automatic archive commit. After the setup commit succeeds, automatically push it to the authorized branch's configured upstream without waiting for another request. Do not push if setup or commit creation failed.
 
-If, **after** `/opsx:apply`, you make small bug fixes or feature tweaks beyond what the change originally described, promptly fold them back into the current change's spec (its `proposal.md`, delta specs under `openspec/changes/<name>/specs/`, and `tasks.md` as needed). Don't let the implementation drift ahead of the spec — the spec must reflect what was actually built before the change is archived.
+### During apply
 
-### Sync delta specs to main specs when archiving
+- Keep the current change's spec in sync throughout `/opsx:apply`.
+- If implementation requires small bug fixes or feature tweaks beyond what the change originally described, promptly fold them back into the current change's `proposal.md`, delta specs under `openspec/changes/<name>/specs/`, and `tasks.md` as applicable.
+- Do not let implementation drift ahead of the spec. Before archiving, ensure the change artifacts describe what was actually built.
 
-When `/opsx:archive` prompts about delta spec sync, **default to syncing** — i.e. choose "Sync now (recommended)" so the change's delta specs under `openspec/changes/<name>/specs/` are merged into the main specs under `openspec/specs/<capability>/spec.md`. Only skip syncing if the user explicitly asks to archive without syncing.
+### Archiving
 
-### Auto-commit after archiving
+- When `/opsx:archive` prompts about delta spec sync, default to syncing: choose `Sync now (recommended)` so the change's delta specs under `openspec/changes/<name>/specs/` are merged into the main specs under `openspec/specs/<capability>/spec.md`.
+- Only skip syncing if the user explicitly asks to archive without syncing.
+- After archiving, verify both the updated main specs and the archived change.
+- After every successful archive, including the spec sync above, automatically commit the files involved in that change and push the commit to `main`. Do not wait for a separate request or confirmation.
+- Do not auto-commit or push if the archive step fails.
 
-After running `/opsx:archive` **and** the change is archived successfully (including the spec sync above), automatically commit the files involved in that change to git, then push to `main`:
+### Concurrent-agent commits
 
-1. Stage **only the files your change touched**, by explicit path (its archived openspec artifacts, the synced main specs, plus the code/docs it modified). **Never** `git add -A` / `git add .` / `git add -u` — that would sweep up other agents' work-in-progress.
-2. If a file was modified by both this change and another agent concurrently, it's fine to commit the whole file (including a little of the other agent's work) — the on-disk state is the one that runs. Just confirm the final file list before committing.
-3. Commit, then push to `main` using the concurrency-safe protocol below.
+- Assume multiple agents may be editing the same working tree.
+- Track every file modified or created by the current task and inspect the final diff before staging.
+- Stage only those exact paths with `git add -- <path>...`: the archived OpenSpec artifacts, synced main specs, and code or documentation modified by the change.
+- Never use `git add -A`, `git add .`, or `git add -u`; those commands can sweep up other agents' work in progress.
+- File-level staging is sufficient; line-level or hunk-level staging is not required.
+- If a file was modified by both this change and another agent concurrently, it is acceptable to commit the whole file because the on-disk state is the state that runs. Confirm the final file list before committing and explicitly report any such shared file afterward.
+- Do not amend, rewrite, or discard another agent's work.
 
-Do **not** auto-commit if the archive step failed.
+### Concurrency-safe push to main
 
-#### Concurrent agents: rebase onto the live `main` before pushing
+- All commits must be created on the `main` branch unless the user explicitly authorizes another branch for the current task.
+- Before committing, confirm the checked-out branch is `main`, its upstream is `origin/main`, and the staged file list contains only the paths described above. If not on `main`, stop and report; do not switch branches or push another branch to `main` implicitly.
+- Fetch `origin/main` and verify local `main` is not behind or diverged before committing. Do not merge, rebase, reset, stash, or alter other agents' working-tree changes automatically to catch up.
+- Create the commit only after the archive and sync have succeeded and the final staged diff has been reviewed.
+- Push with `git push origin main`. Never force-push.
+- If the push is rejected because `origin/main` advanced, fetch and report the race. Do not rewrite history or disturb the shared working tree; leave the local commit intact and ask for the safest integration decision.
 
-Multiple agents may be editing this shared working tree and pushing to `main` at the same time. Their combined uncommitted changes are known to run fine together; the only real hazard is a push conflict on `main`. To avoid it, **never assume your local `main` (the HEAD scanned at session start) is current** — always re-sync onto the live remote tip immediately before pushing:
+### Branches and worktrees
 
-```bash
-git add <only the files your change touched>     # explicit paths, never -A / . / -u
-git commit -m "<message>"
-git fetch origin main
-git rebase origin/main                            # replay your commit onto the latest tip
-git push origin HEAD:main
-```
+- Do not create or switch branches unless the user explicitly authorizes it for the current task.
+- Do not create, enable, switch, manage, or move work into a Git worktree unless the user explicitly authorizes it for the current task.
 
-Retry on contention (a few times, with a short backoff):
-- **Push rejected (non-fast-forward)** — another agent pushed between your `fetch` and `push`. Re-run `git fetch origin main && git rebase origin/main && git push origin HEAD:main`.
-- **`index.lock` / `*.lock` already exists** — another agent's git command is mid-flight in the shared repo. This is a *safe* abort (git won't corrupt anything); wait ~2s and retry the same command.
+### Commit messages
 
-Because each agent stages only its own files and the on-disk content already runs as a whole, the rebase almost always replays cleanly. Do **not** reach for tree-wide operations to "fix" a snag — no `git stash` / `git pull --autostash` / `git checkout .` / `git reset --hard` / `git clean`. They would clobber files other agents are still editing. If a rebase aborts complaining about *unstaged changes to files you don't own*, an agent is mid-edit: wait and retry, and if it stays blocked, stop and report rather than disturbing their work.
+- Use Conventional Commits, following the Angular-style format, for every commit: `<type>(<scope>): <description>`.
+- Use an appropriate standard type such as `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, or `chore`.
+- Keep the subject concise and imperative.
+- For a breaking change, add `!` before the colon and include a `BREAKING CHANGE:` footer.
+- Example: `feat(research): add automated experiment runner`.
+- For a pure OpenSpec archive, prefer `chore(openspec): archive <change-name>`.
+- When implementation files are included, choose the conventional type and scope that best describe the change.
 
-> Cleanest isolation (optional): run each concurrent agent in its own `git worktree`, so indexes and working files can't collide and the rebase is always clean — only `origin/main` is shared. The retry protocol above is what makes in-place, shared-tree work safe when worktrees aren't used.
+### Repository-specific OpenSpec and Git Workflow Requirements
+
+- All changes must go through `/opsx:propose`, `/opsx:apply`, and `/opsx:archive`.
+- Every code change must also update the corresponding documents in `docs/` (`frontend-architecture.md`, `external-api.md`, and `tech-stack.md`).
 
 ## Commands
 
