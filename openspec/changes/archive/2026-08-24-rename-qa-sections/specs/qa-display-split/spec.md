@@ -1,8 +1,5 @@
-# qa-display-split Specification
+## MODIFIED Requirements
 
-## Purpose
-The paper detail page Q&A area renders Preset Q&A and User Q&A as separate, independently-controlled cards.
-## Requirements
 ### Requirement: Preset QA and User QA are rendered in separate cards
 The QAList component SHALL render two independent card containers: one for preset QA entries (config-ordered) and one for user QA entries (newest-first). Each card SHALL have its own header with title and expand/collapse-all controls.
 
@@ -24,31 +21,6 @@ The paper detail page SHALL display content cards in this order: Kimi summary (i
 #### Scenario: All three cards present
 - **WHEN** the paper has Kimi summary, preset QA, and user QA
 - **THEN** cards appear in order: Kimi summary, Preset Q&A, User Q&A
-
-### Requirement: All QA questions default to collapsed state
-All QA question `<details>` elements SHALL render in collapsed (closed) state on page load, regardless of any previously stored localStorage state.
-
-#### Scenario: Page load with existing localStorage state
-- **WHEN** a user navigates to a paper detail page that has prior collapse state in localStorage
-- **THEN** all QA questions are displayed in collapsed state
-
-#### Scenario: User manually toggles a question
-- **WHEN** a user clicks on a question title to expand it
-- **THEN** that question expands to show full content; clicking again collapses it
-
-### Requirement: Question title truncation in collapsed mode
-In collapsed (summary) mode, question titles SHALL be truncated to a single line with ellipsis.
-
-#### Scenario: Long question title in collapsed state
-- **WHEN** a QA entry is collapsed and its title exceeds one line
-- **THEN** the title is truncated with ellipsis (line-clamp-1)
-
-### Requirement: Full content display in expanded mode
-In expanded mode, QA answer content SHALL display with natural word-wrap allowing multiple lines. Line break characters in the content SHALL NOT be rendered as visual line breaks; content flows as a single paragraph that wraps based on container width.
-
-#### Scenario: Expanded QA entry with long answer
-- **WHEN** a QA entry is expanded
-- **THEN** the full answer text is displayed, wrapping naturally at container width
 
 ### Requirement: Preset QA card has generate-all button
 The Preset Q&A card header SHALL include the "一键生成" button when there are ungenerated preset questions, along with a polling status indicator.
@@ -93,4 +65,3 @@ Triggering any LLM action on the paper detail page — generating or regeneratin
 #### Scenario: Authenticated user generates normally
 - **WHEN** an authenticated user triggers preset or user QA
 - **THEN** the system SHALL proceed, attributing the user QA entry to that user
-

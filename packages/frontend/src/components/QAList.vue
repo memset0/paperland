@@ -173,11 +173,11 @@ function generateTemplate(templateName: string) {
 </script>
 
 <template>
-  <!-- Template Q&A Card -->
+  <!-- Preset Q&A Card -->
   <Card v-if="templateEntries.length" class="overflow-hidden gap-0 py-0">
     <div class="flex items-center justify-between border-b px-5 py-3">
       <div class="flex items-center gap-2">
-        <h3 class="text-sm font-semibold">Template Q&A</h3>
+        <h3 class="text-sm font-semibold">Preset Q&A</h3>
         <span v-if="store.polling" class="inline-flex items-center gap-1 text-[10px] text-primary">
           <Loader2 class="h-3 w-3 animate-spin" /> 生成中...
         </span>
@@ -260,11 +260,11 @@ function generateTemplate(templateName: string) {
     </div>
   </Card>
 
-  <!-- Free Q&A Card -->
+  <!-- User Q&A Card -->
   <Card v-if="freeEntries.length" class="overflow-hidden gap-0 py-0">
     <div class="flex items-center justify-between border-b px-5 py-3">
       <div class="flex items-center gap-2">
-        <h3 class="text-sm font-semibold">Free Q&A</h3>
+        <h3 class="text-sm font-semibold">User Q&A</h3>
         <span v-if="store.polling" class="inline-flex items-center gap-1 text-[10px] text-primary">
           <Loader2 class="h-3 w-3 animate-spin" /> 生成中...
         </span>
