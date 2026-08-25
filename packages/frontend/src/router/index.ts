@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, Tag, Lightbulb, CalendarDays, NotebookPen } from '@lucide/vue'
+import { FileText, MessageSquare, Activity, Settings, Tag, Lightbulb, CalendarDays, NotebookPen, Image as ImageIcon, Languages } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
@@ -32,6 +32,12 @@ const routes = [
     meta: { requiresAuth: true, title: 'Notes', icon: NotebookPen },
   },
   {
+    path: '/images',
+    name: 'image-host',
+    component: () => import('@/views/ImageHostPage.vue'),
+    meta: { requiresAuth: true, title: 'Images', icon: ImageIcon },
+  },
+  {
     path: '/tags',
     name: 'tags',
     component: () => import('@/views/TagManagement.vue'),
@@ -48,6 +54,12 @@ const routes = [
     name: 'settings',
     component: () => import('@/views/Settings.vue'),
     meta: { requiresAdmin: true, title: 'Settings', icon: Settings },
+  },
+  {
+    path: '/translation-test',
+    name: 'translation-test',
+    component: () => import('@/views/TranslationTest.vue'),
+    meta: { requiresAdmin: true, title: 'Translation Stream Test', icon: Languages },
   },
   {
     path: '/conferences',

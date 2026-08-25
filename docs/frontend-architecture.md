@@ -245,7 +245,11 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 #### 摘要中英双语（BilingualText）
 
-信息区的「摘要」用通用组件 `components/BilingualText.vue` 渲染（详情页宽 / 窄两处布局均接入）。组件接收一段**纯文本**（不做 Markdown 渲染，`whitespace-pre-wrap` 保留换行），默认只展示英文原文，下方有一个小 **Translate** 按钮（lucide `Languages` 图标）。**仅登录用户**点击才翻译：未登录则唤起登录框（`useLoginPrompt().openLogin()`）、不发请求。点击后调 `translationApi.translate(text)`（`POST /api/translate`，由前端把文本喂入），翻译期间按钮显示 `Loader2` 并禁用；返回后在英文下方**追加**中文译文。译文区头部为一行：muted「Translation」标签 + 紧随其右、同一行的 **Hide/Show** 折叠与 **Re-translate**（`force` 重译覆盖），按钮用更小的 `size="xs"`。**已翻译过默认展开**：挂载时（及 text/登录态变化时）对登录用户调 `translationApi.peek(text)`（`POST /api/translate {cache_only:true}`，由**后端判断**是否已翻译、不调 AI、不报 404、前端不算 hash），命中则默认展开。翻译缓存由后端按内容寻址、**全体用户共享**（见 tech-stack.md「翻译服务」），同一段文本任意用户翻过一次后其他人进来即由 peek 命中、默认展开。组件为通用叶子组件，可复用于其它纯文本（如未来 TLDR）。
+信息区的「摘要」继续由 `components/BilingualText.vue` 负责英文原文、登录门禁、cache peek、Translate、Hide/Show 与 Re-translate。未缓存文本不会因摘要渲染自动消耗模型；仅登录用户点击 Translate 后才挂载 `StreamingTranslationText`。peek 命中时也会挂载子组件，但流接口直接走缓存、不会调用 provider。
+
+`components/StreamingTranslationText.vue` 是样式透明的流式叶子组件：以非空 `text` 创建即调用 `POST /api/translate/stream`，按 delta 增长文本，以 done 的 `translated_text` 做最终权威值；text/force 变化、unmount 会 AbortController 取消，generation token 防止旧响应覆盖新状态。Codex 的几个 sentence-sized delta 可能在几十毫秒内连续到达，Vue 会把同一轮同步 ref 更新合并成一次绘制；因此组件会在**完整追加每个真实 delta 后 await 一次 `requestAnimationFrame`**，让浏览器在持续接收期间定期重绘，再继续处理下一 delta。它不拆字符、不限制输出速率、不 sleep；done 会自然等待当前 async callback。缓存命中或 `stream:false` 没有 delta，直接显示 done，不伪造流式。默认用 `as` 决定实际 HTML 文本元素，并把父级 class/style/ARIA/普通 attrs 直接透传，不添加产品字体/颜色/间距、不渲染 Markdown；也可用 scoped slot `{ text, status, cached, error }` 完全控制 markup。
+
+隐藏测试路由 `/translation-test` 使用 `AppPage`，提供 draft/submit 分离输入、force、start/re-run、cancel/reset 与实时状态面板，通过 scoped slot 演示外部样式。路由 `requiresAdmin:true`，匿名和普通用户由既有 router guard 阻止；它刻意不加入桌面/移动侧边栏。
 
 #### 多模式查看器（PaperViewerPanel）
 
@@ -475,9 +479,9 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 | 入口 | 说明 |
 |------|------|
 | 论文详情页内嵌 | 针对当前论文提问，paper_id 自动绑定，展示模板提问和自由提问 |
-| 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接，支持重新生成、删除、复制、Pin 等操作。默认仅展示当前用户自己的提问；**管理员**额外可在标题栏切换「My Q&A / All Q&A」查看所有用户的提问，此时每条额外显示提问者用户名 |
+| 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接。默认仅展示当前用户自己的提问；所有登录用户均可切换「My Q&A / All Q&A」查看所有用户的提问并看到提问者。别人的 QA 对普通用户只读，owner/admin 才有重新生成与删除操作。 |
 
-**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = **card 外上方的一行「论文标题（左，可用整行、不截断成窄宽）+ 提问时间（`ml-auto` 右对齐）」** + 下方一张内容简单的 shadcn `Card`。这样论文标题作为分组标签放在卡外，card 内层级更简单。card 由 `<Collapsible v-model:open>` 驱动展开/折叠（`CollapsibleTrigger as-child` 套在 `CardHeader` 上，合并后 DOM 的 `data-slot` 为 `collapsible-trigger`；`CollapsibleContent` 是卡片体，头/体间用 `<Separator>` 分隔）。card 头部保持**单行**：状态图标（`Tooltip` 标注 已完成/生成中/生成失败）+ **加粗问题**（`font-semibold`，与详情页问题一致）+ 右侧回答数或模型 `Badge`，**无展开 chevron**（整行可点切换）。论文链接在 card 外，点击只跳转、不影响折叠。组件根是单个 `<div>`（论文行 + card + 对话框），使外层列表的 `space-y-3` 按"条目"分隔。重新生成对话框用 `Checkbox` + `Label` 行做模型多选。卡片体复用 `QAResultView.vue`（多模型 `Tabs`、markdown、操作按钮）——其图标操作（Pin/复制/重生成/删除）改用 `Tooltip` 标注、分隔用 `Separator`，论文详情页同享此改进。页面外壳 `QAPage.vue` 在 `AppPage` 的 `#actions` 槽放刷新按钮（加载时 spin），加载态用一组**结构化骨架卡**（与真实条目同构：card 外的论文/时间行 + card 内的 状态点/问题行/badge 的 `Skeleton` 块；数量取 `feedPagination.page_size`（即一页条数）而非写死，使加载前后列表高度一致、不跳动）。注意：列表/骨架的滚动容器要带 `pt`（如 `pt-2`），否则 `overflow-y-auto` 会把最上方卡片的 ring 描边裁掉。`Skeleton` 组件默认底色已从 shadcn 原版的 `bg-accent` 改为 `bg-foreground/10`——本主题把 `--accent` 定制成了蓝色（同 primary），原版骨架会变成蓝块。**分页**：feed 走后端分页（`GET /api/qa/free?page=&page_size=&scope=`，默认 20/页，返回 `{ data, pagination }`，复用 `PaginatedResponse<T>`，与论文列表一致）；`QAPage` 在 fill 布局底部固定 上一页/下一页 + "当前/总页数" 控件（`total_pages > 1` 时显示），翻页后把列表滚回顶部；轮询只重拉当前页。**管理员视图范围（scope）**：`scope` 取 `mine`（默认，仅自己）或 `all`（所有用户）；`all` 仅对管理员生效，后端对非管理员强制降级为 `mine`（不信任前端）。store 持有 `feedScope` 并在请求时带上 `&scope=`；`QAPage` 仅在 `auth.isAdmin` 时于 `#actions` 槽渲染 My Q&A / All Q&A 分段切换，切换即从第 1 页重拉。后端每条返回 `user_id`/`username`（创建者），`QAFeedPanel` 仅在 `scope==='all'` 且有 `username` 时于论文/时间行右侧显示提问者用户名。**性能**：模型列表（重新生成对话框用）由 `QAPage` 在页面级经 store 的 `fetchModels()` 只请求一次、通过 `store.availableModels` 共享给所有卡片——此前每张 `QAFeedPanel` 都在 `onMounted` 各发一次 `/api/config/models`，条目多时（如 200+）会产生上百个重复请求,是页面卡顿的主因。
+**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = card 外的论文/提问者/时间行 + 下方可折叠 shadcn `Card`。card 头部显示状态、问题、当前用户的非零“高亮 N / 笔记引用 N”、个人淡色背景选择器以及回答数/模型；card body 复用 `QAResultView`。`scope=mine|all` 默认 mine，所有登录用户可切换，切换从第 1 页重拉；all 中显示 asker，普通用户看别人的条目时保留 Pin/复制/高亮但隐藏重生成/删除，后端同样强制 owner/admin。背景色通过 `qa_user_preferences` 跨设备同步（blue/yellow/red/purple），覆盖折叠和展开容器。高亮计数来自当前用户实际 highlight rows，笔记引用计数从当前用户该论文的 `notes.body` 内 `paperland://...?h=` 链接派生，不持久化计数。分页和轮询仍只重拉当前页，并批量聚合 creator/preferences/highlights/notes，禁止每 card 单独请求。
 
 ### 2.5 提问的文本上下文来源
 
@@ -817,11 +821,17 @@ models:
       type: openai_api
       endpoint: "https://api.openai.com/v1"
       api_key_env: "OPENAI_API_KEY"
-    - name: "claude-sonnet"
-      type: claude_cli
-    - name: "codex"
-      type: codex_cli
+      stream: false
+    - name: "codex-gpt-5.3-codex-spark-xhigh"
+      type: codex
+      stream: true
+      cli_path: "/root/.local/bin/codex"
+      codex_home: "/root/.codex"
+      model_id: "gpt-5.3-codex-spark"
+      reasoning_effort: xhigh
 ```
+
+模型 provider 只保留 `openai_api` 与 `codex` 两类；旧 `claude_cli` / `codex_cli` 已移除。两者都以 `stream`（默认 false）声明是否提供真实增量，但内部协议完全独立：OpenAI 为 JSON/SSE，Codex 为 ephemeral exec/app-server。
 
 ### 4.2 Prompt 模板
 
@@ -868,7 +878,7 @@ models:
 | 层级 | 范围 |
 |------|------|
 | **公开（免登录）** | 论文列表 / 详情、模板问答（template Q&A）、PDF / 查看器、`/api/health`、`login`、`me`、**公开笔记读**（`GET /api/papers/:id/public-notes`、`GET /api/notes/:noteId` 公开/属主/管理员）、`GET /api/notes?scope=all`（匿名得公开部分） |
-| **公开但按属主过滤** | `GET /api/papers/:id/qa`（template 全量 + free 仅本人）、`GET /api/highlights`、`GET /api/papers/:id/tags`（匿名返回空、200）、`GET /api/papers/:id/note`（仅本人、含 `is_public`） |
+| **公开但按 viewer 过滤** | `GET /api/papers/:id/qa`（template 全量；free 默认 mine，登录用户可显式 all；匿名无 free）、`GET /api/highlights`、`GET /api/papers/:id/tags`（匿名返回空、200）、`GET /api/papers/:id/note`（仅本人、含 `is_public`） |
 | **需登录（任意用户）** | 增 / 改 / 删论文、所有问答触发与重生成、高亮增改删、标签管理、`/qa` 列表、Idea Forge、单篇论文服务状态 / 触发、改本人账户 |
 | **仅管理员** | 服务管理 Dashboard（`/api/services*`）、设置页 Token 管理（`/api/settings/tokens*`）、用户管理（`/api/users*`） |
 
@@ -880,7 +890,7 @@ models:
 `free Q&A`、`论文标签（tag for paper）`、`文本高亮` 增加 `user_id`（外键 `users.id`）：
 
 - **标签完全按用户隔离**：每个用户拥有自己的标签（名称 / 颜色 / 可见性）与"论文↔标签"关联，唯一性按 `(user_id, name)`。论文列表 / 详情仅展示当前用户的标签，匿名用户看不到任何标签（`papers.tags_json` 全局缓存已弃用，改为按当前用户实时 JOIN 计算）。
-- **free Q&A / 高亮**：只能看见自己的；模板问答（template）为公开共享（`user_id` 为空）。
+- **free Q&A**：默认只看自己的，登录用户可显式切换 all 阅读所有用户 QA；写操作仍 owner/admin。**高亮、QA 背景 preference、笔记与两类阅读计数**始终只属于当前 viewer。模板问答（template）为公开共享（`user_id` 为空）。
 - **迁移**：升级时把库中已有的标签、free Q&A、高亮、API token 一次性归属到新建的 admin。
 - 笔记功能尚未实现，但归属模型已为其预留（未来加 `user_id` 即可）。
 
@@ -998,6 +1008,7 @@ papers 表新增 `tags_json` (text, nullable) 字段，存储 `[{"id":1,"name":"
 | paper_id | integer → Paper.id | 关联论文 |
 | type | text: "template" \| "free" | 提问类型 |
 | template_name | text (nullable) | 模板名称，仅 template 类型有值，作为索引 key |
+| prompt | text (nullable，仅历史不可恢复行为空) | 问题文本；free 创建后固定，template 每次运行前刷新为 config 最新文本 |
 | status | text: "pending" \| "running" \| "done" \| "failed" | 执行状态 |
 | error | text (nullable) | 错误信息 |
 | created_at | datetime | 创建时间 |
@@ -1015,6 +1026,11 @@ papers 表新增 `tags_json` (text, nullable) 字段，存储 `[{"id":1,"name":"
 | model_name | text | 使用的模型名称 |
 | completed_at | datetime | 回答完成时间 |
 | execution_id | integer (nullable) → ServiceExecution.id | 关联的服务执行记录 |
+| content_hash | text (nullable) | 完成回答的稳定指纹：去除全部空白后 MD5；用于高亮归属与笔记锚点计数 |
+
+### 6.4A QA User Preference
+
+`qa_user_preferences` 以 `(user_id, qa_entry_id)` 为复合主键，保存当前 viewer 的 `background_color`（blue/yellow/red/purple）及时间戳；entry 删除时级联清理。QA API 每条还返回 viewer-private 的 `background_color`、`highlight_count`、`note_anchor_count`。
 
 ### 6.5 Service Execution
 
@@ -1069,9 +1085,10 @@ Paper (1) ──→ (N) QA Entry (1) ──→ (N) QA Result
 ### 手动重新生成
 
 - [重新生成] 按钮：强制提交新任务
-- 模板提问：从 config 读取最新模板 prompt
-- 自由提问：使用原始问题（不可更改）
+- 模板提问：每次运行前从 `config.yml` 读取最新模板 prompt，并先写入 QA Entry
+- 自由提问：创建 QA Entry 时先持久化原始问题；之后始终从 Entry 读取，问题不可更改，不依赖已有成功 Result
 - 新 QA Result 追加到 results 数组
+- 问题文本在提交 Service Execution 前已经落库；即使第一次模型调用失败或进程重启，列表仍能显示原问题并允许重新生成
 
 ---
 

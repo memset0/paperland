@@ -53,12 +53,14 @@ export interface PaperCitation {
 
 // QA
 export type QAEntryStatus = 'pending' | 'running' | 'done' | 'failed'
+export type QAEntryBackgroundColor = 'blue' | 'yellow' | 'red' | 'purple'
 
 export interface QAEntry {
   id: number
   paper_id: number
   type: 'template' | 'free'
   template_name: string | null
+  prompt: string | null
   status: QAEntryStatus
   error: string | null
   created_at: string
@@ -74,6 +76,10 @@ export interface QAFeedEntry {
   created_at: string
   user_id: number | null
   username: string | null
+  can_manage: boolean
+  background_color: QAEntryBackgroundColor | null
+  highlight_count: number
+  note_anchor_count: number
   results: QAResult[]
 }
 
@@ -85,6 +91,7 @@ export interface QAResult {
   model_name: string
   completed_at: string
   execution_id: number | null
+  content_hash: string | null
 }
 
 // Service
@@ -162,10 +169,17 @@ export interface ServiceConfig {
 
 export interface ModelConfig {
   name: string
-  type: 'openai_api' | 'claude_cli' | 'codex_cli' | 'codex'
+  type: 'openai_api' | 'codex'
+  /** false/absent = JSON or codex exec; true = SSE or codex app-server. */
+  stream?: boolean
   endpoint?: string
   api_key_env?: string
   shell?: string
+  cli_path?: string
+  codex_home?: string
+  model_id?: string
+  reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+  working_dir?: string
   timeout?: number
 }
 
@@ -241,6 +255,26 @@ export interface TranslateResponse {
   cached: boolean
 }
 
+export type TranslationStreamStatus = 'idle' | 'connecting' | 'streaming' | 'completed' | 'failed'
+
+export interface TranslationStreamStart {
+  source_hash: string
+  cached: boolean
+  model_name: string | null
+  streaming: boolean
+}
+
+export interface TranslationStreamDelta {
+  delta: string
+}
+
+export interface TranslationStreamError {
+  error: {
+    code: string
+    message: string
+  }
+}
+
 // Image host
 export interface Image {
   hash: string
@@ -268,6 +302,7 @@ export interface Highlight {
   id: number
   pathname: string
   content_hash: string
+  qa_result_id: number | null
   start_offset: number
   end_offset: number
   text: string

@@ -1,4 +1,5 @@
 import { dispatchApiError, dispatchUnauthorized } from '@/lib/error-bus'
+import { consumeTranslationStream } from '@/lib/translation-stream'
 
 const BASE_URL = ''
 
@@ -54,6 +55,7 @@ export const highlightApi = {
   create: (data: {
     pathname: string
     content_hash: string
+    qa_result_id?: number
     start_offset: number
     end_offset: number
     text: string
@@ -68,7 +70,11 @@ export const highlightApi = {
 }
 
 // Translation API (English→Chinese, cache-first; shared cache across users)
-import type { TranslateResponse, Translation } from '@paperland/shared'
+import type {
+  TranslateResponse,
+  Translation,
+  TranslationStreamStart,
+} from '@paperland/shared'
 
 export const translationApi = {
   // Translate text; `force` bypasses the cache and overwrites the stored result (re-translate).
@@ -85,6 +91,56 @@ export const translationApi = {
     api.get<{ data: Translation }>(
       `/api/translations/${hash}${targetLang ? `?target_lang=${encodeURIComponent(targetLang)}` : ''}`,
     ),
+
+  async stream(
+    text: string,
+    options: {
+      force?: boolean
+      signal?: AbortSignal
+      onStart?: (start: TranslationStreamStart) => void | Promise<void>
+      onDelta?: (delta: string) => void | Promise<void>
+    } = {},
+  ): Promise<TranslateResponse> {
+    let response: Response
+    try {
+      response = await fetch('/api/translate/stream', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify({ text, force: !!options.force }),
+        signal: options.signal,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw error
+      dispatchApiError('网络错误，请检查连接')
+      throw new Error('网络错误，请检查连接')
+    }
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ message: response.statusText }))
+      const message = body.error?.message || body.message || 'Request failed'
+      if (response.status === 401) dispatchUnauthorized()
+      else dispatchApiError(message)
+      throw new Error(message)
+    }
+    if (!response.body) {
+      const error = new Error('Translation stream returned no response body')
+      dispatchApiError(error.message)
+      throw error
+    }
+
+    try {
+      return await consumeTranslationStream(response.body, {
+        onStart: options.onStart,
+        onDelta: options.onDelta,
+      })
+    } catch (error) {
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        dispatchApiError(error instanceof Error ? error.message : 'Translation failed')
+      }
+      throw error
+    }
+  },
 }
 
 // Auth + user management API

@@ -174,6 +174,7 @@ qa_entries
   user_id         integer   → users.id, nullable  // free 条目属主；template 为空（公开）
   type            text      not null          // "template" | "free"
   template_name   text      nullable          // 模板类型时作为 key
+  prompt          text      nullable          // 问题先于模型调用落库；仅不可恢复的历史失败行可为空
 
 qa_results
   id              integer   primary key autoincrement
@@ -182,6 +183,16 @@ qa_results
   answer          text      not null
   model_name      text      not null
   completed_at    text      not null          // ISO 8601
+  execution_id    integer   nullable          // → service_executions.id
+  content_hash    text      nullable          // answer 去除全部空白后的 MD5
+
+qa_user_preferences
+  user_id         integer   → users.id
+  qa_entry_id     integer   → qa_entries.id
+  background_color text     not null          // blue | yellow | red | purple
+  created_at      text      not null
+  updated_at      text      not null
+  primary key (user_id, qa_entry_id)
 
 service_executions
   id              integer   primary key autoincrement
@@ -206,6 +217,7 @@ highlights
   user_id         integer   → users.id        // 属主（高亮按用户私有）
   pathname        text      not null
   content_hash    text      not null
+  qa_result_id    integer   nullable → qa_results.id  // QA answer 高亮归属；其他内容为空
   start_offset    integer   not null
   end_offset      integer   not null
   text            text      not null
@@ -327,10 +339,17 @@ models:
       type: openai_api
       endpoint: "https://api.openai.com/v1"
       api_key_env: "OPENAI_API_KEY"
-    - name: "claude-sonnet"
-      type: claude_cli
-    - name: "codex"
-      type: codex_cli
+      stream: false                # 缺省/false=JSON；true=Chat Completions SSE
+    - name: "codex-gpt-5.3-codex-spark-xhigh"
+      type: codex                  # 与 openai_api 独立的一等 provider
+      stream: true                 # false=codex exec --ephemeral；true=app-server delta
+      cli_path: "/root/.local/bin/codex"
+      codex_home: "/root/.codex"  # 读取既有登录状态，不复制/输出 auth.json
+      model_id: "gpt-5.3-codex-spark"
+      reasoning_effort: xhigh
+      timeout: 1800
+
+# BREAKING：原 claude_cli / codex_cli generic provider 已移除；Codex 统一迁移到 type: codex。
 
 # Q&A 文本上下文优先级
 content_priority:
@@ -360,12 +379,17 @@ notes:
     lg: 720
 ```
 
-**翻译服务（`translation_service`）**：通用「英译中」文本翻译，pure service（类 `qa_service`，不进依赖图）。核心 `translateText(text, { force? })`：按规范化源文的 SHA-256 查 `translations` 缓存，命中即返回；未命中（或 `force`）则用 `translation.prompt`（`{TEXT}` 占位符）调 `getTranslationModel()` 选定的模型，结果 upsert 到缓存（`force` 原地覆盖同一 `(source_hash, target_lang)` 行）。模型调用经 `services.translation_service` 的并发/限流约束。内部 API（`/api/*`，登录可用，缓存全体共享）：
+**翻译服务（`translation_service`）**：通用「英译中」文本翻译，pure service（类 `qa_service`，不进依赖图）。核心保留原流水线：源文只做外层 `trim()` → SHA-256 → 查询 `(source_hash,target_lang='zh')` → 命中直接返回；未命中（或 `force`）才经 `services.translation_service` 并发/限流调用 `translation.model`，成功得到非空 final 后再 upsert。delta 永远只在内存/HTTP 流中，失败、超时、取消不会新建/覆盖成功缓存。
+
+`translation.prompt` 继续用 `{TEXT}` 装配，默认采用 format-preserving 单文本 prompt（保留 whitespace、Markdown/HTML、代码、公式、URL、identifier 与 placeholder，只输出简体中文译文）。内部 API（`/api/*`，登录可用，缓存全体共享）：
 
 - `POST /api/translate` —— body `{ text, force?, cache_only? }` → `{ source_hash, source_text, translated_text, source_lang, target_lang, model_name, cached }`。`force:true` 绕过缓存重译并覆盖；`cache_only:true` 为 **peek**：只查缓存、不调 AI、不报 404（命中 `cached:true`+译文，未命中 `cached:false`+`translated_text:null`），供前端判断是否默认展开。
+- `POST /api/translate/stream` —— body `{ text, force? }`，返回 `text/event-stream`：`start → delta* → done|error`。缓存命中为 `start(cached:true) → done`，非流式 provider 也只发 done，不伪造 chunk；断连向 provider 传播 abort。
 - `GET /api/translations/:hash`（可选 `?target_lang=`，默认 `zh`）—— 按 hash 仅查缓存，命中返回 `{ data }`，未命中 404，不触发 AI。
 
-`qa_service` 与 `translation_service` 共用 `services/model_invoke.ts` 的 `callModel(prompt, modelName)` 调用 openai_api / codex / cli。
+`qa_service` 与 `translation_service` 继续共用 `services/model_invoke.ts` 的 `callModel(prompt, modelName, options?)` 门面，内部只路由到独立 `OpenAIProvider` / `CodexProvider`。`stream` 缺省为 false；Codex exec 与 app-server 都强制 ephemeral，app-server 还会在 `turn/start` 前验证 `thread.ephemeral === true`，不污染个人 Codex 历史。
+
+**QA prompt 持久化**：`qa_entries` 是问题文本的持久化来源。free QA 在创建 Entry 时写入 `prompt`，后续重跑只读该字段；template QA 每次运行前从 `config.yml` 读取最新模板并更新 Entry。历史 `qa_results.prompt` 仍保存每次成功调用实际使用的快照。迁移通过最新历史 Result 回填可恢复的 Entry；没有任何 Result 的旧失败 free QA 不会伪造原文，只有在用户明确授权且生成当前一致性备份后，才按精确 ID 清理。
 
 ---
 

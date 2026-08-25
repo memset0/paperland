@@ -3,7 +3,7 @@ import { eq, and } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { getTranslationPrompt, getTranslationModel } from './template_loader.js'
-import { callModel } from './model_invoke.js'
+import { callModel, getModelCapabilities, type ModelInvokeOptions } from './model_invoke.js'
 import { Semaphore } from './semaphore.js'
 import { RateLimiter } from './rate_limiter.js'
 import type { Translation } from '@paperland/shared'
@@ -62,7 +62,17 @@ export function peekTranslation(text: string): Translation | null {
  */
 export async function translateText(
   text: string,
-  opts: { force?: boolean } = {}
+  opts: {
+    force?: boolean
+    signal?: AbortSignal
+    onStart?: (start: {
+      source_hash: string
+      cached: boolean
+      model_name: string | null
+      streaming: boolean
+    }) => void | Promise<void>
+    onChunk?: ModelInvokeOptions['onChunk']
+  } = {}
 ): Promise<Translation & { cached: boolean }> {
   const db = getDatabase()
   const source = normalizeSource(text)
@@ -71,19 +81,47 @@ export async function translateText(
 
   if (!opts.force) {
     const existing = getCachedTranslation(sourceHash, TARGET_LANG)
-    if (existing) return { ...existing, cached: true }
+    if (existing) {
+      await opts.onStart?.({
+        source_hash: sourceHash,
+        cached: true,
+        model_name: existing.model_name,
+        streaming: false,
+      })
+      return { ...existing, cached: true }
+    }
   }
 
   // Cache miss or forced re-translate: call the AI model, gated by concurrency + rate limit.
   const modelName = getTranslationModel()
   const prompt = getTranslationPrompt().replace('{TEXT}', source)
+  const capabilities = getModelCapabilities(modelName)
+  await opts.onStart?.({
+    source_hash: sourceHash,
+    cached: false,
+    model_name: modelName,
+    streaming: capabilities.streaming,
+  })
 
   const { sem, rl } = getGate()
   await sem.acquire()
   let translated: string
   try {
+    if (opts.signal?.aborted) {
+      const error = new Error('Translation cancelled')
+      error.name = 'AbortError'
+      throw error
+    }
     await rl.waitIfNeeded()
-    translated = (await callModel(prompt, modelName)).trim()
+    if (opts.signal?.aborted) {
+      const error = new Error('Translation cancelled')
+      error.name = 'AbortError'
+      throw error
+    }
+    translated = (await callModel(prompt, modelName, {
+      onChunk: opts.onChunk,
+      signal: opts.signal,
+    })).trim()
   } finally {
     sem.release()
   }

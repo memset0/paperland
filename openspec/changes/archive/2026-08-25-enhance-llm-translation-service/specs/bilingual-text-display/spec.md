@@ -1,20 +1,4 @@
-# bilingual-text-display Specification
-
-## Purpose
-Defines a reusable frontend `BilingualText` component that renders a plain-text string (English) by default and, on demand for logged-in users, appends a Simplified Chinese translation below the original via the translation API. It covers default display, login-gated on-demand translation, inline hide/show and re-translate controls, expanding previously-cached translations by default (via a backend peek), and the paper detail abstract using this component.
-
-## Requirements
-### Requirement: Bilingual text component
-The frontend SHALL provide a reusable `BilingualText` component that accepts a single plain-text string as input and, by default, displays only the original English text. The component SHALL render the input as plain text (preserving line breaks via `white-space: pre-wrap`) and SHALL NOT render it as Markdown. Below the text the component SHALL show a small "translate" button.
-
-#### Scenario: Default shows English only
-- **WHEN** `BilingualText` is rendered with a `text` prop
-- **THEN** it SHALL display the original English text and a small translate button below it
-- **AND** SHALL NOT show any Chinese translation until the button is clicked
-
-#### Scenario: Plain-text rendering, no Markdown
-- **WHEN** the input text contains Markdown-like characters (e.g. `**bold**`) and newlines
-- **THEN** the component SHALL display them as literal text with line breaks preserved, not as rendered Markdown
+## MODIFIED Requirements
 
 ### Requirement: On-demand translation gated to logged-in users
 `BilingualText` SHALL preserve its existing on-demand and login-gated behavior. It SHALL NOT invoke a model merely because an uncached English source is rendered. For a logged-in user, clicking Translate SHALL mount a `StreamingTranslationText` child for the source text; creating that child SHALL start the authenticated streaming translation request. For an unauthenticated user, clicking SHALL open the existing login prompt and SHALL NOT mount the streaming child or call a translation API. A cache peek that already found a completed translation MAY mount the child automatically because its cache-first stream completes without a model invocation.
@@ -24,7 +8,7 @@ The frontend SHALL provide a reusable `BilingualText` component that accepts a s
 - **THEN** `BilingualText` SHALL mount `StreamingTranslationText` with that text and the child SHALL call `POST /api/translate/stream`
 
 #### Scenario: Not-logged-in user is prompted to log in
-- **WHEN** a user who is not authenticated clicks the translate button
+- **WHEN** a user who is not authenticated clicks Translate
 - **THEN** `BilingualText` SHALL open the login prompt and SHALL NOT mount `StreamingTranslationText` or call the translation API
 
 #### Scenario: Loading state during translation
@@ -46,23 +30,7 @@ The frontend SHALL provide a reusable `BilingualText` component that accepts a s
 - **WHEN** the user clicks Re-translate
 - **THEN** `BilingualText` SHALL start a new `StreamingTranslationText` request with `force: true` and SHALL ignore events from the superseded child request
 
-### Requirement: Previously-translated text is expanded by default
-When the component mounts (or its text changes) for a logged-in user, it SHALL ask the backend whether the text already has a cached translation (a peek that does NOT trigger a new translation). If one exists, the component SHALL display it expanded by default; otherwise it SHALL show only the original text with the translate button. The frontend SHALL NOT need to compute the content hash itself — the backend determines cache membership.
-
-#### Scenario: Already-translated text shows expanded on load
-- **WHEN** a logged-in user opens content whose text was translated before
-- **THEN** the component SHALL show the cached Chinese translation expanded by default, without calling the AI model
-
-#### Scenario: Never-translated text shows collapsed on load
-- **WHEN** content whose text has no cached translation is shown
-- **THEN** the component SHALL show only the original text and the translate button (no translation, no AI call)
-
-### Requirement: Paper detail abstract uses the bilingual component
-The paper detail page SHALL render the paper's `abstract` using the `BilingualText` component (in both the wide and narrow layouts), so the abstract supports on-demand English/Chinese bilingual display.
-
-#### Scenario: Abstract is bilingual-capable
-- **WHEN** the paper detail page is viewed for a paper that has an abstract
-- **THEN** the abstract SHALL be rendered via `BilingualText`, showing the English abstract with a translate button below it
+## ADDED Requirements
 
 ### Requirement: Auto-starting streaming translation text component
 The frontend SHALL provide a reusable `StreamingTranslationText` component that accepts source `text` and optional `force`. On creation and whenever its source request identity changes, it SHALL call `POST /api/translate/stream`, consume named SSE events, and maintain `translated_text`, `status`, `cached`, and `error` state. It SHALL append each genuine provider delta in full and in order, then yield one animation frame before processing the next already-available delta. This SHALL allow the browser to repaint periodically during a sustained stream without subdividing provider deltas, rate-limiting output, or adding an artificial timer. It SHALL process all delta callbacks before applying authoritative `done.translated_text`. A cache hit or final-only provider that emits no delta SHALL render done immediately without simulated streaming.
