@@ -7,6 +7,7 @@ import { randomBytes } from 'crypto'
 import { getConfig } from '../config.js'
 import * as schema from './schema.js'
 import { migrateNotesToSingleDoc } from './notes-migration.js'
+import { backfillQAReadingAttribution } from './qa-reading-migration.js'
 
 let _db: ReturnType<typeof drizzle> | null = null
 let _sqlite: Database | null = null
@@ -41,6 +42,10 @@ export function initDatabase(): ReturnType<typeof drizzle> {
       throw err
     }
   }
+
+  // Backfill completed-answer hashes and only unambiguous legacy QA-highlight relations.
+  // Idempotent: subsequent starts see no null result hashes and skip attributed highlights.
+  backfillQAReadingAttribution(_sqlite)
 
   // Backfill qa_entries.created_at for rows that still have the default empty string
   _sqlite.exec(`

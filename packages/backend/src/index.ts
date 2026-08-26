@@ -26,6 +26,7 @@ import { startBackupScheduler } from './db/backup.js'
 import { getDatabase, schema } from './db/index.js'
 import { inArray } from 'drizzle-orm'
 import { serviceRunner } from './services/service_runner.js'
+import { recoverInterruptedQAResults } from './services/qa_runtime.js'
 import { arxivMetadataService, arxivPdfService } from './services/arxiv_service.js'
 import { semanticScholarService } from './services/semantic_scholar_service.js'
 import { pdfParseService } from './services/pdf_parse_service.js'
@@ -54,11 +55,8 @@ async function main() {
       .set({ status: 'failed', error: 'interrupted by server restart', finished_at: now })
       .where(inArray(schema.serviceExecutions.status, staleStatuses))
       .run()
-    db.update(schema.qaEntries)
-      .set({ status: 'failed', error: 'interrupted by server restart' })
-      .where(inArray(schema.qaEntries.status, staleStatuses))
-      .run()
-    console.log('Cleaned up stale service executions and QA entries')
+    const recoveredQA = recoverInterruptedQAResults(db, now)
+    console.log(`Cleaned up stale service executions and ${recoveredQA.resultCount} QA results`)
   }
 
   // Ensure idea-forge directory exists

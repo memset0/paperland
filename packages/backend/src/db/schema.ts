@@ -57,6 +57,7 @@ export const qaEntries = sqliteTable('qa_entries', {
   user_id: integer('user_id').references(() => users.id), // owner for free entries; null for template (public/shared)
   type: text('type').notNull(), // 'template' | 'free'
   template_name: text('template_name'),
+  prompt: text('prompt'), // persisted question text; immutable for free, refreshed from config for template runs
   status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'done' | 'failed'
   error: text('error'),
   created_at: text('created_at').notNull().default(''),
@@ -70,7 +71,28 @@ export const qaResults = sqliteTable('qa_results', {
   model_name: text('model_name').notNull(),
   completed_at: text('completed_at').notNull(),
   execution_id: integer('execution_id'),
+  content_hash: text('content_hash'), // stable MD5 of answer with all whitespace removed
+  status: text('status').notNull().default('done'), // queued | awaiting_output | streaming | done | failed | cancelled
+  error: text('error'),
+  requested_by_user_id: integer('requested_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  streaming_capable: integer('streaming_capable').notNull().default(0),
+  created_at: text('created_at').notNull().default(''),
+  started_at: text('started_at'),
+  first_chunk_at: text('first_chunk_at'),
+  finished_at: text('finished_at'),
+  updated_at: text('updated_at').notNull().default(''),
 })
+
+export const qaUserPreferences = sqliteTable('qa_user_preferences', {
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  qa_entry_id: integer('qa_entry_id').notNull().references(() => qaEntries.id, { onDelete: 'cascade' }),
+  background_color: text('background_color').notNull(), // gray | brown | orange | yellow | green | blue | purple | pink | red
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.user_id, table.qa_entry_id] }),
+  index('qa_user_preferences_entry_idx').on(table.qa_entry_id),
+])
 
 export const serviceExecutions = sqliteTable('service_executions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -89,6 +111,7 @@ export const highlights = sqliteTable('highlights', {
   user_id: integer('user_id').references(() => users.id), // owner; nullable for migration, app always sets it
   pathname: text('pathname').notNull(),
   content_hash: text('content_hash').notNull(),
+  qa_result_id: integer('qa_result_id').references(() => qaResults.id, { onDelete: 'set null' }),
   start_offset: integer('start_offset').notNull(),
   end_offset: integer('end_offset').notNull(),
   text: text('text').notNull(),
@@ -99,7 +122,9 @@ export const highlights = sqliteTable('highlights', {
   // is left in place to preserve historical data. (A future drizzle-kit generate may propose
   // dropping it; that is expected and can be ignored.)
   created_at: text('created_at').notNull(),
-})
+}, (table) => [
+  index('highlights_user_qa_result_idx').on(table.user_id, table.qa_result_id),
+])
 
 // Per-user, per-paper notes: ONE Markdown document per (user, paper). The whole note is a
 // single `body` string; the mind-map and walkthrough are derived from its Markdown headings,

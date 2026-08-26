@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { getSystemPrompt } from './template_loader.js'
-import { callModel } from './model_invoke.js'
+import { callModel, type ModelInvokeOptions } from './model_invoke.js'
 
 function resolveContent(paper: any): string | null {
   const config = getConfig()
@@ -21,7 +21,8 @@ function resolveContent(paper: any): string | null {
 export async function askQuestion(
   paperId: number,
   prompt: string,
-  modelName: string
+  modelName: string,
+  options: ModelInvokeOptions = {},
 ): Promise<{ answer: string; model_name: string }> {
   const db = getDatabase()
   const paper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
@@ -33,7 +34,7 @@ export async function askQuestion(
   const systemPrompt = getSystemPrompt()
   const fullPrompt = systemPrompt.replace('{PAPER}', content).replace('{PROMPT}', prompt)
 
-  const answer = await callModel(fullPrompt, modelName)
+  const answer = await callModel(fullPrompt, modelName, options)
   return { answer, model_name: modelName }
 }
 

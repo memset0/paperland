@@ -64,12 +64,12 @@ models:
       stream: false                 # false/omitted = JSON; true = Chat Completions SSE
     # Codex is a separate first-class provider. stream:false uses `codex exec --ephemeral`;
     # stream:true uses app-server and requires the structured fields below.
-    # - name: codex-gpt-5.3-codex-spark-xhigh
+    # - name: codex-gpt-5.6-sol-xhigh
     #   type: codex
     #   stream: true
     #   cli_path: /absolute/path/to/codex
     #   codex_home: /absolute/path/to/the/CODEX_HOME/with-your-login
-    #   model_id: gpt-5.3-codex-spark
+    #   model_id: gpt-5.6-sol
     #   reasoning_effort: xhigh
     #   timeout: 1800
 

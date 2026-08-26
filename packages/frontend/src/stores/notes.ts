@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { toast } from 'vue-sonner'
 import { notesApi } from '@/api/client'
 import { useWindowsStore } from '@/stores/windows'
+import { useQAStore } from '@/stores/qa'
 import type { Note, NoteDocTree, NoteSection } from '@paperland/shared'
 import {
   parseNoteDoc, flattenSections, findSection, structureKey as mdStructureKey,
@@ -27,6 +28,7 @@ export const useNotesStore = defineStore('notes', () => {
   const panelMode = ref<PanelMode>('render')
   const undoStack = ref<string[]>([])
   const windowsStore = useWindowsStore()
+  const qaStore = useQAStore()
 
   const tree = computed<NoteDocTree>(() => parseNoteDoc(body.value))
   const canUndo = computed(() => undoStack.value.length > 0)
@@ -74,6 +76,7 @@ export const useNotesStore = defineStore('notes', () => {
       if (currentPaperId.value !== paperId) return // navigated away
       if (res.ok) {
         noteRow.value = res.data
+        if (qaStore.currentPaperId === paperId) void qaStore.fetchQA(paperId)
       } else {
         // Conflict (another tab/device). Reload the latest and drop windows (structure may differ).
         noteRow.value = res.data

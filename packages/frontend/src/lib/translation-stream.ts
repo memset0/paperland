@@ -4,7 +4,7 @@ import type {
   TranslationStreamError,
   TranslationStreamStart,
 } from '@paperland/shared'
-import { ServerSentEventParser } from './sse'
+import { consumeNamedEventStream } from './named-event-stream'
 
 export interface TranslationStreamCallbacks {
   onStart?: (start: TranslationStreamStart) => void | Promise<void>
@@ -15,9 +15,6 @@ export async function consumeTranslationStream(
   body: ReadableStream<Uint8Array>,
   callbacks: TranslationStreamCallbacks = {},
 ): Promise<TranslateResponse> {
-  const parser = new ServerSentEventParser()
-  const decoder = new TextDecoder()
-  const reader = body.getReader()
   let completed: TranslateResponse | null = null
 
   const consume = async (event: { event: string; data: string }) => {
@@ -42,17 +39,7 @@ export async function consumeTranslationStream(
     }
   }
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      for (const event of parser.push(decoder.decode(value, { stream: true }))) await consume(event)
-    }
-    for (const event of parser.push(decoder.decode())) await consume(event)
-    for (const event of parser.finish()) await consume(event)
-    if (!completed) throw new Error('Translation stream ended before done')
-    return completed
-  } finally {
-    reader.releaseLock()
-  }
+  await consumeNamedEventStream(body, consume)
+  if (!completed) throw new Error('Translation stream ended before done')
+  return completed
 }

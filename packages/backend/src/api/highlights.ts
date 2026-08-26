@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { touchPaperUpdatedAt, parsePaperIdFromPathname } from '../db/utils.js'
 import { requireUser } from '../auth/guards.js'
+import { markdownContentHash } from '../services/content_hash.js'
 
 export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/highlights?pathname=/papers/42
@@ -31,8 +32,9 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
     end_offset: number
     text: string
     color: string
+    qa_result_id?: number | null
   } }>('/api/highlights', { preHandler: requireUser }, async (request, reply) => {
-    const { pathname, content_hash, start_offset, end_offset, text, color } = request.body || {} as any
+    const { pathname, content_hash, start_offset, end_offset, text, color, qa_result_id } = request.body || {} as any
     if (!pathname || !content_hash || start_offset == null || end_offset == null || !text || !color) {
       return reply.code(400).send({ error: { message: 'Missing required fields' } })
     }
@@ -43,10 +45,22 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const db = getDatabase()
+    if (qa_result_id != null) {
+      const result = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, qa_result_id)).get()
+      const entry = result
+        ? db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, result.qa_entry_id)).get()
+        : null
+      const paperId = parsePaperIdFromPathname(pathname)
+      const resultHash = result?.content_hash || (result ? markdownContentHash(result.answer) : null)
+      if (!result || !entry || paperId == null || entry.paper_id !== paperId || resultHash !== content_hash) {
+        return reply.code(400).send({ error: { message: 'Invalid QA result attribution' } })
+      }
+    }
     const result = db.insert(schema.highlights).values({
       user_id: request.user!.id,
       pathname,
       content_hash,
+      qa_result_id: qa_result_id ?? null,
       start_offset,
       end_offset,
       text,

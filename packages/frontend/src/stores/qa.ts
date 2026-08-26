@@ -1,7 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import { api } from '@/api/client'
-import type { QAFeedEntry, PaginatedResponse } from '@paperland/shared'
+import { api, qaResultApi } from '@/api/client'
+import type {
+  QAEntryBackgroundColor,
+  QAFeedEntry,
+  PaginatedResponse,
+  QAResult,
+  QAResultStreamDelta,
+} from '@paperland/shared'
+import { AnimationFrameBatcher } from '@/lib/animation-frame-batcher'
+
+export type { QAResult } from '@paperland/shared'
 
 const STORAGE_KEY = 'paperland_selected_models'
 
@@ -16,20 +25,14 @@ function loadCachedModels(): string[] {
   return []
 }
 
-export interface QAResult {
-  id: number
-  qa_entry_id: number
-  prompt: string
-  answer: string
-  model_name: string
-  completed_at: string
-  execution_id: number | null
-}
-
 export interface TemplateEntry {
   entry_id: number
   status: string
   error: string | null
+  can_manage: boolean
+  background_color: QAEntryBackgroundColor | null
+  highlight_count: number
+  note_anchor_count: number
   results: QAResult[]
 }
 
@@ -38,6 +41,12 @@ export interface FreeEntry {
   status: string
   error: string | null
   prompt: string | null
+  user_id: number | null
+  username: string | null
+  can_manage: boolean
+  background_color: QAEntryBackgroundColor | null
+  highlight_count: number
+  note_anchor_count: number
   results: QAResult[]
 }
 
@@ -54,6 +63,7 @@ export const useQAStore = defineStore('qa', () => {
   const polling = ref(false)
   const selectedModels = ref<string[]>(loadCachedModels())
   const currentPaperId = ref<number | null>(null)
+  const paperScope = ref<'mine' | 'all'>('mine')
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
   watch(selectedModels, (val) => {
@@ -68,10 +78,11 @@ export const useQAStore = defineStore('qa', () => {
   async function fetchQA(paperId: number, showLoading = false) {
     if (showLoading) loading.value = true
     try {
-      const data = await api.get<QAData>(`/api/papers/${paperId}/qa`)
+      const data = await api.get<QAData>(`/api/papers/${paperId}/qa?scope=${paperScope.value}`)
       // Only update if still viewing the same paper
       if (currentPaperId.value === paperId) {
         qaData.value = data
+        reconcileResultStreams()
       }
     } finally {
       if (showLoading) loading.value = false
@@ -81,8 +92,16 @@ export const useQAStore = defineStore('qa', () => {
   /** Call this when switching papers — resets state and sets the active paper */
   function switchPaper(paperId: number) {
     stopPolling()
+    stopAllResultStreams()
     currentPaperId.value = paperId
+    paperScope.value = 'mine'
     qaData.value = { template: {}, free: [] }
+  }
+
+  async function setPaperScope(scope: 'mine' | 'all') {
+    if (paperScope.value === scope) return
+    paperScope.value = scope
+    if (currentPaperId.value != null) await fetchQA(currentPaperId.value, true)
   }
 
   async function triggerAllTemplates(paperId: number) {
@@ -96,6 +115,10 @@ export const useQAStore = defineStore('qa', () => {
             entry_id: 0,
             status: 'running',
             error: null,
+            can_manage: true,
+            background_color: null,
+            highlight_count: 0,
+            note_anchor_count: 0,
             results: [],
           }
         }
@@ -129,9 +152,16 @@ export const useQAStore = defineStore('qa', () => {
           status: 'running',
           error: null,
           prompt: question,
+          user_id: null,
+          username: null,
+          can_manage: true,
+          background_color: null,
+          highlight_count: 0,
+          note_anchor_count: 0,
           results: [],
         })
       }
+      await fetchQA(paperId)
       startPolling(paperId)
       return res
     } finally {
@@ -149,13 +179,42 @@ export const useQAStore = defineStore('qa', () => {
       }
     }
     await api.post(`/api/qa/${entryId}/regenerate`, { models })
-    await fetchQA(paperId)
-    startPolling(paperId)
+    if (currentPaperId.value === paperId) {
+      await fetchQA(paperId)
+      startPolling(paperId)
+    }
   }
 
   async function deleteResult(resultId: number, paperId: number) {
+    stopResultStream(resultId)
     await api.delete(`/api/qa/results/${resultId}`)
-    await fetchQA(paperId)
+    if (currentPaperId.value === paperId) await fetchQA(paperId)
+  }
+
+  async function cancelResult(resultId: number) {
+    await qaResultApi.cancel(resultId)
+  }
+
+  async function setEntryBackground(entryId: number, color: QAEntryBackgroundColor | null) {
+    await api.put(`/api/qa/${entryId}/preferences`, { background_color: color })
+    for (const entry of Object.values(qaData.value.template)) {
+      if (entry.entry_id === entryId) entry.background_color = color
+    }
+    const freeEntry = qaData.value.free.find((entry) => entry.entry_id === entryId)
+    if (freeEntry) freeEntry.background_color = color
+    const feedEntry = feedEntries.value.find((entry) => entry.entry_id === entryId)
+    if (feedEntry) feedEntry.background_color = color
+  }
+
+  function adjustHighlightCount(resultId: number, delta: number) {
+    const adjust = (entry: { results: QAResult[]; highlight_count: number }) => {
+      if (entry.results.some((result) => result.id === resultId)) {
+        entry.highlight_count = Math.max(0, entry.highlight_count + delta)
+      }
+    }
+    for (const entry of Object.values(qaData.value.template)) adjust(entry)
+    for (const entry of qaData.value.free) adjust(entry)
+    for (const entry of feedEntries.value) adjust(entry)
   }
 
   function hasInProgress(): boolean {
@@ -196,15 +255,148 @@ export const useQAStore = defineStore('qa', () => {
       pollTimer = null
       polling.value = false
     }
+    stopAllResultStreams()
   }
 
   // --- Feed state (for /qa page) ---
   const feedEntries = ref<QAFeedEntry[]>([])
   const feedLoading = ref(false)
   const feedPagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 0 })
-  // Feed scope: 'mine' (own entries, default) or 'all' (every user's — admin only, enforced server-side).
+  // Feed scope: 'mine' (own entries, default) or 'all' (every user's, for any logged-in viewer).
   const feedScope = ref<'mine' | 'all'>('mine')
   let feedPollTimer: ReturnType<typeof setInterval> | null = null
+
+  type EntryWithResults = { status: string; error: string | null; results: QAResult[] }
+  type ResultStreamState = {
+    controller: AbortController
+    generation: number
+    deltaBatcher: AnimationFrameBatcher<QAResultStreamDelta>
+    reconnectTimer: ReturnType<typeof setTimeout> | null
+  }
+  const resultStreams = new Map<number, ResultStreamState>()
+  let streamGeneration = 0
+
+  function everyVisibleEntry(): EntryWithResults[] {
+    return [
+      ...Object.values(qaData.value.template),
+      ...qaData.value.free,
+      ...feedEntries.value,
+    ]
+  }
+
+  function entriesContainingResult(resultId: number): EntryWithResults[] {
+    return everyVisibleEntry().filter((entry) => entry.results.some((result) => result.id === resultId))
+  }
+
+  function recomputeLocalEntry(entry: EntryWithResults) {
+    if (entry.results.some((result) => result.status === 'awaiting_output' || result.status === 'streaming')) {
+      entry.status = 'running'
+      entry.error = null
+    } else if (entry.results.some((result) => result.status === 'queued')) {
+      entry.status = 'pending'
+      entry.error = null
+    } else if (entry.results.some((result) => result.status === 'done')) {
+      entry.status = 'done'
+      entry.error = null
+    } else if (entry.results.length > 0) {
+      entry.status = 'failed'
+      entry.error = entry.results.find((result) => result.error)?.error ?? '生成失败'
+    }
+  }
+
+  function replaceResult(result: QAResult) {
+    for (const entry of entriesContainingResult(result.id)) {
+      const target = entry.results.find((candidate) => candidate.id === result.id)
+      if (target) Object.assign(target, result)
+      recomputeLocalEntry(entry)
+    }
+  }
+
+  function scheduleDeltaPaint(state: ResultStreamState, delta: QAResultStreamDelta): Promise<void> {
+    return state.deltaBatcher.push(delta, (deltas) => {
+      const text = deltas.map((item) => item.delta).join('')
+      const meta = deltas.at(-1)!
+      for (const entry of entriesContainingResult(meta.result_id)) {
+        const result = entry.results.find((candidate) => candidate.id === meta.result_id)
+        if (!result) continue
+        result.answer += text
+        result.status = 'streaming'
+        result.first_chunk_at = meta.first_chunk_at
+        result.thinking_duration_ms = meta.thinking_duration_ms
+        recomputeLocalEntry(entry)
+      }
+    })
+  }
+
+  function isResultStillActive(resultId: number): boolean {
+    return entriesContainingResult(resultId).some((entry) => entry.results.some((result) =>
+      result.id === resultId && ['queued', 'awaiting_output', 'streaming'].includes(result.status),
+    ))
+  }
+
+  function subscribeResult(resultId: number, attempt = 0) {
+    if (resultStreams.has(resultId)) return
+    const state: ResultStreamState = {
+      controller: new AbortController(),
+      generation: ++streamGeneration,
+      deltaBatcher: new AnimationFrameBatcher<QAResultStreamDelta>(),
+      reconnectTimer: null,
+    }
+    resultStreams.set(resultId, state)
+    void qaResultApi.stream(resultId, {
+      signal: state.controller.signal,
+      onStart: (start) => {
+        if (resultStreams.get(resultId)?.generation !== state.generation) return
+        replaceResult(start.result)
+      },
+      onDelta: (delta) => {
+        if (resultStreams.get(resultId)?.generation !== state.generation) return
+        return scheduleDeltaPaint(state, delta)
+      },
+    }).then((terminal) => {
+      if (resultStreams.get(resultId)?.generation !== state.generation) return
+      replaceResult(terminal)
+    }).catch((error) => {
+      if (state.controller.signal.aborted) return
+      if (isResultStillActive(resultId) && attempt < 3) {
+        state.reconnectTimer = setTimeout(() => {
+          if (resultStreams.get(resultId)?.generation !== state.generation) return
+          resultStreams.delete(resultId)
+          subscribeResult(resultId, attempt + 1)
+        }, Math.min(4000, 500 * (2 ** attempt)))
+        return
+      }
+      console.warn(`QA result stream ${resultId} ended:`, error)
+    }).finally(() => {
+      const current = resultStreams.get(resultId)
+      if (current?.generation === state.generation && !state.reconnectTimer) resultStreams.delete(resultId)
+    })
+  }
+
+  function stopResultStream(resultId: number) {
+    const state = resultStreams.get(resultId)
+    if (!state) return
+    state.controller.abort()
+    state.deltaBatcher.cancel()
+    if (state.reconnectTimer) clearTimeout(state.reconnectTimer)
+    resultStreams.delete(resultId)
+  }
+
+  function stopAllResultStreams() {
+    for (const resultId of [...resultStreams.keys()]) stopResultStream(resultId)
+  }
+
+  function reconcileResultStreams() {
+    const activeIds = new Set(
+      everyVisibleEntry().flatMap((entry) => entry.results)
+        .filter((result) => ['queued', 'awaiting_output', 'streaming'].includes(result.status))
+        .map((result) => result.id),
+    )
+    for (const resultId of activeIds) subscribeResult(resultId)
+    for (const resultId of [...resultStreams.keys()]) {
+      if (!activeIds.has(resultId)) stopResultStream(resultId)
+    }
+  }
 
   // Available models for the regenerate dialog. Fetched once and shared across all
   // feed cards (previously each QAFeedPanel fetched this on mount — N duplicate requests).
@@ -229,6 +421,7 @@ export const useQAStore = defineStore('qa', () => {
       )
       feedEntries.value = res.data
       feedPagination.value = res.pagination
+      reconcileResultStreams()
     } finally {
       if (showLoading) feedLoading.value = false
     }
@@ -254,12 +447,13 @@ export const useQAStore = defineStore('qa', () => {
       clearInterval(feedPollTimer)
       feedPollTimer = null
     }
+    stopAllResultStreams()
   }
 
   return {
-    qaData, templates, loading, submitting, polling, selectedModels, currentPaperId,
+    qaData, templates, loading, submitting, polling, selectedModels, currentPaperId, paperScope,
     fetchTemplates, fetchQA, switchPaper, triggerAllTemplates, regenerateTemplate,
-    submitFreeQuestion, regenerateEntry, deleteResult,
+    submitFreeQuestion, regenerateEntry, deleteResult, cancelResult, setPaperScope, setEntryBackground, adjustHighlightCount,
     startPolling, stopPolling, hasInProgress,
     feedEntries, feedLoading, feedPagination, feedScope, fetchFeed, startFeedPolling, stopFeedPolling, feedHasInProgress,
     availableModels, fetchModels,

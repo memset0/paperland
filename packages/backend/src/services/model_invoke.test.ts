@@ -120,4 +120,57 @@ describe('model invocation compatibility baseline', () => {
       sqlite.close()
     }
   })
+
+  test('streaming OpenAI model keeps QA final-string behavior when the caller omits chunk callbacks', async () => {
+    const configPath = writeConfig(`    - name: baseline-openai-stream
+      type: openai_api
+      endpoint: https://models.example.test/v1
+      api_key_env: PAPERLAND_TEST_OPENAI_STREAM_KEY
+      stream: true`, 'baseline-openai-stream')
+    loadConfig(configPath)
+
+    const originalFetch = globalThis.fetch
+    const previousKey = process.env.PAPERLAND_TEST_OPENAI_STREAM_KEY
+    process.env.PAPERLAND_TEST_OPENAI_STREAM_KEY = 'test-key'
+    let capturedBody: any
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body))
+      const encoder = new TextEncoder()
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"streamed "}}]}\n\n'))
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"answer"}}]}\n\n'))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        },
+      }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    }) as typeof fetch
+
+    const sqlite = new Database(':memory:')
+    sqlite.exec(`
+      CREATE TABLE papers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        arxiv_id TEXT, corpus_id TEXT, title TEXT NOT NULL, authors TEXT NOT NULL,
+        abstract TEXT, contents TEXT, pdf_path TEXT, metadata TEXT, link TEXT,
+        tags_json TEXT, listed INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      INSERT INTO papers (id, title, authors, contents, created_at, updated_at)
+      VALUES (2, 'Streaming baseline', '[]', '{"user_input":"Paper body"}', 'now', 'now');
+    `)
+    setDatabaseForTesting(drizzle(sqlite, { schema }))
+
+    try {
+      await expect(askQuestion(2, 'What?', 'baseline-openai-stream')).resolves.toEqual({
+        answer: 'streamed answer',
+        model_name: 'baseline-openai-stream',
+      })
+      expect(capturedBody.stream).toBe(true)
+    } finally {
+      sqlite.close()
+      globalThis.fetch = originalFetch
+      if (previousKey === undefined) delete process.env.PAPERLAND_TEST_OPENAI_STREAM_KEY
+      else process.env.PAPERLAND_TEST_OPENAI_STREAM_KEY = previousKey
+    }
+  })
 })

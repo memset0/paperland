@@ -53,7 +53,17 @@ export interface PaperCitation {
 
 // QA
 export type QAEntryStatus = 'pending' | 'running' | 'done' | 'failed'
-export type QAEntryBackgroundColor = 'blue' | 'yellow' | 'red' | 'purple'
+export type QAResultStatus = 'queued' | 'awaiting_output' | 'streaming' | 'done' | 'failed' | 'cancelled'
+export type QAEntryBackgroundColor =
+  | 'gray'
+  | 'brown'
+  | 'orange'
+  | 'yellow'
+  | 'green'
+  | 'blue'
+  | 'purple'
+  | 'pink'
+  | 'red'
 
 export interface QAEntry {
   id: number
@@ -92,6 +102,36 @@ export interface QAResult {
   completed_at: string
   execution_id: number | null
   content_hash: string | null
+  status: QAResultStatus
+  error: string | null
+  requested_by_user_id: number | null
+  streaming_capable: boolean
+  created_at: string
+  started_at: string | null
+  first_chunk_at: string | null
+  finished_at: string | null
+  updated_at: string
+  thinking_duration_ms: number | null
+  can_cancel: boolean
+}
+
+export interface QAResultStreamStart {
+  result: QAResult
+  streaming_capable: boolean
+  thinking_duration_ms: number | null
+}
+
+export interface QAResultStreamDelta {
+  result_id: number
+  delta: string
+  answer_length: number
+  first_chunk_at: string | null
+  thinking_duration_ms: number | null
+}
+
+export interface QAResultStreamTerminal {
+  result: QAResult
+  error?: { code: string; message: string }
 }
 
 // Service

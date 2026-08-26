@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue'
-import MarkdownIt from 'markdown-it'
-import mk from '@traptitech/markdown-it-katex'
 import SparkMD5 from 'spark-md5'
 import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
-import 'katex/dist/katex.min.css'
 import { toast } from 'vue-sonner'
 import { useRouter, useRoute } from 'vue-router'
 import { Trash2, Link2, Copy } from '@lucide/vue'
@@ -15,6 +12,7 @@ import { applyHighlights, clearHighlights, getSelectionOffsets } from '@/composa
 import { useBlockAnchor, type AnchorRange } from '@/composables/useBlockAnchor'
 import { usePdfNavigation } from '@/composables/usePdfNavigation'
 import type { HighlightColor } from '@paperland/shared'
+import { renderMarkdown } from '@/lib/markdown-renderer'
 
 // `disableHighlights` renders the markdown read-only: no selection toolbar, no stored
 // highlights, no highlight click-menu. Anchor-link and KaTeX-copy clicks still work.
@@ -22,7 +20,16 @@ import type { HighlightColor } from '@paperland/shared'
 // the content-hash-keyed highlight model.
 // `publicNote` renders another user's note: Q&A/block (`?h=`) anchors are made inert (they
 // resolve against THIS viewer's Q&A, not the author's), while PDF (`?pdf=`) anchors stay live.
-const props = defineProps<{ content: string; highlightPathname?: string; paperId?: number; disableHighlights?: boolean; publicNote?: boolean }>()
+// `applyImageWidth` (default true) gates the `w=sm|md|lg|<px>` image alt-text width directive:
+// when false (mindmap content nodes) the directive token is still stripped from the alt but no
+// max-width cap is applied, so image sizing stays governed by the node layout.
+// NOTE: `applyImageWidth` must default to TRUE. A Boolean-typed prop that the parent omits is
+// cast to `false` by Vue (not `undefined`), so without this default the directive would be
+// disabled everywhere it isn't explicitly passed (walkthrough, notes card, public notes, FAQ).
+const props = withDefaults(
+  defineProps<{ content: string; highlightPathname?: string; paperId?: number; qaResultId?: number; disableHighlights?: boolean; publicNote?: boolean; applyImageWidth?: boolean }>(),
+  { applyImageWidth: true },
+)
 
 const highlightStore = useHighlightStore()
 const auth = useAuthStore()
@@ -45,10 +52,6 @@ const showMenu = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
 const menuHighlightId = ref<number | null>(null)
 
-// Configure markdown-it once
-const md = new MarkdownIt({ breaks: true, linkify: true, html: false })
-md.use(mk, { throwOnError: false })
-
 // HTML → Markdown converter for the "copy as anchor" action (GFM tables/strikethrough).
 const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
 turndown.use(gfm)
@@ -67,13 +70,43 @@ const myHighlights = computed(() => {
   return highlightStore.getForHash(contentHash.value)
 })
 
+/** Parse a `w=sm|md|lg|<px>` width directive out of an image alt. Returns the cap (if any)
+ *  and the alt with the directive token removed. See the note-image-width-directive spec. */
+function parseImageWidthDirective(alt: string): { tier?: 'sm' | 'md' | 'lg'; px?: number; cleanedAlt: string } {
+  if (!alt) return { cleanedAlt: alt }
+  const m = alt.match(/(?:^|\s)w=(sm|md|lg|\d+)(?=\s|$)/i)
+  if (!m || m.index == null) return { cleanedAlt: alt }
+  const cleanedAlt = (alt.slice(0, m.index) + ' ' + alt.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim()
+  const v = m[1].toLowerCase()
+  if (v === 'sm' || v === 'md' || v === 'lg') return { tier: v, cleanedAlt }
+  const n = parseInt(v, 10)
+  if (!Number.isFinite(n) || n <= 0) return { cleanedAlt } // zero/negative → no cap
+  return { px: Math.min(4096, Math.max(16, n)), cleanedAlt }
+}
+
+/** Apply note-image width directives. The directive token is always stripped from the alt;
+ *  the max-width cap is only applied when `applyImageWidth` is not explicitly false. */
+function applyImageWidthDirectives(el: HTMLElement) {
+  for (const img of Array.from(el.querySelectorAll('img'))) {
+    const alt = img.getAttribute('alt') ?? ''
+    const { tier, px, cleanedAlt } = parseImageWidthDirective(alt)
+    if (cleanedAlt !== alt) img.setAttribute('alt', cleanedAlt)
+    if (!props.applyImageWidth) continue // mindmap: strip token but don't size
+    if (tier) img.classList.add(`md-img-w-${tier}`)
+    else if (px != null) (img as HTMLElement).style.maxWidth = `min(${px}px, 100%)`
+  }
+}
+
 /** Render markdown and apply highlights */
 function renderAndHighlight() {
   const el = containerRef.value
   if (!el) return
 
   // Render markdown to HTML
-  el.innerHTML = md.render(props.content)
+  el.innerHTML = renderMarkdown(props.content)
+
+  // Apply `w=sm|md|lg|<px>` image width directives encoded in image alt text.
+  applyImageWidthDirectives(el)
 
   // Public-note mode: neutralize Q&A/block anchors so they can't resolve against this viewer's Q&A.
   if (props.publicNote) deactivateBlockAnchors(el)
@@ -175,6 +208,7 @@ async function createHighlight(color: HighlightColor) {
 
   await highlightStore.create({
     content_hash: contentHash.value,
+    ...(props.qaResultId != null ? { qa_result_id: props.qaResultId } : {}),
     start_offset: pendingSelection.value.start_offset,
     end_offset: pendingSelection.value.end_offset,
     text: pendingSelection.value.text,
@@ -572,6 +606,12 @@ onBeforeUnmount(() => {
 .markdown-content :deep(strong) { font-weight: 600; }
 .markdown-content :deep(a) { color: var(--primary); text-decoration: underline; word-break: break-all; }
 .markdown-content :deep(img) { max-width: 100%; height: auto; border-radius: 0.375rem; margin: 0.5em 0; }
+/* `w=sm|md|lg` alt-text width directive → max-width cap. Tier px come from config.yml via the
+   --note-img-w-* custom properties; the designed defaults are the CSS fallbacks. min(…, 100%)
+   keeps the image within its container so a tier larger than the column never overflows. */
+.markdown-content :deep(img.md-img-w-sm) { max-width: min(var(--note-img-w-sm, 240px), 100%); }
+.markdown-content :deep(img.md-img-w-md) { max-width: min(var(--note-img-w-md, 480px), 100%); }
+.markdown-content :deep(img.md-img-w-lg) { max-width: min(var(--note-img-w-lg, 720px), 100%); }
 .markdown-content :deep(hr) { border: none; border-top: 1px solid #e5e7eb; margin: 0.75em 0; }
 /* KaTeX display math: center, hug content for the hover hint, scroll when too wide.
    flex + `safe center` centers a formula that fits but falls back to a scrollable
@@ -649,4 +689,3 @@ onBeforeUnmount(() => {
 .hl-menu-btn-danger { color: var(--destructive); }
 .hl-menu-btn-danger:hover { background: color-mix(in oklch, var(--destructive) 12%, transparent); color: var(--destructive); }
 </style>
-

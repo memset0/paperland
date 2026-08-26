@@ -5,10 +5,20 @@ import { Semaphore } from './semaphore.js'
 import { RateLimiter } from './rate_limiter.js'
 import type { PaperBoundServiceDef, PureServiceDef, ServiceDef } from './base_service.js'
 
+export interface PureServiceExecutionContext {
+  executionId: number
+  signal: AbortSignal
+}
+
+export interface PureServiceExecutionOptions {
+  onCreated?: (context: PureServiceExecutionContext) => void
+}
+
 class ServiceRunner {
   private services = new Map<string, ServiceDef>()
   private semaphores = new Map<string, Semaphore>()
   private rateLimiters = new Map<string, RateLimiter>()
+  private pureExecutionControllers = new Map<number, AbortController>()
 
   initialize(): void {
     const config = getConfig()
@@ -53,7 +63,8 @@ class ServiceRunner {
   async executePureService(
     serviceName: string,
     paperId: number | null,
-    executeFn: () => Promise<any>
+    executeFn: (context: PureServiceExecutionContext) => Promise<any>,
+    options: PureServiceExecutionOptions = {},
   ): Promise<{ executionId: number }> {
     const db = getDatabase()
     const now = new Date().toISOString()
@@ -69,20 +80,41 @@ class ServiceRunner {
 
     const sem = this.semaphores.get(serviceName)
     const rl = this.rateLimiters.get(serviceName)
+    const controller = new AbortController()
+    const context = { executionId: execution.id, signal: controller.signal }
+    this.pureExecutionControllers.set(execution.id, controller)
+
+    try {
+      // Preparation must finish before the fire-and-forget worker can queue or run.
+      // QA uses this to persist its exact Result/execution relationship.
+      options.onCreated?.(context)
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      this.pureExecutionControllers.delete(execution.id)
+      db.update(schema.serviceExecutions)
+        .set({ status: 'failed', finished_at: new Date().toISOString(), error: err.message })
+        .where(eq(schema.serviceExecutions.id, execution.id))
+        .run()
+      throw err
+    }
 
     // Run async — don't block the caller
     ;(async () => {
+      let acquired = false
       try {
-        if (sem) await sem.acquire()
+        if (sem) {
+          await sem.acquire(controller.signal)
+          acquired = true
+        }
 
         db.update(schema.serviceExecutions)
           .set({ status: 'running' })
           .where(eq(schema.serviceExecutions.id, execution.id))
           .run()
 
-        if (rl) await rl.waitIfNeeded()
+        if (rl) await rl.waitIfNeeded(controller.signal)
 
-        await executeFn()
+        await executeFn(context)
 
         db.update(schema.serviceExecutions)
           .set({ status: 'done', progress: 100, finished_at: new Date().toISOString(), result: 'OK' })
@@ -90,15 +122,27 @@ class ServiceRunner {
           .run()
       } catch (err: any) {
         db.update(schema.serviceExecutions)
-          .set({ status: 'failed', finished_at: new Date().toISOString(), error: err.message || String(err) })
+          .set({
+            status: 'failed',
+            finished_at: new Date().toISOString(),
+            error: controller.signal.aborted ? 'cancelled by user' : err.message || String(err),
+          })
           .where(eq(schema.serviceExecutions.id, execution.id))
           .run()
       } finally {
-        if (sem) sem.release()
+        if (sem && acquired) sem.release()
+        this.pureExecutionControllers.delete(execution.id)
       }
     })()
 
     return { executionId: execution.id }
+  }
+
+  cancelPureExecution(executionId: number): boolean {
+    const controller = this.pureExecutionControllers.get(executionId)
+    if (!controller || controller.signal.aborted) return false
+    controller.abort()
+    return true
   }
 
   async triggerForPaper(paperId: number): Promise<void> {
@@ -138,6 +182,9 @@ class ServiceRunner {
       resolved.add(key)
     }
 
+    // Metadata-only papers (listed=0) defer `requires_listed` services until promotion.
+    const isListed = paper.listed !== 0
+
     let maxIterations = 10
     while (remaining.size > 0 && maxIterations-- > 0) {
       const batch: string[] = []
@@ -145,6 +192,13 @@ class ServiceRunner {
         // Check if all produces already exist
         const allProduced = svc.produces.every((k) => existingKeys.has(k))
         if (allProduced) {
+          remaining.delete(name)
+          continue
+        }
+
+        // Listed gate: defer `requires_listed` services for metadata-only (listed=0) papers
+        if (svc.requires_listed && !isListed) {
+          this.markDeferred(name, paper.id)
           remaining.delete(name)
           continue
         }
@@ -207,6 +261,21 @@ class ServiceRunner {
       service_name: serviceName,
       paper_id: paperId,
       status: 'blocked',
+      progress: 0,
+      created_at: now,
+      finished_at: now,
+    }).run()
+  }
+
+  // Recorded for `requires_listed` services on metadata-only papers: waiting to be
+  // promoted to the library (not failed, not blocked-on-dependency).
+  private markDeferred(serviceName: string, paperId: number): void {
+    const db = getDatabase()
+    const now = new Date().toISOString()
+    db.insert(schema.serviceExecutions).values({
+      service_name: serviceName,
+      paper_id: paperId,
+      status: 'deferred',
       progress: 0,
       created_at: now,
       finished_at: now,
@@ -325,10 +394,13 @@ class ServiceRunner {
       // Re-trigger to handle newly available keys
       const updatedPaper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
       if (updatedPaper) {
+        const isListed = updatedPaper.listed !== 0
         const pbServices = Array.from(this.services.values()).filter(
           (s): s is PaperBoundServiceDef => s.type === 'paper_bound' && s.name !== serviceName
         )
         for (const depSvc of pbServices) {
+          // Respect the listed gate here too (don't auto-trigger arxiv/etc. for metadata-only papers)
+          if (depSvc.requires_listed && !isListed) continue
           // Check if this service should now run
           const depsSatisfied = depSvc.depends_on.every((k) => this.getExistingKeys(updatedPaper).has(k))
           const allProduced = depSvc.produces.every((k) => this.getExistingKeys(updatedPaper).has(k))

@@ -185,11 +185,20 @@ qa_results
   completed_at    text      not null          // ISO 8601
   execution_id    integer   nullable          // → service_executions.id
   content_hash    text      nullable          // answer 去除全部空白后的 MD5
+  status          text      not null default done // queued / awaiting_output / streaming / done / failed / cancelled
+  error           text      nullable
+  requested_by_user_id integer nullable → users.id ON DELETE SET NULL
+  streaming_capable integer not null default 0
+  created_at      text      not null
+  started_at      text      nullable          // provider 调用/Thinking 开始
+  first_chunk_at  text      nullable          // 首个真实非空 delta
+  finished_at     text      nullable
+  updated_at      text      not null          // 最近一次局部 answer 持久化
 
 qa_user_preferences
   user_id         integer   → users.id
   qa_entry_id     integer   → qa_entries.id
-  background_color text     not null          // blue | yellow | red | purple
+  background_color text     not null          // gray | brown | orange | yellow | green | blue | purple | pink | red
   created_at      text      not null
   updated_at      text      not null
   primary key (user_id, qa_entry_id)
@@ -389,7 +398,20 @@ notes:
 
 `qa_service` 与 `translation_service` 继续共用 `services/model_invoke.ts` 的 `callModel(prompt, modelName, options?)` 门面，内部只路由到独立 `OpenAIProvider` / `CodexProvider`。`stream` 缺省为 false；Codex exec 与 app-server 都强制 ephemeral，app-server 还会在 `turn/start` 前验证 `thread.ephemeral === true`，不污染个人 Codex 历史。
 
+**PDF 划词翻译**：纯前端复用上述 Internal SSE API 与全局 `translations` cache，不新增 provider、endpoint、表或 migration。`PdfViewer` 保留现有 60ms 选区捕获/复制链接，同时在登录用户的单页 text-layer 选区 identity 稳定 500ms 后挂载 `StreamingTranslationText`。面板内 pointer focus transfer 导致的 collapsed selection 不清理 active child；普通外部点击清理，而不同新选区在稳定 500ms、真正 mount replacement 时才 abort 旧 child。其他 viewer 生命周期变化仍会 abort；匿名用户不自动请求或弹登录。
+
 **QA prompt 持久化**：`qa_entries` 是问题文本的持久化来源。free QA 在创建 Entry 时写入 `prompt`，后续重跑只读该字段；template QA 每次运行前从 `config.yml` 读取最新模板并更新 Entry。历史 `qa_results.prompt` 仍保存每次成功调用实际使用的快照。迁移通过最新历史 Result 回填可恢复的 Entry；没有任何 Result 的旧失败 free QA 不会伪造原文，只有在用户明确授权且生成当前一致性备份后，才按精确 ID 清理。
+
+**QA ↔ Service execution**：QA 保持 ServiceRunner pure service。`executePureService` 把刚创建的 `executionId` 作为 typed callback context 传入，QA 成功后直接写入该 id；同 paper 并发或同 model 重跑不会再通过“最新 execution”误关联。历史错连缺少确定性映射信息，原样保留。Services 页面继续负责统一监控，不提供 QA 专属重试。
+
+**QA durable streaming runtime**：每次调用通过 pure-service `onCreated` 在排队前插入一个 exact Result；execution context 带 `AbortSignal`，semaphore/rate-limit/provider 都可精确取消。provider delta 以约 200ms 合并，先 append 到 `qa_results.answer` 再发布 SSE；终态 flush 后由权威 final 覆盖并生成 hash。Internal `GET /api/qa/results/:resultId/stream` 使用 `start → delta* → done|error`，断开只取消订阅；`POST /api/qa/results/:resultId/cancel` 才取消运行。`thinking_duration_ms` 由 started/first_chunk/finished 时间戳派生，不写入数据库。启动时 stale active Result 保留局部内容后标为 failed，并重算 Entry 汇总状态。
+
+**有效 Codex QA 模型配置**：交互式 Codex QA 必须使用 structured app-server（`stream:true` + `cli_path` + `codex_home` + `model_id` + `reasoning_effort`）。本机默认/可选的 GPT-5.6-sol max/xhigh/medium 与 GPT-5.5-xhigh 已从 `shell` exec 迁移到该形式，稳定 Paperland model name 不变，因此浏览器保存的模型选择继续有效。`config.example.yml` 同样展示 GPT-5.6-sol app-server 形态。`stream:false` 仍是受支持的显式 buffered 兼容模式。
+
+**QA 前端流式渲染**：Pinia 为当前可见 active Result 管理一个可重连 SSE observer，delta 先经 animation-frame batch；`QAThinkingTimer` 只更新固定宽度计时文本。`QAStreamingMarkdown` 保留稳定 Markdown block DOM、只解析尾部，流式期禁用不稳定的 hash 高亮/锚点；done 等待 pending paint 后切到标准 `MarkdownContent` 做一次 canonical render。不自动滚动或对答案容器做 transition。
+新增流式 UI copy 统一为英文：`Queued / Thinking / Streaming / Done / Stopped / Failed`、`Thought for · mm:ss`、`This model will display its answer when complete`、`Agent is thinking…`。
+
+**QA 多回答选择**：`QAResultView` 对 done 使用 `completed_at`，对 active Result 使用 `created_at`，再按 result id 判定最新回答。首次显示和新增 Result 时激活最新；status、Thinking 计时、answer delta 和等价轮询都不进入 selection signature，因此不重置手动 tab；删除当前 Result 回退最新；`requestedResultId` 锚点为一次性高优先级选择。
 
 ---
 

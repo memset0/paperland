@@ -1,51 +1,32 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { type QAResult } from '@/stores/qa'
+import type { QAResult } from '@paperland/shared'
 import { requestedResultId } from '@/composables/useBlockAnchor'
-import { RefreshCw, Copy, Check, Trash2, Pin } from '@lucide/vue'
-import MarkdownContent from './MarkdownContent.vue'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
+import QAResultBody from './QAResultBody.vue'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Badge } from '@/components/ui/badge'
+import {
+  chooseActiveQAResult,
+  compareQAResultsNewestFirst,
+  qaResultSignature,
+} from '@/lib/qa-result-selection'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   results: QAResult[]
   entryKey: string
   paperId: number
   highlightPathname?: string
-}>()
+  canManage?: boolean
+}>(), { canManage: true })
 
 const emit = defineEmits<{
   regenerate: [modelName: string]
   deleteResult: [resultId: number]
+  cancelResult: [resultId: number]
 }>()
 
-const copiedId = ref<number | null>(null)
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return '刚刚'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}分钟前`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}小时前`
-  const days = Math.floor(hours / 24)
-  return `${days}天前`
-}
-
-function pinKey(entryKey: string) { return `qa-pin-${props.paperId}-${entryKey}` }
-function getPinnedModel(): string | null { return localStorage.getItem(pinKey(props.entryKey)) }
-function pinResult(modelName: string) {
-  const current = getPinnedModel()
-  if (current === modelName) {
-    localStorage.removeItem(pinKey(props.entryKey))
-  } else {
-    localStorage.setItem(pinKey(props.entryKey), modelName)
-  }
-}
+function pinKey() { return `qa-pin-${props.paperId}-${props.entryKey}` }
+function getPinnedModel(): string | null { return localStorage.getItem(pinKey()) }
 
 function sortedResults(): QAResult[] {
   const pinned = getPinnedModel()
@@ -54,118 +35,80 @@ function sortedResults(): QAResult[] {
       if (a.model_name === pinned && b.model_name !== pinned) return -1
       if (b.model_name === pinned && a.model_name !== pinned) return 1
     }
-    return new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime()
+    return compareQAResultsNewestFirst(a, b)
   })
 }
 
-const activeTab = ref<string>('')
+function compactStatus(status: QAResult['status']): string {
+  if (status === 'queued') return 'Queued'
+  if (status === 'awaiting_output') return 'Thinking'
+  if (status === 'streaming') return 'Streaming'
+  if (status === 'failed') return 'Failed'
+  if (status === 'cancelled') return 'Stopped'
+  return 'Done'
+}
 
-// An anchor jump can ask for a specific answer (by qa_result id) to be shown.
-// Result ids are globally unique, so only the view owning that result reacts.
+const activeTab = ref('')
+const previousResultIds = ref<Set<number>>(new Set())
+
+watch(
+  () => qaResultSignature(props.results),
+  () => {
+    const requested = requestedResultId.value
+    activeTab.value = chooseActiveQAResult({
+      results: props.results,
+      previousIds: previousResultIds.value,
+      activeId: activeTab.value,
+      requestedId: requested,
+    })
+    previousResultIds.value = new Set(props.results.map((result) => result.id))
+    if (requested != null && activeTab.value === String(requested)) requestedResultId.value = null
+  },
+  { immediate: true },
+)
+
 watch(requestedResultId, (id) => {
-  if (id != null && props.results.some(r => r.id === id)) {
+  if (id != null && props.results.some((result) => result.id === id)) {
     activeTab.value = String(id)
+    requestedResultId.value = null
   }
 }, { immediate: true })
-
-function copyAnswer(resultId: number, text: string) {
-  navigator.clipboard.writeText(text)
-  copiedId.value = resultId
-  setTimeout(() => { copiedId.value = null }, 2000)
-}
 </script>
 
 <template>
-  <Tabs v-if="results.length > 1" v-model="activeTab" :default-value="String(sortedResults()[0].id)">
+  <Tabs v-if="results.length > 1" v-model="activeTab">
     <TabsList class="w-full justify-start overflow-x-auto">
-      <TabsTrigger v-for="r in sortedResults()" :key="r.id" :value="String(r.id)">
-        <span class="flex flex-col items-start">
-          <span>{{ r.model_name }}</span>
-          <span class="text-[10px] opacity-70">{{ timeAgo(r.completed_at) }}</span>
+      <TabsTrigger v-for="result in sortedResults()" :key="result.id" :value="String(result.id)">
+        <span class="flex items-center gap-1.5">
+          <span class="max-w-40 truncate">{{ result.model_name }}</span>
+          <Badge variant="secondary" class="h-4 px-1 text-[9px]">{{ compactStatus(result.status) }}</Badge>
         </span>
       </TabsTrigger>
     </TabsList>
-    <TabsContent v-for="r in sortedResults()" :key="r.id" :value="String(r.id)">
-      <MarkdownContent :content="r.answer" :highlight-pathname="highlightPathname" :paper-id="paperId" class="text-sm" />
-      <Separator class="my-3" />
-      <div class="flex items-center gap-1">
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              :class="getPinnedModel() === r.model_name ? 'text-primary' : ''"
-              @click="pinResult(r.model_name)"
-            >
-              <Pin />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{{ getPinnedModel() === r.model_name ? '取消置顶' : '置顶' }}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="ghost" size="icon-xs" @click="copyAnswer(r.id, r.answer)">
-              <Check v-if="copiedId === r.id" />
-              <Copy v-else />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{{ copiedId === r.id ? '已复制' : '复制' }}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="ghost" size="icon-xs" @click="emit('regenerate', r.model_name)">
-              <RefreshCw />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>重新生成</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="ghost" size="icon-xs" @click="emit('deleteResult', r.id)" class="hover:text-destructive">
-              <Trash2 />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>删除</TooltipContent>
-        </Tooltip>
-      </div>
+    <TabsContent v-for="result in sortedResults()" :key="result.id" :value="String(result.id)">
+      <QAResultBody
+        :result="result"
+        :entry-key="entryKey"
+        :paper-id="paperId"
+        :highlight-pathname="highlightPathname"
+        :can-manage="canManage"
+        @regenerate="emit('regenerate', $event)"
+        @delete-result="emit('deleteResult', $event)"
+        @cancel-result="emit('cancelResult', $event)"
+      />
     </TabsContent>
   </Tabs>
 
-  <div v-else-if="results.length === 1">
-    <MarkdownContent :content="results[0].answer" :highlight-pathname="highlightPathname" :paper-id="paperId" class="text-sm" />
-    <Separator class="my-3" />
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <Badge variant="secondary">{{ results[0].model_name }}</Badge>
-        <span class="text-[10px] text-muted-foreground">{{ timeAgo(results[0].completed_at) }}</span>
-      </div>
-      <div class="flex items-center gap-1">
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="ghost" size="icon-xs" @click="copyAnswer(results[0].id, results[0].answer)">
-              <Check v-if="copiedId === results[0].id" />
-              <Copy v-else />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{{ copiedId === results[0].id ? '已复制' : '复制' }}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="ghost" size="icon-xs" @click="emit('regenerate', results[0].model_name)">
-              <RefreshCw />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>重新生成</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="ghost" size="icon-xs" @click="emit('deleteResult', results[0].id)" class="hover:text-destructive">
-              <Trash2 />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>删除</TooltipContent>
-        </Tooltip>
-      </div>
-    </div>
-  </div>
+  <QAResultBody
+    v-else-if="results.length === 1"
+    :result="results[0]"
+    :entry-key="entryKey"
+    :paper-id="paperId"
+    :highlight-pathname="highlightPathname"
+    :can-manage="canManage"
+    :show-model="true"
+    @regenerate="emit('regenerate', $event)"
+    @delete-result="emit('deleteResult', $event)"
+    @cancel-result="emit('cancelResult', $event)"
+  />
 </template>

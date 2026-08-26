@@ -279,6 +279,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 - **当前页 / 跳转 / 缩放 / 适配模式**：滚动时按页矩形与视口中线判定「当前页」；工具栏含 上/下一页、页码跳转输入、缩放、**适配模式切换**（宽度铺满 ↔ 高度铺满，`MoveHorizontal`/`MoveVertical` 图标，**仅当前打开有效、不记忆**，默认宽度铺满；切换会把 zoom 重置为 1 使适配精确）。`effectiveScale = fitScale × zoom`，`fitScale` 由 `fitMode` 取「容器宽 / 首页宽」或「容器高 / 首页高」；缩放/适配后 canvas + 文本层按新尺度重渲染并保持对齐，文本层设 `--scale-factor`。
 - **拖动分屏不卡**：宽度变化时只即时缩放占位页与 CSS 填充的 canvas，昂贵的重栅格化（canvas + 文本层）去抖 ~320ms（`RE_RASTER_DEBOUNCE_MS`），待尺度真正稳定后只做一次；期间页面保持 CSS 缩放（略软）直到落定（高度铺满模式下拖动分屏宽度不改变 `fitScale`，更不触发重渲染）。
 - **选区 → 链接**：文本层支持原生选区；落定后用 `getSelectionOffsets`（复用 `useHighlight`）算出该页 `ts/te` 偏移，弹出「复制选区链接」浮钮，复制 `<选区文本> [#](paperland://paper/<id>?pdf=<page>&ts=<ts>&te=<te>)`；工具栏「复制本页链接」复制 `[PDF p.N](paperland://paper/<id>?pdf=N)`。
+- **稳定选区 → 流式翻译**：上述选区捕获仍以约 60ms 更新 `selRegion`/复制链接；另有独立 500ms translation-intent timer。只有登录用户的同一单页 text-layer 选区在 page/`ts`/`te`/text identity 上连续 500ms 不变，才挂载 `StreamingTranslationText` 调现有 `/api/translate/stream`。浮层优先居中放在选区上方，空间不足时放到下方并为复制链接按钮预留位置；宽度/x/y 都 clamp 在 viewer 内，内容增长由 ResizeObserver 重算。每个真实 delta 整段追加后让出一帧，cache hit 直接完成。面板内 pointer interaction 拥有其引发的临时 selection collapse：旧浮层/source snapshot 保留并在 pointer-up 尝试恢复 Range；普通外部点击才关闭。若外部手势形成不同有效选区，旧浮层继续显示到新 identity 稳定 500ms 后才替换/abort，避免空白间隔。scroll Range 失效、zoom/theme text-layer 重渲染、PDF 切换、截图模式、Escape 或卸载仍会取消 timer/abort 请求/关闭浮层，late event 不得覆盖新选区；scroll 保持 Range 有效时按 rAF 重定位。匿名选区不调用 API、不弹登录，原生选择与现有复制链接行为不变。
 - **跳转 + 高亮**：监听 `requestedPdfTarget`，`{page}` 滚动到该页；`{page,ts,te}` 先确保该页渲染，再用 `buildTextSegments` 把偏移映射为 `Range.getClientRects()`，在页面上叠加临时高亮 div（`pdf-region-flash`，2.2s 淡出，不落库）并滚动到选区中心；`{page,rect}` 则把归一化 `[0,1]` 矩形直接换算到页面像素框画同款临时高亮（`highlightRect`）。`rect` 优先于 `ts/te`；偏移越界 / 矩形非法则退化为仅跳页 + toast 提示。
 - **失败兜底**：pdf.js 加载/解析失败时显示错误态并给出原始文件链接 `/api/files/<pdf_path>`；无 `pdf_path` 时保留「暂无 PDF」占位。
 - **框选截图 → 图床**：工具栏 `Crop` 图标进入截图模式（仅在传入 `paperId` 时显示，激活态高亮）。模式下滚动区 `cursor:crosshair`、文本层 `pointer-events:none` + `user-select:none`，从而拖拽画出橡皮筋矩形而非选中文字（`mousedown`→`mousemove`→`mouseup`，`Esc` 或再次点击取消）。松手后把该矩形钳制到所在 `.pdf-page`、归一化为 `{page,x,y,w,h}`，调 `cropRegionToImage(region, dpi)` 渲成 PNG，经 `utils/uploadImage` 上传图床，剪贴板写入 `[![](<image_url>)](paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=)`（坐标保留 4 位小数）并 toast 提示；上传期间 `capturing` 置位、忽略后续拖拽。
@@ -454,7 +455,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 - 仅当论文存在**未作答的模板**时显示
 - 点击后遍历所有模板：
-  - 已有结果 (results.length > 0) → 跳过
+  - 已有完成结果 (`results.some(status === 'done')`) → 跳过；只有失败/取消尝试时仍可重新提交
   - 已有 pending/running 的任务 → 跳过（防重复提交）
   - 无结果且无进行中任务 → 提交新任务
 - 重复点击不会产生重复请求
@@ -481,7 +482,17 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 | 论文详情页内嵌 | 针对当前论文提问，paper_id 自动绑定，展示模板提问和自由提问 |
 | 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接。默认仅展示当前用户自己的提问；所有登录用户均可切换「My Q&A / All Q&A」查看所有用户的提问并看到提问者。别人的 QA 对普通用户只读，owner/admin 才有重新生成与删除操作。 |
 
-**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = card 外的论文/提问者/时间行 + 下方可折叠 shadcn `Card`。card 头部显示状态、问题、当前用户的非零“高亮 N / 笔记引用 N”、个人淡色背景选择器以及回答数/模型；card body 复用 `QAResultView`。`scope=mine|all` 默认 mine，所有登录用户可切换，切换从第 1 页重拉；all 中显示 asker，普通用户看别人的条目时保留 Pin/复制/高亮但隐藏重生成/删除，后端同样强制 owner/admin。背景色通过 `qa_user_preferences` 跨设备同步（blue/yellow/red/purple），覆盖折叠和展开容器。高亮计数来自当前用户实际 highlight rows，笔记引用计数从当前用户该论文的 `notes.body` 内 `paperland://...?h=` 链接派生，不持久化计数。分页和轮询仍只重拉当前页，并批量聚合 creator/preferences/highlights/notes，禁止每 card 单独请求。
+**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = card 外的论文/提问者/时间行 + 下方可折叠 shadcn `Card`。card 头部显示状态、问题、当前用户的非零“高亮 N / 笔记引用 N”、个人淡色背景选择器以及回答数/模型；card body 复用 `QAResultView`。每次模型运行在排队前即成为独立 Result tab，状态为 `queued → awaiting_output → streaming → done|failed|cancelled`。多回答 Tabs 按成功完成时间、活动运行创建时间及 id 判定最新，新增 Result 自动选中；计时/答案/SSE/等价轮询不改变 selection signature，保留用户手动历史选择。`scope=mine|all` 默认 mine，所有登录用户可切换；all 中显示 asker，普通用户能实时阅读别人的 QA，但停止/重生成/删除仍由 Result/Entry owner 或 admin 控制。背景色通过 `qa_user_preferences` 跨设备同步，支持 gray/brown/orange/yellow/green/blue/purple/pink/red 九色。高亮计数来自当前用户实际 rows，笔记引用计数从当前用户该论文的 `notes.body` 锚点派生，不缓存计数。分页和轮询仍只重拉当前页，并批量聚合 creator/preferences/highlights/notes。
+
+#### QA Result 流式前端状态
+
+- `queued`：显示 `Queued`，不把队列等待算作 Thinking。
+- `awaiting_output`：模型调用已经开始但还没有首个非空 delta，显示固定宽度、等宽数字的 `Thinking · mm:ss`。初始耗时由后端 `thinking_duration_ms` 给出，前端只用独立 monotonic timer 每秒更新该文本节点。
+- `streaming`：首个 delta 写入 `first_chunk_at` 并冻结思考耗时；`GET /api/qa/results/:resultId/stream` 持续发送已经落库的 delta。断开 SSE 只停止观察，不会取消后台 Service。
+- `done`：等待浏览器已排队的 delta paint 后，用 `done.result.answer` 替换预览并通过标准 `MarkdownContent` 完整渲染一次；此时才启用稳定 `content_hash` 对应的高亮与笔记锚点。
+- `failed/cancelled`：保留局部答案、冻结的 `Thought for · mm:ss` 和错误；重试创建新 Result，不覆盖该次历史。新增流式状态及提示使用英文 UI copy（包括 `This model will display its answer when complete` 与 `Agent is thinking…`）。
+
+流式阶段由 `QAStreamingMarkdown` 将内容分为 append-only 的完整 block 前缀和可重解析尾部。服务端 200ms 合并 chunk，前端再用 `AnimationFrameBatcher` 合并同一帧更新；未闭合 fence/公式、列表、表格保留在尾部。Result/card/tab 外层始终按 Result id 保持挂载，无高度/透明度动画且不自动滚动，从而避免每个 token 重写 `MarkdownContent.innerHTML` 所造成的抖动。
 
 ### 2.5 提问的文本上下文来源
 
@@ -686,11 +697,13 @@ arxiv_id ─────→ arxiv_service ──→ pdf_path ──→ pdf_parse
 | qa_service | 调用大模型进行 Q&A |
 
 - 注册为 `pure` 类型到 `service_runner`，使用 `executePureService()` 执行
-- 受 `max_concurrency` 和 `rate_limit_interval` 约束，执行记录写入 `service_executions` 表
+- 受 `max_concurrency` 和 `rate_limit_interval` 约束，执行记录写入 `service_executions` 表；pre-run hook 在进入队列前用本次 execution id 创建 `queued` Result，callback 同时获得该 id 和 execution-owned `AbortSignal`
 - 在服务管理页面可见（显示运行中/排队/最大并发数）
 - 触发方式：用户手动提交 / External API 调用
 - **前置条件**：调用方负责检查 content 不为空
-- **启动清理**：服务器启动时将所有 pending/running 状态的执行记录（service_executions 和 qa_entries）重置为 failed
+- **有效 Codex 配置**：默认及可选的 GPT-5.6-sol max/xhigh/medium 与 GPT-5.5-xhigh 均使用结构化 `stream:true` app-server 配置，保留原 Paperland model name / model id / reasoning effort；旧 `shell` exec 仅作为显式 buffered 兼容方式
+- **精确取消**：Result owner/发起人或 admin 可停止一个 Result；semaphore/rate-limit 等待和 provider 调用共用同一 AbortSignal，兄弟运行不受影响。Services 页面仍只统一监控，不新增 QA 专属操作。
+- **启动清理**：服务器启动时将 stale service execution 标为 failed；`queued/awaiting_output/streaming` Result 保留 prompt/局部 answer 后标为 interrupted failed，再从所有 Result 重算 Entry 汇总状态
 
 ### 3.4 服务执行模型
 
@@ -1015,22 +1028,29 @@ papers 表新增 `tags_json` (text, nullable) 字段，存储 `[{"id":1,"name":"
 
 ### 6.4 QA Result
 
-每个 QA Entry 关联一个 results 数组，默认展示最新的。
+每个 QA Entry 关联一个 append-only results 数组；每个 Result 表示一次准确的模型运行，包含排队、Thinking、输出和终态。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | integer (auto increment) | 主键 |
 | qa_entry_id | integer → QAEntry.id | 关联的 QA Entry |
 | prompt | text | 实际发送的问题文本 |
-| answer | text | 模型的回答 |
+| answer | text | 活动时为最新已持久化局部回答，done 时为 provider 权威全文 |
 | model_name | text | 使用的模型名称 |
 | completed_at | datetime | 回答完成时间 |
-| execution_id | integer (nullable) → ServiceExecution.id | 关联的服务执行记录 |
+| execution_id | integer (nullable) → ServiceExecution.id | 新 Result 精确关联本次 pure-service execution；历史歧义值不猜测重写 |
 | content_hash | text (nullable) | 完成回答的稳定指纹：去除全部空白后 MD5；用于高亮归属与笔记锚点计数 |
+| status | queued / awaiting_output / streaming / done / failed / cancelled | 本次运行的精确状态 |
+| error | text (nullable) | 本次失败/取消原因，不覆盖兄弟 Result |
+| requested_by_user_id | integer (nullable) → User.id | 本次发起人；用于共享 preset 的取消授权，用户删除时置空 |
+| streaming_capable | boolean | provider 是否能提供真实增量输出 |
+| created_at / started_at / first_chunk_at / finished_at / updated_at | datetime | 排队、Thinking 开始、首输出、终态及最后持久化时间 |
+
+Internal serializer 额外返回派生的 `thinking_duration_ms` 和当前 viewer 的 `can_cancel`，不存 duration 计数：首输出前为 server-now − started，输出后为 first-chunk − started，无输出终止时为 finished − started。
 
 ### 6.4A QA User Preference
 
-`qa_user_preferences` 以 `(user_id, qa_entry_id)` 为复合主键，保存当前 viewer 的 `background_color`（blue/yellow/red/purple）及时间戳；entry 删除时级联清理。QA API 每条还返回 viewer-private 的 `background_color`、`highlight_count`、`note_anchor_count`。
+`qa_user_preferences` 以 `(user_id, qa_entry_id)` 为复合主键，保存当前 viewer 的 `background_color`（gray/brown/orange/yellow/green/blue/purple/pink/red）及时间戳；`null`/无行表示默认背景，entry 删除时级联清理。QA API 每条还返回 viewer-private 的 `background_color`、`highlight_count`、`note_anchor_count`。
 
 ### 6.5 Service Execution
 
@@ -1077,7 +1097,7 @@ Paper (1) ──→ (N) QA Entry (1) ──→ (N) QA Result
          ▼
    遍历所有模板 (从 config.yml qa 列表读取)
          │
-         ├── 该模板已有 QA Entry 且 results.length > 0  → 跳过
+         ├── 该模板已有 done Result → 跳过
          ├── 该模板已有 pending/running 的 Service Execution → 跳过
          └── 无结果且无进行中任务 → 创建 QA Entry + 提交 Service Execution
 ```

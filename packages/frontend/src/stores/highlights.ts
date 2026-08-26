@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { highlightApi } from '@/api/client'
 import type { Highlight, HighlightColor } from '@paperland/shared'
+import { useQAStore } from './qa'
 
 export const useHighlightStore = defineStore('highlights', () => {
   const highlights = ref<Highlight[]>([])
@@ -40,6 +41,7 @@ export const useHighlightStore = defineStore('highlights', () => {
   /** Create a new highlight. If pathname is provided, use it instead of currentPathname. */
   async function create(data: {
     content_hash: string
+    qa_result_id?: number
     start_offset: number
     end_offset: number
     text: string
@@ -54,6 +56,7 @@ export const useHighlightStore = defineStore('highlights', () => {
       pathname: targetPathname,
     })
     highlights.value.push(res.data)
+    if (res.data.qa_result_id != null) useQAStore().adjustHighlightCount(res.data.qa_result_id, 1)
     return res.data
   }
 
@@ -67,8 +70,10 @@ export const useHighlightStore = defineStore('highlights', () => {
 
   /** Delete a highlight */
   async function remove(id: number) {
+    const existing = highlights.value.find(h => h.id === id)
     await highlightApi.remove(id)
     highlights.value = highlights.value.filter(h => h.id !== id)
+    if (existing?.qa_result_id != null) useQAStore().adjustHighlightCount(existing.qa_result_id, -1)
   }
 
   return {

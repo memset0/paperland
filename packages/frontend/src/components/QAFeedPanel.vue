@@ -8,6 +8,9 @@ import {
   RefreshCw, ExternalLink, User
 } from '@lucide/vue'
 import QAResultView from './QAResultView.vue'
+import QAEntryBackgroundPicker from './QAEntryBackgroundPicker.vue'
+import QAReadingIndicators from './QAReadingIndicators.vue'
+import { qaEntryBackgroundClass } from './qa-entry-style'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -49,6 +52,7 @@ function formatDate(iso: string): string {
 const regenDialog = ref<{ show: boolean; selectedModels: string[] }>({ show: false, selectedModels: [] })
 
 function openRegenDialog(preselect?: string) {
+  if (!props.entry.can_manage) return
   regenDialog.value = {
     show: true,
     selectedModels: preselect ? [preselect] : (availableModels.value.length ? [availableModels.value[0].name] : []),
@@ -65,6 +69,7 @@ function toggleRegenModel(name: string) {
 }
 
 async function submitRegen() {
+  if (!props.entry.can_manage) return
   const { selectedModels } = regenDialog.value
   if (!selectedModels.length) return
   regenDialog.value.show = false
@@ -88,7 +93,7 @@ async function onDeleteResult(resultId: number) {
       >
         <ExternalLink class="h-3 w-3 inline mr-0.5 -mt-0.5" />{{ entry.paper_title }}
       </router-link>
-      <!-- Asker username only matters when viewing all users' Q&A (admin all-scope). -->
+      <!-- Asker username distinguishes entries whenever the viewer chooses all scope. -->
       <span
         v-if="store.feedScope === 'all' && entry.username"
         class="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
@@ -102,7 +107,7 @@ async function onDeleteResult(resultId: number) {
     </div>
 
     <Collapsible v-model:open="isOpen">
-      <Card class="overflow-hidden gap-0 py-0 transition-shadow hover:shadow-sm">
+      <Card class="overflow-hidden gap-0 py-0 transition-shadow hover:shadow-sm" :class="qaEntryBackgroundClass(entry.background_color)">
         <CollapsibleTrigger as-child>
           <CardHeader
             role="button"
@@ -125,6 +130,8 @@ async function onDeleteResult(resultId: number) {
             <p class="flex-1 min-w-0 text-sm font-semibold line-clamp-1">{{ entry.prompt || '自由提问' }}</p>
 
             <div class="flex items-center gap-2 shrink-0">
+              <QAReadingIndicators :highlight-count="entry.highlight_count" :note-anchor-count="entry.note_anchor_count" />
+              <QAEntryBackgroundPicker :entry-id="entry.entry_id" :color="entry.background_color" />
               <Badge v-if="entry.results.length > 1" variant="secondary">{{ entry.results.length }} 个回答</Badge>
               <Badge v-else-if="entry.results.length === 1" variant="secondary">{{ entry.results[0].model_name }}</Badge>
               <span v-if="isActive" class="text-[10px] text-primary">生成中...</span>
@@ -141,8 +148,10 @@ async function onDeleteResult(resultId: number) {
                 :entry-key="`feed-${entry.entry_id}`"
                 :paper-id="entry.paper_id"
                 :highlight-pathname="`/papers/${entry.paper_id}`"
+                :can-manage="entry.can_manage"
                 @regenerate="(model: string) => openRegenDialog(model)"
                 @delete-result="onDeleteResult"
+                @cancel-result="store.cancelResult"
               />
             </div>
             <div v-else-if="isActive" class="py-4 text-center">
@@ -151,7 +160,7 @@ async function onDeleteResult(resultId: number) {
             </div>
             <div v-else-if="entry.status === 'failed'" class="py-4 text-center space-y-2">
               <p class="text-xs text-destructive">{{ entry.error || '生成失败' }}</p>
-              <Button variant="link" size="xs" @click="openRegenDialog()">
+              <Button v-if="entry.can_manage" variant="link" size="xs" @click="openRegenDialog()">
                 <RefreshCw />重试
               </Button>
             </div>

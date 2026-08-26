@@ -1,14 +1,31 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, desc, like, inArray } from 'drizzle-orm'
+import { eq, and, desc, like, inArray } from 'drizzle-orm'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { withDedup, getDedupKey } from '../services/paper_dedup.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { resolveContent } from '../services/qa_service.js'
 import { loadTemplates } from '../services/template_loader.js'
-import { askQuestion } from '../services/qa_service.js'
 import { getConfig } from '../config.js'
 import { findOrCreateUserTag, userTagsForPaper } from '../utils/user-tags.js'
 import { canList, openreviewLinkCount } from '../utils/listing.js'
+import { runQA } from '../api/qa.js'
+
+async function waitForQARuns(resultIds: number[], timeoutMs = 30 * 60 * 1000): Promise<void> {
+  if (resultIds.length === 0) return
+  const db = getDatabase()
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const active = db.select({ id: schema.qaResults.id }).from(schema.qaResults)
+      .where(and(
+        inArray(schema.qaResults.id, resultIds),
+        inArray(schema.qaResults.status, ['queued', 'awaiting_output', 'streaming']),
+      ))
+      .all()
+    if (active.length === 0) return
+    await Bun.sleep(100)
+  }
+  throw new Error('Timed out waiting for template QA runs')
+}
 
 function parsePaper(raw: any) {
   return {
@@ -16,6 +33,19 @@ function parsePaper(raw: any) {
     authors: typeof raw.authors === 'string' ? JSON.parse(raw.authors) : raw.authors,
     contents: raw.contents ? (typeof raw.contents === 'string' ? JSON.parse(raw.contents) : raw.contents) : null,
     metadata: raw.metadata ? (typeof raw.metadata === 'string' ? JSON.parse(raw.metadata) : raw.metadata) : null,
+  }
+}
+
+export function serializeExternalQAResult(result: typeof schema.qaResults.$inferSelect) {
+  return {
+    id: result.id,
+    qa_entry_id: result.qa_entry_id,
+    prompt: result.prompt,
+    answer: result.answer,
+    model_name: result.model_name,
+    completed_at: result.completed_at,
+    execution_id: result.execution_id,
+    content_hash: result.content_hash,
   }
 }
 
@@ -148,6 +178,12 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
     const tx = sqlite.transaction(() => {
       const entryIds = db.select({ id: schema.qaEntries.id }).from(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).all().map(e => e.id)
       if (entryIds.length > 0) {
+        const resultIds = db.select({ id: schema.qaResults.id }).from(schema.qaResults)
+          .where(inArray(schema.qaResults.qa_entry_id, entryIds)).all().map((result) => result.id)
+        if (resultIds.length > 0) {
+          db.update(schema.highlights).set({ qa_result_id: null })
+            .where(inArray(schema.highlights.qa_result_id, resultIds)).run()
+        }
         db.delete(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, entryIds)).run()
       }
       db.delete(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).run()
@@ -224,27 +260,37 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         if (content) {
           const config = getConfig()
           const templates = loadTemplates()
+          const scheduledResultIds: number[] = []
           for (const tmpl of templates) {
             const existing = db.select().from(schema.qaEntries)
               .where(eq(schema.qaEntries.paper_id, paper.id))
               .all()
               .find((e) => e.type === 'template' && e.template_name === tmpl.name)
             if (existing) {
-              const results = db.select().from(schema.qaResults).where(eq(schema.qaResults.qa_entry_id, existing.id)).all()
-              if (results.length > 0) continue
+              const completed = db.select({ id: schema.qaResults.id }).from(schema.qaResults)
+                .where(and(eq(schema.qaResults.qa_entry_id, existing.id), eq(schema.qaResults.status, 'done')))
+                .get()
+              if (completed) continue
             }
             let entryId: number
             if (existing) { entryId = existing.id } else {
-              const entry = db.insert(schema.qaEntries).values({ paper_id: paper.id, type: 'template', template_name: tmpl.name, created_at: new Date().toISOString() }).returning().get()
+              const entry = db.insert(schema.qaEntries).values({
+                paper_id: paper.id, type: 'template', template_name: tmpl.name,
+                prompt: tmpl.prompt, created_at: new Date().toISOString(),
+              }).returning().get()
               entryId = entry.id
             }
             try {
-              const res = await askQuestion(paper.id, tmpl.prompt, config.models.default)
-              db.insert(schema.qaResults).values({
-                qa_entry_id: entryId, prompt: tmpl.prompt, answer: res.answer,
-                model_name: res.model_name, completed_at: new Date().toISOString(),
-              }).run()
+              const run = await runQA(entryId, paper.id, tmpl.prompt, config.models.default, {
+                requestedByUserId: request.user?.id ?? null,
+              })
+              scheduledResultIds.push(run.result_id)
             } catch (err: any) { console.error(`Auto template QA failed for ${tmpl.name}:`, err.message) }
+          }
+          try {
+            await waitForQARuns(scheduledResultIds)
+          } catch (err: any) {
+            console.error('Auto template QA wait failed:', err.message)
           }
         }
       }
@@ -261,7 +307,10 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         const templateQA: Record<string, any> = {}
         const freeQA: any[] = []
         for (const entry of entries) {
-          const results = db.select().from(schema.qaResults).where(eq(schema.qaResults.qa_entry_id, entry.id)).orderBy(desc(schema.qaResults.completed_at)).all()
+          const results = db.select().from(schema.qaResults)
+            .where(and(eq(schema.qaResults.qa_entry_id, entry.id), eq(schema.qaResults.status, 'done')))
+            .orderBy(desc(schema.qaResults.completed_at)).all()
+            .map(serializeExternalQAResult)
           if (entry.type === 'template' && entry.template_name) {
             templateQA[entry.template_name] = { entry_id: entry.id, results }
           } else {

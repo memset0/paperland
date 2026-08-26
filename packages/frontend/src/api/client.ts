@@ -1,5 +1,7 @@
 import { dispatchApiError, dispatchUnauthorized } from '@/lib/error-bus'
 import { consumeTranslationStream } from '@/lib/translation-stream'
+import { consumeQAResultStream } from '@/lib/qa-result-stream'
+import type { QAResult, QAResultStreamDelta, QAResultStreamStart } from '@paperland/shared'
 
 const BASE_URL = ''
 
@@ -43,6 +45,43 @@ export const api = {
   put: <T>(url: string, body?: unknown) =>
     request<T>(url, { method: 'PUT', body: JSON.stringify(body ?? {}) }),
   delete: <T>(url: string) => request<T>(url, { method: 'DELETE' }),
+}
+
+export const qaResultApi = {
+  async stream(
+    resultId: number,
+    options: {
+      signal?: AbortSignal
+      onStart?: (start: QAResultStreamStart) => void | Promise<void>
+      onDelta?: (delta: QAResultStreamDelta) => void | Promise<void>
+    } = {},
+  ): Promise<QAResult> {
+    let response: Response
+    try {
+      response = await fetch(`/api/qa/results/${resultId}/stream`, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { Accept: 'text/event-stream' },
+        signal: options.signal,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw error
+      dispatchApiError('QA 流连接失败')
+      throw error
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ message: response.statusText }))
+      const message = body.error?.message || body.message || 'QA stream failed'
+      if (response.status === 401) dispatchUnauthorized()
+      else dispatchApiError(message)
+      throw new Error(message)
+    }
+    if (!response.body) throw new Error('QA result stream returned no response body')
+    return consumeQAResultStream(response.body, options)
+  },
+
+  cancel: (resultId: number) =>
+    api.post<{ result_id: number; cancelled: boolean }>(`/api/qa/results/${resultId}/cancel`),
 }
 
 // Highlight API

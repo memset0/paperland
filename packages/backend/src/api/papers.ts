@@ -230,6 +230,12 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       // 1. Delete qa_results via qa_entries
       const entryIds = db.select({ id: schema.qaEntries.id }).from(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).all().map(e => e.id)
       if (entryIds.length > 0) {
+        const resultIds = db.select({ id: schema.qaResults.id }).from(schema.qaResults)
+          .where(inArray(schema.qaResults.qa_entry_id, entryIds)).all().map((result) => result.id)
+        if (resultIds.length > 0) {
+          db.update(schema.highlights).set({ qa_result_id: null })
+            .where(inArray(schema.highlights.qa_result_id, resultIds)).run()
+        }
         db.delete(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, entryIds)).run()
       }
       // 2. Delete qa_entries

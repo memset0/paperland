@@ -4,7 +4,7 @@
 
 External API 是独立于前端 Internal API 的第三方接口，主要用于 Zotero 插件等外部服务与 Paperland 进行数据同步。
 
-文本翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream` 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏。本次翻译增强不改变任何 External API 请求或响应契约。
+文本翻译、PDF 稳定选区划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅登录用户会自动触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭和新稳定选区替换均是 Internal UI 生命周期，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
 
 ---
 
@@ -175,9 +175,13 @@ Base URL: `/external-api/v1`
 
 **注意事项：**
 - `auto_create=true` 时按所提供的 arxiv_id / corpus_id 创建并触发抓取。`semantic_scholar_service` 现在是**双向**的：带 arxiv_id 的论文会查 `ARXIV:{id}` 补全 corpus_id 与引用富化，**仅凭 corpus_id 创建的论文也会查 `CORPUSID:{id}` 反查 arxiv_id 并做同样的富化**（若该论文确实存在 arXiv 版本）；解析出 arxiv_id 后，arxiv 元数据/PDF 抓取会经依赖图自动衔接
-- `auto_template_qa=true` 时，仅执行缺失的模板提问（和前端"一键生成"行为一致）
+- `auto_template_qa=true` 时，仅执行缺少 done Result 的模板提问（只有 failed/cancelled 历史仍可重试），每次调用仍通过统一 QA ServiceRunner，并等待新 Result 终态后返回
 - 模板提问会在调用模型前把 `config.yml` 中当时最新的问题文本持久化到 QA Entry；首次调用失败也不会丢失问题，之后重跑仍会重新读取配置中的最新文本
-- Internal UI 的 User Q&A `mine|all`、个人背景色和 viewer-private 高亮/笔记引用计数不会改变 External API 的鉴权或查询范围。`qa.results[]` 可能附带内部稳定 `content_hash`，用于站内阅读标记；外部客户端无需依赖该字段
+- Internal UI 的 User Q&A `mine|all`、九种个人背景色（gray/brown/orange/yellow/green/blue/purple/pink/red）和 viewer-private 高亮/笔记引用计数不会改变 External API 的鉴权或查询范围。背景色仍是站内 preference，不新增 External API 字段；`qa.results[]` 可能附带内部稳定 `content_hash`，用于站内阅读标记，外部客户端无需依赖该字段
+- 多回答默认选中最新 tab 完全属于 Internal UI：不改变 `/papers/full` 的 results 数组、排序保证或任何 External API 字段
+- 新生成 Result 的 `execution_id` 现在精确指向本次 ServiceRunner execution；字段名称和 External API 响应形状不变，历史歧义关联不自动重写
+- QA 的 `queued/awaiting_output/streaming/failed/cancelled`、局部 answer、Thinking 时间、Internal SSE 与 cancel API 均属于站内运行态；`/papers/full` 的 `qa.results[]` 只返回 `status=done` 的完成回答，并显式裁剪新增内部字段，因此现有 External API shape 不变
+- 本机交互式 Codex QA 模型迁移到 `stream:true` app-server 及其英文流式状态提示仅影响 Internal UI/Service 执行方式；Bearer External API 的 endpoint、鉴权和完成回答 shape 均不改变
 - 该接口设有较长 timeout，等待所有抓取和提问完成后返回完整数据
 
 **Response:**

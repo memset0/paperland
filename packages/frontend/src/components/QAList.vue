@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
+import type { QAEntryBackgroundColor } from '@paperland/shared'
 import { useQAStore } from '@/stores/qa'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/api/client'
 import {
   Play, RefreshCw, CheckCircle2, Circle, Loader2, AlertCircle,
-  ChevronsDownUp, ChevronsUpDown
+  ChevronsDownUp, ChevronsUpDown, User
 } from '@lucide/vue'
 import QAResultView from './QAResultView.vue'
+import QAEntryBackgroundPicker from './QAEntryBackgroundPicker.vue'
+import QAReadingIndicators from './QAReadingIndicators.vue'
+import { qaEntryBackgroundClass } from './qa-entry-style'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -38,6 +42,12 @@ interface QAEntry {
   error: string | null
   results: any[]
   templateName?: string
+  userId: number | null
+  username: string | null
+  canManage: boolean
+  backgroundColor: QAEntryBackgroundColor | null
+  highlightCount: number
+  noteAnchorCount: number
 }
 
 const templateEntries = computed(() => {
@@ -53,6 +63,12 @@ const templateEntries = computed(() => {
       error: data?.error || null,
       results: data?.results || [],
       templateName: tmpl.name,
+      userId: null,
+      username: null,
+      canManage: data?.can_manage ?? auth.isAuthenticated,
+      backgroundColor: data?.background_color ?? null,
+      highlightCount: data?.highlight_count ?? 0,
+      noteAnchorCount: data?.note_anchor_count ?? 0,
     })
   }
   return entries
@@ -69,6 +85,12 @@ const freeEntries = computed(() => {
       status: entry.status,
       error: entry.error,
       results: entry.results,
+      userId: entry.user_id,
+      username: entry.username,
+      canManage: entry.can_manage,
+      backgroundColor: entry.background_color,
+      highlightCount: entry.highlight_count,
+      noteAnchorCount: entry.note_anchor_count,
     })
   }
   return entries
@@ -96,13 +118,14 @@ function setAllOpen(entries: QAEntry[], open: boolean) {
 const hasUngenerated = computed(() =>
   store.templates.some(t => {
     const e = store.qaData.template[t.name]
-    return !e || e.results.length === 0
+    return !e || !e.results.some((result) => result.status === 'done')
   })
 )
 
 const regenDialog = ref<{ show: boolean; entry: QAEntry | null; selectedModels: string[] }>({ show: false, entry: null, selectedModels: [] })
 
 function openRegenDialog(entry: QAEntry) {
+  if (!entry.canManage) return
   regenDialog.value = {
     show: true,
     entry,
@@ -146,6 +169,7 @@ function submitRegen() {
 }
 
 function doRegen(entry: QAEntry, models: string[]) {
+  if (!entry.canManage) return
   if (entry.type === 'template' && entry.templateName) {
     for (const model of models) {
       store.regenerateTemplate(props.paperId, entry.templateName, model)
@@ -156,6 +180,7 @@ function doRegen(entry: QAEntry, models: string[]) {
 }
 
 function onResultRegenerate(entry: QAEntry, modelName: string) {
+  if (!entry.canManage) return
   regenDialog.value = {
     show: true,
     entry,
@@ -169,6 +194,10 @@ function onDeleteResult(resultId: number) {
 
 function generateTemplate(templateName: string) {
   store.regenerateTemplate(props.paperId, templateName)
+}
+
+function setPaperScope(scope: 'mine' | 'all') {
+  store.setPaperScope(scope)
 }
 </script>
 
@@ -201,6 +230,7 @@ function generateTemplate(templateName: string) {
         <Collapsible
           v-if="hasResults(entry)"
           :open="openMap[entry.key] || false"
+          :class="qaEntryBackgroundClass(entry.backgroundColor)"
           @update:open="(v: boolean) => setOpen(entry.key, v)"
         >
           <CollapsibleTrigger
@@ -213,6 +243,11 @@ function generateTemplate(templateName: string) {
             <div class="flex-1 min-w-0">
               <span class="text-sm font-semibold line-clamp-1">{{ entry.title }}</span>
             </div>
+            <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
+            <QAEntryBackgroundPicker
+              v-if="auth.isAuthenticated && entry.entryId > 0"
+              :entry-id="entry.entryId" :color="entry.backgroundColor"
+            />
             <Badge variant="secondary">
               <template v-if="entry.results.length > 1">{{ entry.results.length }} 个回答</template>
               <template v-else>{{ entry.results[0].model_name }}</template>
@@ -223,13 +258,15 @@ function generateTemplate(templateName: string) {
               :results="entry.results"
               :entry-key="entry.key"
               :paper-id="props.paperId"
+              :can-manage="entry.canManage"
               @regenerate="(model: string) => onResultRegenerate(entry, model)"
               @delete-result="onDeleteResult"
+              @cancel-result="store.cancelResult"
             />
           </CollapsibleContent>
         </Collapsible>
 
-        <div v-else class="flex items-center gap-3 px-5 py-3">
+        <div v-else class="flex items-center gap-3 px-5 py-3" :class="qaEntryBackgroundClass(entry.backgroundColor)">
           <AlertCircle v-if="isFailed(entry)" class="h-4 w-4 text-destructive shrink-0" />
           <Loader2 v-else-if="isRunning(entry)" class="h-4 w-4 text-primary shrink-0 animate-spin" />
           <Circle v-else class="h-4 w-4 text-muted-foreground shrink-0" />
@@ -237,6 +274,11 @@ function generateTemplate(templateName: string) {
             <span class="text-sm font-semibold line-clamp-1">{{ entry.title }}</span>
             <p v-if="isFailed(entry) && entry.error" class="text-xs text-destructive mt-0.5 truncate">{{ entry.error }}</p>
           </div>
+          <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
+          <QAEntryBackgroundPicker
+            v-if="auth.isAuthenticated && entry.entryId > 0"
+            :entry-id="entry.entryId" :color="entry.backgroundColor"
+          />
           <span v-if="isRunning(entry)" class="text-[10px] text-primary shrink-0">生成中...</span>
           <Button
             v-else-if="isFailed(entry)"
@@ -261,7 +303,7 @@ function generateTemplate(templateName: string) {
   </Card>
 
   <!-- User Q&A Card -->
-  <Card v-if="freeEntries.length" class="overflow-hidden gap-0 py-0">
+  <Card v-if="auth.isAuthenticated" class="overflow-hidden gap-0 py-0">
     <div class="flex items-center justify-between border-b px-5 py-3">
       <div class="flex items-center gap-2">
         <h3 class="text-sm font-semibold">User Q&A</h3>
@@ -270,6 +312,20 @@ function generateTemplate(templateName: string) {
         </span>
       </div>
       <div class="flex items-center gap-1.5">
+        <div class="inline-flex rounded-md ring-1 ring-foreground/10 overflow-hidden mr-1">
+          <Button
+            variant="ghost" size="sm" class="rounded-none h-7 px-2 text-[11px]"
+            :class="store.paperScope === 'mine' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'"
+            :disabled="store.loading"
+            @click="setPaperScope('mine')"
+          >Mine</Button>
+          <Button
+            variant="ghost" size="sm" class="rounded-none h-7 px-2 text-[11px]"
+            :class="store.paperScope === 'all' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'"
+            :disabled="store.loading"
+            @click="setPaperScope('all')"
+          >All</Button>
+        </div>
         <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllOpen(freeEntries, true)">
           <ChevronsUpDown />
         </Button>
@@ -285,6 +341,7 @@ function generateTemplate(templateName: string) {
         <Collapsible
           v-if="hasResults(entry)"
           :open="openMap[entry.key] || false"
+          :class="qaEntryBackgroundClass(entry.backgroundColor)"
           @update:open="(v: boolean) => setOpen(entry.key, v)"
         >
           <CollapsibleTrigger
@@ -296,7 +353,15 @@ function generateTemplate(templateName: string) {
             <CheckCircle2 v-else class="h-4 w-4 text-muted-foreground shrink-0" />
             <div class="flex-1 min-w-0">
               <span class="text-sm font-semibold line-clamp-1">{{ entry.title }}</span>
+              <span
+                v-if="store.paperScope === 'all' && entry.username"
+                class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+              ><User class="h-2.5 w-2.5" />{{ entry.username }}</span>
             </div>
+            <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
+            <QAEntryBackgroundPicker
+              :entry-id="entry.entryId" :color="entry.backgroundColor"
+            />
             <Badge variant="secondary">
               <template v-if="entry.results.length > 1">{{ entry.results.length }} 个回答</template>
               <template v-else>{{ entry.results[0].model_name }}</template>
@@ -307,23 +372,31 @@ function generateTemplate(templateName: string) {
               :results="entry.results"
               :entry-key="entry.key"
               :paper-id="props.paperId"
+              :can-manage="entry.canManage"
               @regenerate="(model: string) => onResultRegenerate(entry, model)"
               @delete-result="onDeleteResult"
+              @cancel-result="store.cancelResult"
             />
           </CollapsibleContent>
         </Collapsible>
 
-        <div v-else class="flex items-center gap-3 px-5 py-3">
+        <div v-else class="flex items-center gap-3 px-5 py-3" :class="qaEntryBackgroundClass(entry.backgroundColor)">
           <AlertCircle v-if="isFailed(entry)" class="h-4 w-4 text-destructive shrink-0" />
           <Loader2 v-else-if="isRunning(entry)" class="h-4 w-4 text-primary shrink-0 animate-spin" />
           <Circle v-else class="h-4 w-4 text-muted-foreground shrink-0" />
           <div class="flex-1 min-w-0">
             <span class="text-sm font-semibold line-clamp-1">{{ entry.title }}</span>
+            <span
+              v-if="store.paperScope === 'all' && entry.username"
+              class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+            ><User class="h-2.5 w-2.5" />{{ entry.username }}</span>
             <p v-if="isFailed(entry) && entry.error" class="text-xs text-destructive mt-0.5 truncate">{{ entry.error }}</p>
           </div>
+          <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
+          <QAEntryBackgroundPicker :entry-id="entry.entryId" :color="entry.backgroundColor" />
           <span v-if="isRunning(entry)" class="text-[10px] text-primary shrink-0">生成中...</span>
           <Button
-            v-else-if="isFailed(entry)"
+            v-else-if="isFailed(entry) && entry.canManage"
             variant="link" size="xs"
             class="text-destructive shrink-0"
             @click.stop="store.regenerateEntry(entry.entryId, props.paperId, store.selectedModels)"
@@ -331,7 +404,7 @@ function generateTemplate(templateName: string) {
             重试
           </Button>
           <Button
-            v-else
+            v-else-if="entry.canManage"
             variant="link" size="xs"
             class="shrink-0"
             @click.stop="openRegenDialog(entry)"
@@ -341,11 +414,14 @@ function generateTemplate(templateName: string) {
         </div>
 
       </template>
+      <div v-if="freeEntries.length === 0" class="px-5 py-6 text-center text-xs text-muted-foreground">
+        {{ store.paperScope === 'mine' ? '暂无自己的 User Q&A' : '暂无 User Q&A' }}
+      </div>
     </div>
   </Card>
 
   <!-- Empty state -->
-  <Card v-if="!templateEntries.length && !freeEntries.length">
+  <Card v-if="!templateEntries.length && !auth.isAuthenticated">
     <div class="px-5 py-8 text-center text-sm text-muted-foreground">暂无 Q&A 记录</div>
   </Card>
 
