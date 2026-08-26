@@ -1,13 +1,24 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { FileText, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Link2, Loader2, AlertTriangle, MoveHorizontal, MoveVertical, Crop } from '@lucide/vue'
+import { FileText, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Link2, Loader2, AlertTriangle, MoveHorizontal, MoveVertical, Crop, Languages, X, Copy, RefreshCw } from '@lucide/vue'
+import type { TranslateResponse, TranslationStreamStatus } from '@paperland/shared'
 import { toast } from 'vue-sonner'
 import { loadPdfjs } from '@/lib/pdfjs'
+import {
+  createPdfSelectionSnapshot,
+  decideOutsidePanelSelection,
+  placeSelectionPanel,
+  StableSelectionIntent,
+  type PdfSelectionSnapshot,
+  type RelativeRect,
+} from '@/lib/pdf-selection-translation'
 import { buildTextSegments, getSelectionOffsets } from '@/composables/useHighlight'
 import { requestedPdfTarget, type PdfNavTarget } from '@/composables/usePdfNavigation'
 import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
 import { configApi } from '@/api/client'
 import { uploadImage } from '@/utils/uploadImage'
+import StreamingTranslationText from '@/components/StreamingTranslationText.vue'
 import 'pdfjs-dist/web/pdf_viewer.css'
 
 const props = defineProps<{ pdfPath: string | null; paperId?: number | null }>()
@@ -15,6 +26,7 @@ const props = defineProps<{ pdfPath: string | null; paperId?: number | null }>()
 const rawUrl = computed(() => (props.pdfPath ? `/api/files/${encodeURIComponent(props.pdfPath)}` : null))
 
 const theme = useThemeStore()
+const auth = useAuthStore()
 // Dark-mode PDF page colors (gray background, near-white text). Passed to pdf.js as
 // `pageColors`, which recolors inside the canvas raster. Keep the gray in sync with the
 // `.pdf-page` dark background in <style> so the loading gutter matches the page.
@@ -183,6 +195,7 @@ function onScroll() {
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = 0
     updateCurrentPage()
+    repositionSelectionUi()
   })
 }
 
@@ -313,13 +326,146 @@ function copyPageLink() {
   toast.success('已复制本页链接', { position: 'bottom-center' })
 }
 
-// ---- Selection capture → floating "copy selection link" ----
+// ---- Selection capture → copy link + stable streaming translation ----
 const selRegion = ref<{ page: number; ts: number; te: number; text: string } | null>(null)
 const showSelBtn = ref(false)
 const selBtnPos = ref({ x: 0, y: 0 })
 let selTimer: ReturnType<typeof setTimeout> | null = null
+let selectionRange: Range | null = null
+let currentSelection: PdfSelectionSnapshot | null = null
 
-function hideSelBtn() { showSelBtn.value = false; selRegion.value = null }
+const translationIntent = new StableSelectionIntent(500)
+const activeTranslation = ref<PdfSelectionSnapshot | null>(null)
+const translationKey = ref(0)
+const translationForce = ref(false)
+const translationStatus = ref<TranslationStreamStatus>('idle')
+const translationText = ref('')
+const translationError = ref<string | null>(null)
+const dismissedTranslationIdentity = ref<string | null>(null)
+const translationPanelRef = ref<HTMLElement | null>(null)
+const translationPanelPos = ref({ left: 8, top: 8, width: 320, placement: 'above' as 'above' | 'below' })
+let translationPanelRo: ResizeObserver | null = null
+type SelectionInteractionOwner = 'panel' | 'outside' | null
+let selectionInteractionOwner: SelectionInteractionOwner = null
+let outsideInteractionSourceIdentity: string | null = null
+let outsideInteractionTimer: ReturnType<typeof setTimeout> | null = null
+const OUTSIDE_INTERACTION_SETTLE_MS = 80
+
+function resetSelectionInteraction() {
+  if (outsideInteractionTimer) clearTimeout(outsideInteractionTimer)
+  outsideInteractionTimer = null
+  selectionInteractionOwner = null
+  outsideInteractionSourceIdentity = null
+}
+
+function viewerRoot(): HTMLElement | null {
+  return viewerRef.value?.closest<HTMLElement>('.pdf-viewer-root') ?? null
+}
+
+function closeTranslationPanel(options: { dismiss?: boolean; resetDismissed?: boolean } = {}) {
+  if (options.dismiss && activeTranslation.value) dismissedTranslationIdentity.value = activeTranslation.value.identity
+  if (options.resetDismissed) dismissedTranslationIdentity.value = null
+  resetSelectionInteraction()
+  translationIntent.cancel()
+  activeTranslation.value = null
+  translationText.value = ''
+  translationError.value = null
+  translationStatus.value = 'idle'
+  translationKey.value++ // unmounting/re-keying aborts any active StreamingTranslationText
+}
+
+function clearSelectionUi() {
+  showSelBtn.value = false
+  selRegion.value = null
+  selectionRange = null
+  currentSelection = null
+  closeTranslationPanel({ resetDismissed: true })
+}
+
+function relativeSelectionRect(range: Range): RelativeRect | null {
+  const outer = viewerRoot()
+  if (!outer) return null
+  const rr = range.getBoundingClientRect()
+  const vr = outer.getBoundingClientRect()
+  if (rr.width <= 0 || rr.height <= 0) return null
+  return {
+    left: rr.left - vr.left,
+    top: rr.top - vr.top,
+    right: rr.right - vr.left,
+    bottom: rr.bottom - vr.top,
+    width: rr.width,
+    height: rr.height,
+  }
+}
+
+function readPdfSelection(): { snapshot: PdfSelectionSnapshot; range: Range } | null {
+  const scroll = viewerRef.value
+  if (!scroll || captureMode.value) return null
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
+  const range = selection.getRangeAt(0)
+  const elOf = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement)
+  const startPage = elOf(range.startContainer)?.closest('.pdf-page') as HTMLElement | null
+  const endPage = elOf(range.endContainer)?.closest('.pdf-page') as HTMLElement | null
+  if (!startPage || startPage !== endPage || !scroll.contains(startPage)) return null
+  const textLayer = startPage.querySelector<HTMLElement>('.textLayer')
+  if (!textLayer || !textLayer.contains(range.startContainer) || !textLayer.contains(range.endContainer)) return null
+  const offsets = getSelectionOffsets(textLayer)
+  const rect = relativeSelectionRect(range)
+  if (!offsets || !rect) return null
+  const snapshot = createPdfSelectionSnapshot({
+    page: Number(startPage.dataset.pdfPage),
+    ts: offsets.start_offset,
+    te: offsets.end_offset,
+    text: offsets.text,
+    rect,
+  })
+  return snapshot ? { snapshot, range: range.cloneRange() } : null
+}
+
+function updateTranslationPanelPlacement() {
+  const outer = viewerRoot()
+  const snapshot = activeTranslation.value
+  if (!outer || !snapshot) return
+  const measured = translationPanelRef.value?.getBoundingClientRect()
+  translationPanelPos.value = placeSelectionPanel({
+    viewerWidth: outer.clientWidth,
+    viewerHeight: outer.clientHeight,
+    selection: snapshot.rect,
+    panelWidth: measured?.width || 340,
+    panelHeight: measured?.height || 120,
+  })
+}
+
+function activateTranslation(snapshot: PdfSelectionSnapshot) {
+  if (!auth.isAuthenticated || captureMode.value || currentSelection?.identity !== snapshot.identity) return
+  resetSelectionInteraction()
+  activeTranslation.value = { ...snapshot, rect: { ...snapshot.rect } }
+  translationForce.value = false
+  translationText.value = ''
+  translationError.value = null
+  translationStatus.value = 'connecting'
+  translationKey.value++
+  void nextTick(updateTranslationPanelPlacement)
+}
+
+function considerSelectionTranslation(snapshot: PdfSelectionSnapshot) {
+  if (!auth.isAuthenticated || captureMode.value) {
+    translationIntent.cancel()
+    closeTranslationPanel()
+    return
+  }
+  if (dismissedTranslationIdentity.value === snapshot.identity) return
+  if (activeTranslation.value?.identity === snapshot.identity) {
+    translationIntent.cancel()
+    activeTranslation.value = { ...activeTranslation.value, rect: { ...snapshot.rect } }
+    updateTranslationPanelPlacement()
+    return
+  }
+  translationIntent.consider(snapshot, activateTranslation)
+}
+
+function hideSelBtn() { clearSelectionUi() }
 
 function onSelectionChange() {
   if (selTimer) clearTimeout(selTimer)
@@ -327,29 +473,127 @@ function onSelectionChange() {
 }
 
 function handleSelectionSettled() {
-  const root = viewerRef.value
-  if (!root) return hideSelBtn()
-  const sel = window.getSelection()
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return hideSelBtn()
-  const range = sel.getRangeAt(0)
-  const elOf = (n: Node) => (n.nodeType === Node.ELEMENT_NODE ? (n as Element) : n.parentElement)
-  const startPage = elOf(range.startContainer)?.closest('.pdf-page') as HTMLElement | null
-  const endPage = elOf(range.endContainer)?.closest('.pdf-page') as HTMLElement | null
-  if (!startPage || startPage !== endPage || !root.contains(startPage)) return hideSelBtn()
-  const textLayer = startPage.querySelector<HTMLElement>('.textLayer')
-  if (!textLayer || !textLayer.contains(range.startContainer) || !textLayer.contains(range.endContainer)) return hideSelBtn()
-  const offs = getSelectionOffsets(textLayer)
-  if (!offs) return hideSelBtn()
-  selRegion.value = {
-    page: Number(startPage.dataset.pdfPage),
-    ts: offs.start_offset,
-    te: offs.end_offset,
-    text: offs.text,
+  const captured = readPdfSelection()
+  if (!captured) {
+    if (activeTranslation.value && selectionInteractionOwner) return
+    return hideSelBtn()
   }
-  const rr = range.getBoundingClientRect()
-  const vr = root.getBoundingClientRect()
-  selBtnPos.value = { x: rr.left + rr.width / 2 - vr.left, y: rr.bottom - vr.top + 6 }
+  const { snapshot, range } = captured
+  if (selectionInteractionOwner === 'panel' && activeTranslation.value?.identity !== snapshot.identity) {
+    resetSelectionInteraction()
+  }
+  if (currentSelection?.identity !== snapshot.identity) dismissedTranslationIdentity.value = null
+  currentSelection = snapshot
+  selectionRange = range
+  selRegion.value = {
+    page: snapshot.page,
+    ts: snapshot.ts,
+    te: snapshot.te,
+    text: snapshot.text,
+  }
+  selBtnPos.value = {
+    x: snapshot.rect.left + snapshot.rect.width / 2,
+    y: snapshot.rect.bottom + 6,
+  }
   showSelBtn.value = !!props.paperId
+  considerSelectionTranslation(snapshot)
+}
+
+function onDocumentPointerDown(event: PointerEvent) {
+  const active = activeTranslation.value
+  if (!active) return
+  const target = event.target
+  if (!(target instanceof Node)) return
+  if (translationPanelRef.value?.contains(target)) {
+    resetSelectionInteraction()
+    selectionInteractionOwner = 'panel'
+    return
+  }
+  resetSelectionInteraction()
+  selectionInteractionOwner = 'outside'
+  outsideInteractionSourceIdentity = active.identity
+}
+
+function onDocumentPointerUp() {
+  if (selectionInteractionOwner !== 'outside' || !outsideInteractionSourceIdentity) return
+  const sourceIdentity = outsideInteractionSourceIdentity
+  if (outsideInteractionTimer) clearTimeout(outsideInteractionTimer)
+  outsideInteractionTimer = setTimeout(() => {
+    if (selectionInteractionOwner !== 'outside' || outsideInteractionSourceIdentity !== sourceIdentity) return
+    const settled = readPdfSelection()
+    const decision = decideOutsidePanelSelection(sourceIdentity, settled?.snapshot.identity ?? null)
+    resetSelectionInteraction()
+    if (decision === 'keep_for_replacement') {
+      handleSelectionSettled()
+      return
+    }
+    hideSelBtn()
+  }, OUTSIDE_INTERACTION_SETTLE_MS)
+}
+
+function repositionSelectionUi() {
+  if (!currentSelection) return
+  const captured = readPdfSelection()
+  if (!captured || captured.snapshot.identity !== currentSelection.identity) return hideSelBtn()
+  currentSelection = captured.snapshot
+  selectionRange = captured.range
+  selBtnPos.value = {
+    x: captured.snapshot.rect.left + captured.snapshot.rect.width / 2,
+    y: captured.snapshot.rect.bottom + 6,
+  }
+  if (activeTranslation.value?.identity === captured.snapshot.identity) {
+    activeTranslation.value = { ...activeTranslation.value, rect: { ...captured.snapshot.rect } }
+    updateTranslationPanelPlacement()
+  }
+}
+
+function retrySelectionTranslation() {
+  if (!activeTranslation.value || currentSelection?.identity !== activeTranslation.value.identity) return
+  translationForce.value = true
+  translationText.value = ''
+  translationError.value = null
+  translationStatus.value = 'connecting'
+  translationKey.value++
+}
+
+function restorePdfSelection() {
+  if (!selectionRange || !currentSelection) return
+  try {
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(selectionRange.cloneRange())
+  } catch {
+    hideSelBtn()
+  }
+}
+
+async function copySelectionTranslation() {
+  if (!translationText.value) return
+  await navigator.clipboard.writeText(translationText.value)
+  toast.success('已复制翻译', { position: 'bottom-center' })
+}
+
+function onTranslationStatus(status: TranslationStreamStatus) {
+  translationStatus.value = status
+  void nextTick(updateTranslationPanelPlacement)
+}
+
+function onTranslationDelta(delta: string) {
+  translationText.value += delta
+  void nextTick(updateTranslationPanelPlacement)
+}
+
+function onTranslationDone(result: TranslateResponse) {
+  translationText.value = result.translated_text || ''
+  translationError.value = null
+  translationStatus.value = 'completed'
+  void nextTick(updateTranslationPanelPlacement)
+}
+
+function onTranslationError(error: Error) {
+  translationError.value = error.message
+  translationStatus.value = 'failed'
+  void nextTick(updateTranslationPanelPlacement)
 }
 
 function copySelectionLink() {
@@ -407,7 +651,10 @@ function toggleCaptureMode() {
   captureMode.value = !captureMode.value
   dragRect.value = null
   dragStart = null
-  if (captureMode.value) window.getSelection()?.removeAllRanges()
+  if (captureMode.value) {
+    hideSelBtn()
+    window.getSelection()?.removeAllRanges()
+  }
 }
 
 function exitCaptureMode() {
@@ -504,7 +751,12 @@ async function captureRegion(region: { page: number; x: number; y: number; w: nu
 }
 
 function onCaptureKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && captureMode.value) exitCaptureMode()
+  if (e.key !== 'Escape') return
+  if (activeTranslation.value) {
+    closeTranslationPanel({ dismiss: true })
+    return
+  }
+  if (captureMode.value) exitCaptureMode()
 }
 
 // ---- Lifecycle ----
@@ -536,6 +788,7 @@ async function loadDocument() {
 }
 
 function cleanupDoc() {
+  hideSelBtn()
   io?.disconnect(); io = null
   for (const { task } of renderTasks.values()) task?.cancel?.()
   renderTasks.clear()
@@ -551,12 +804,24 @@ function cleanupDoc() {
 }
 
 let ro: ResizeObserver | null = null
+watch(translationPanelRef, (panel) => {
+  translationPanelRo?.disconnect()
+  translationPanelRo = null
+  if (!panel) return
+  translationPanelRo = new ResizeObserver(() => updateTranslationPanelPlacement())
+  translationPanelRo.observe(panel)
+  updateTranslationPanelPlacement()
+})
+
 let resizeRaf = 0
 let reRasterTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(() => {
   loadDocument()
   document.addEventListener('selectionchange', onSelectionChange)
+  document.addEventListener('pointerdown', onDocumentPointerDown, true)
+  document.addEventListener('pointerup', onDocumentPointerUp, true)
+  document.addEventListener('pointercancel', onDocumentPointerUp, true)
   window.addEventListener('keydown', onCaptureKey)
   // Capture DPI default lives in config.yml; fall back to 300 if the request fails.
   configApi.pdf().then((c) => { if (c?.screenshot_dpi) screenshotDpi.value = c.screenshot_dpi }).catch(() => {})
@@ -572,17 +837,25 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', onSelectionChange)
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  document.removeEventListener('pointerup', onDocumentPointerUp, true)
+  document.removeEventListener('pointercancel', onDocumentPointerUp, true)
   window.removeEventListener('keydown', onCaptureKey)
   window.removeEventListener('mousemove', onCaptureMove)
   window.removeEventListener('mouseup', onCaptureUp)
   if (selTimer) clearTimeout(selTimer)
   if (reRasterTimer) clearTimeout(reRasterTimer)
+  translationPanelRo?.disconnect()
   ro?.disconnect()
   cleanupDoc()
 })
 
 // Reload when the PDF path changes (paper → paper navigation reuses this component).
 watch(() => props.pdfPath, () => loadDocument())
+watch(() => auth.isAuthenticated, (authenticated) => {
+  if (!authenticated) closeTranslationPanel({ resetDismissed: true })
+  else handleSelectionSettled()
+})
 
 // Scale changes (zoom / fit-to-width while dragging the split pane) resize the placeholders and
 // CSS-scale the existing canvases instantly. Re-rasterizing at the new scale (canvas + text layer)
@@ -591,6 +864,7 @@ watch(() => props.pdfPath, () => loadDocument())
 // the page just stays CSS-scaled (slightly soft) until it lands.
 const RE_RASTER_DEBOUNCE_MS = 320
 watch(effectiveScale, () => {
+  hideSelBtn()
   if (reRasterTimer) clearTimeout(reRasterTimer)
   reRasterTimer = setTimeout(async () => {
     await nextTick()
@@ -603,6 +877,7 @@ watch(effectiveScale, () => {
 // off-DOM and swaps on completion, so the old canvas stays visible until the new one is ready
 // (no unrender-induced blank, no white flash). Off-screen pages render fresh when scrolled in.
 watch(() => theme.resolved, () => {
+  hideSelBtn()
   const live = new Set<number>([...rendered.keys(), ...renderTasks.keys()])
   for (const num of live) renderPage(num)
 })
@@ -702,6 +977,74 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
         <Link2 class="h-3.5 w-3.5" /> 复制选区链接
       </button>
 
+      <!-- Stable-selection streaming translation panel (authenticated users only). -->
+      <aside
+        v-if="activeTranslation"
+        ref="translationPanelRef"
+        class="pdf-selection-translation"
+        :class="`pdf-selection-translation-${translationPanelPos.placement}`"
+        :style="{
+          left: translationPanelPos.left + 'px',
+          top: translationPanelPos.top + 'px',
+          width: translationPanelPos.width + 'px',
+        }"
+        @pointerdown.stop
+        @pointerup="restorePdfSelection"
+      >
+        <header class="pdf-selection-translation-header">
+          <span class="pdf-selection-translation-title">
+            <Languages class="h-3.5 w-3.5" /> Translation
+          </span>
+          <span class="pdf-selection-translation-state">{{ translationStatus }}</span>
+          <button
+            class="pdf-selection-translation-icon"
+            title="关闭翻译"
+            @mousedown.prevent
+            @click="closeTranslationPanel({ dismiss: true })"
+          >
+            <X class="h-3.5 w-3.5" />
+          </button>
+        </header>
+
+        <div class="pdf-selection-translation-body">
+          <StreamingTranslationText
+            :key="translationKey"
+            :text="activeTranslation.text"
+            :force="translationForce"
+            @status="onTranslationStatus"
+            @delta="onTranslationDelta"
+            @done="onTranslationDone"
+            @error="onTranslationError"
+            v-slot="{ text, status }"
+          >
+            <p v-if="text" class="pdf-selection-translation-text">{{ text }}</p>
+            <div v-else-if="status === 'connecting'" class="pdf-selection-translation-waiting">
+              <Loader2 class="h-3.5 w-3.5 animate-spin" /> 等待翻译…
+            </div>
+          </StreamingTranslationText>
+          <p v-if="translationError" class="pdf-selection-translation-error">{{ translationError }}</p>
+        </div>
+
+        <footer class="pdf-selection-translation-actions">
+          <button
+            class="pdf-selection-translation-action"
+            :disabled="!translationText"
+            @mousedown.prevent
+            @click="copySelectionTranslation"
+          >
+            <Copy class="h-3.5 w-3.5" /> 复制翻译
+          </button>
+          <button
+            class="pdf-selection-translation-action"
+            :disabled="translationStatus === 'connecting' || translationStatus === 'streaming'"
+            @mousedown.prevent
+            @click="retrySelectionTranslation"
+          >
+            <RefreshCw class="h-3.5 w-3.5" /> 重试
+          </button>
+        </footer>
+      </aside>
+
       <!-- Loading overlay -->
       <div v-if="loading" class="pdf-loading">
         <Loader2 class="h-5 w-5 animate-spin text-primary" />
@@ -783,6 +1126,54 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); white-space: nowrap;
 }
 .pdf-sel-btn:hover { background: var(--accent); color: var(--accent-foreground); }
+
+/* Stable PDF selection translation; positioned in .pdf-viewer-root coordinates. */
+.pdf-selection-translation {
+  position: absolute; z-index: 60;
+  display: flex; flex-direction: column; overflow: hidden;
+  max-height: min(260px, calc(100% - 16px));
+  color: var(--popover-foreground); background: var(--popover);
+  border: 1px solid var(--border); border-radius: calc(var(--radius) + 3px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+}
+.pdf-selection-translation-header {
+  display: flex; align-items: center; gap: 7px; flex: none;
+  min-height: 32px; padding: 6px 7px 6px 10px;
+  border-bottom: 1px solid var(--border); background: var(--muted);
+}
+.pdf-selection-translation-title {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.pdf-selection-translation-state { margin-left: auto; font-size: 10px; color: var(--muted-foreground); }
+.pdf-selection-translation-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.pdf-selection-translation-icon:hover { background: var(--accent); }
+.pdf-selection-translation-body { min-height: 48px; padding: 10px; overflow: auto; overscroll-behavior: contain; }
+.pdf-selection-translation-text { white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
+.pdf-selection-translation-waiting {
+  display: flex; align-items: center; gap: 6px; min-height: 30px;
+  font-size: 12px; color: var(--muted-foreground);
+}
+.pdf-selection-translation-error { white-space: pre-wrap; font-size: 12px; color: var(--destructive); }
+.pdf-selection-translation-actions {
+  display: flex; justify-content: flex-end; gap: 4px; flex: none;
+  padding: 5px 7px; border-top: 1px solid var(--border);
+}
+.pdf-selection-translation-action {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; padding: 0 7px; border-radius: var(--radius-sm);
+  font-size: 11px; cursor: pointer;
+}
+.pdf-selection-translation-action:hover:not(:disabled) { background: var(--accent); }
+.pdf-selection-translation-action:disabled { opacity: 0.45; cursor: default; }
+
+@media (pointer: coarse) {
+  .pdf-selection-translation-icon { width: 44px; height: 44px; }
+  .pdf-selection-translation-action { min-height: 44px; padding-inline: 12px; }
+}
 
 .pdf-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 </style>
