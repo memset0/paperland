@@ -8,6 +8,15 @@ This file provides shared guidance for AI coding tools working in this repositor
 - Before implementation, read `openspec/config.yaml`, the relevant main specs under `openspec/specs/`, and the active change artifacts under `openspec/changes/`.
 - Keep OpenSpec artifacts aligned with the implementation and validate the completed change before archiving.
 
+### Development entry gate
+
+- Treat every request to implement, fix, refactor, add or change tests, change configuration, or change behavior documentation as development work.
+- Before editing any implementation file, the agent MUST inspect the OpenSpec configuration, main specs, and active changes, then MUST select the applicable generated OpenSpec workflow instead of reconstructing it from memory.
+- If no active change matches, the agent MUST use the generated propose workflow, create all required planning artifacts, present them, and stop. A proposal authorizes planning only; the agent MUST wait for a later explicit apply request before implementation.
+- If exactly one active change matches and the user requests implementation, the agent MUST use the generated apply workflow and read every context file returned by its dynamic instructions. If several changes could match, list them and obtain the user's selection first.
+- The agent MUST NOT edit implementation files while apply is blocked, before apply reports a ready state, or before all required context files have been read.
+- Read-only explanation, investigation, status reporting, and OpenSpec tooling installation or repair are not development work. If such work turns into a request to edit project behavior, apply this gate before the first edit.
+
 ### Instruction file convention
 
 - `AGENTS.md` is the canonical root instruction file for this repository.
@@ -24,15 +33,20 @@ This file provides shared guidance for AI coding tools working in this repositor
 
 ### During apply
 
-- Keep the current change's spec in sync throughout `/opsx:apply`.
+- Follow the generated apply workflow's dynamic instructions and keep the current change's spec in sync throughout implementation.
+- Read `openspec/config.yaml`, relevant main specs, every context file returned by apply, and all active change artifacts before changing implementation files.
 - If implementation requires small bug fixes or feature tweaks beyond what the change originally described, promptly fold them back into the current change's `proposal.md`, delta specs under `openspec/changes/<name>/specs/`, and `tasks.md` as applicable.
+- If a task requires unexpected scope beyond the artifacts, pause and surface it instead of silently narrowing, deferring, or simplifying specified behavior.
+- Mark a task complete immediately after its full behavior and proportionate verification succeed; do not mark partial or deferred work complete.
 - Do not let implementation drift ahead of the spec. Before archiving, ensure the change artifacts describe what was actually built.
 
 ### Archiving
 
+- After all implementation tasks complete, validate the active change before archive. If archive has not been requested or completed, report the change as active and ready to archive rather than claiming it is archived.
 - When `/opsx:archive` prompts about delta spec sync, default to syncing: choose `Sync now (recommended)` so the change's delta specs under `openspec/changes/<name>/specs/` are merged into the main specs under `openspec/specs/<capability>/spec.md`.
 - Only skip syncing if the user explicitly asks to archive without syncing.
 - After archiving, verify both the updated main specs and the archived change.
+- Report explicitly whether the change remains active or has been successfully archived.
 - After every successful archive, including the spec sync above, automatically commit the files involved in that change and push the commit to `main`. Do not wait for a separate request or confirmation.
 - Do not auto-commit or push if the archive step fails.
 
@@ -74,6 +88,7 @@ This file provides shared guidance for AI coding tools working in this repositor
 
 - All changes must go through `/opsx:propose`, `/opsx:apply`, and `/opsx:archive`.
 - Every code change must also update the corresponding documents in `docs/` (`frontend-architecture.md`, `external-api.md`, and `tech-stack.md`).
+- This repository overrides the general Development entry gate above: unless the user explicitly asks to stop after proposal or defer implementation, after the generated propose workflow completes successfully and presents all planning artifacts, immediately continue into the generated apply workflow for the same change without waiting for a later explicit apply request.
 
 ## Commands
 
