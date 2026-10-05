@@ -398,7 +398,7 @@ notes:
 
 `qa_service` 与 `translation_service` 继续共用 `services/model_invoke.ts` 的 `callModel(prompt, modelName, options?)` 门面，内部只路由到独立 `OpenAIProvider` / `CodexProvider`。`stream` 缺省为 false；Codex exec 与 app-server 都强制 ephemeral，app-server 还会在 `turn/start` 前验证 `thread.ephemeral === true`，不污染个人 Codex 历史。
 
-**PDF 划词翻译**：纯前端复用上述 Internal SSE API 与全局 `translations` cache，不新增 provider、endpoint、表或 migration。`PdfViewer` 保留现有 60ms 选区捕获/复制链接，同时在登录用户的单页 text-layer 选区 identity 稳定 500ms 后挂载 `StreamingTranslationText`。面板内 pointer focus transfer 导致的 collapsed selection 不清理 active child；普通外部点击清理，而不同新选区在稳定 500ms、真正 mount replacement 时才 abort 旧 child。其他 viewer 生命周期变化仍会 abort；匿名用户不自动请求或弹登录。
+**PDF 划词翻译**：纯前端复用上述 Internal SSE API 与全局 `translations` cache，不新增 provider、endpoint、表或 migration。`PdfViewer` 保留现有 60ms 选区捕获/复制链接，同时在登录用户的单页 text-layer 选区 identity 稳定 500ms 后挂载 `StreamingTranslationText`。Vue scoped slot 在 translated text 仍为空时显示 immutable selection snapshot 的原文，首个非空 delta 或 cache result 到达后切换为译文；这只是现有 SSE 消费端的 fallback，不改变 backend、数据库、provider、配置或依赖。面板内 pointer focus transfer 导致的 collapsed selection 不清理 active child；普通外部点击清理，而不同新选区在稳定 500ms、真正 mount replacement 时才 abort 旧 child。其他 viewer 生命周期变化仍会 abort；匿名用户不自动请求或弹登录。
 
 **QA prompt 持久化**：`qa_entries` 是问题文本的持久化来源。free QA 在创建 Entry 时写入 `prompt`，后续重跑只读该字段；template QA 每次运行前从 `config.yml` 读取最新模板并更新 Entry。历史 `qa_results.prompt` 仍保存每次成功调用实际使用的快照。迁移通过最新历史 Result 回填可恢复的 Entry；没有任何 Result 的旧失败 free QA 不会伪造原文，只有在用户明确授权且生成当前一致性备份后，才按精确 ID 清理。
 

@@ -4,7 +4,7 @@
 
 External API 是独立于前端 Internal API 的第三方接口，主要用于 Zotero 插件等外部服务与 Paperland 进行数据同步。
 
-文本翻译、PDF 稳定选区划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅登录用户会自动触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭和新稳定选区替换均是 Internal UI 生命周期，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
+文本翻译、PDF 稳定选区划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅登录用户会自动触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭、新稳定选区替换，以及等待首个译文时显示所选原文的 UI fallback，均是 Internal UI 生命周期/呈现行为，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
 
 ---
 

@@ -97,6 +97,11 @@ export interface PanelPlacement {
 
 export type OutsidePanelSelectionDecision = 'dismiss' | 'keep_for_replacement'
 
+/** Show source context only until the stream/cache provides actual translated text. */
+export function selectPdfTranslationPanelText(sourceText: string, translatedText: string): string {
+  return translatedText.length > 0 ? translatedText : sourceText
+}
+
 /** Settle an outside pointer gesture after native selection has finished updating. */
 export function decideOutsidePanelSelection(
   activeIdentity: string,

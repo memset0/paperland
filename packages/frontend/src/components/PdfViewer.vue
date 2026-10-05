@@ -8,6 +8,7 @@ import {
   createPdfSelectionSnapshot,
   decideOutsidePanelSelection,
   placeSelectionPanel,
+  selectPdfTranslationPanelText,
   StableSelectionIntent,
   type PdfSelectionSnapshot,
   type RelativeRect,
@@ -1015,12 +1016,12 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
             @delta="onTranslationDelta"
             @done="onTranslationDone"
             @error="onTranslationError"
-            v-slot="{ text, status }"
+            v-slot="{ text }"
           >
-            <p v-if="text" class="pdf-selection-translation-text">{{ text }}</p>
-            <div v-else-if="status === 'connecting'" class="pdf-selection-translation-waiting">
-              <Loader2 class="h-3.5 w-3.5 animate-spin" /> 等待翻译…
-            </div>
+            <p
+              class="pdf-selection-translation-text"
+              :class="{ 'pdf-selection-translation-source': !text }"
+            >{{ selectPdfTranslationPanelText(activeTranslation.text, text) }}</p>
           </StreamingTranslationText>
           <p v-if="translationError" class="pdf-selection-translation-error">{{ translationError }}</p>
         </div>
@@ -1153,10 +1154,7 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
 .pdf-selection-translation-icon:hover { background: var(--accent); }
 .pdf-selection-translation-body { min-height: 48px; padding: 10px; overflow: auto; overscroll-behavior: contain; }
 .pdf-selection-translation-text { white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
-.pdf-selection-translation-waiting {
-  display: flex; align-items: center; gap: 6px; min-height: 30px;
-  font-size: 12px; color: var(--muted-foreground);
-}
+.pdf-selection-translation-source { color: var(--muted-foreground); }
 .pdf-selection-translation-error { white-space: pre-wrap; font-size: 12px; color: var(--destructive); }
 .pdf-selection-translation-actions {
   display: flex; justify-content: flex-end; gap: 4px; flex: none;

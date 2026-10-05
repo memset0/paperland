@@ -3,6 +3,7 @@ import {
   createPdfSelectionSnapshot,
   decideOutsidePanelSelection,
   placeSelectionPanel,
+  selectPdfTranslationPanelText,
   StableSelectionIntent,
   type TimerAdapter,
 } from './pdf-selection-translation'
@@ -111,5 +112,14 @@ describe('PDF selection translation helpers', () => {
     expect(decideOutsidePanelSelection(active, null)).toBe('dismiss')
     expect(decideOutsidePanelSelection(active, active)).toBe('dismiss')
     expect(decideOutsidePanelSelection(active, snapshot(1, 6, 11, 'world').identity)).toBe('keep_for_replacement')
+  })
+
+  test('shows source for initial and retry waits, then follows stream and cache output', () => {
+    const source = 'hello, world'
+    expect(selectPdfTranslationPanelText(source, '')).toBe(source)
+    expect(selectPdfTranslationPanelText(source, '你好')).toBe('你好')
+    expect(selectPdfTranslationPanelText(source, '你好，世界')).toBe('你好，世界')
+    expect(selectPdfTranslationPanelText(source, '')).toBe(source)
+    expect(selectPdfTranslationPanelText(source, '缓存译文')).toBe('缓存译文')
   })
 })
