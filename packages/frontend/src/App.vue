@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watchEffect } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, Lightbulb, LogIn, CircleUser, CalendarDays, NotebookPen } from '@lucide/vue'
+import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, Lightbulb, LogIn, CircleUser, CalendarDays, NotebookPen, Sun, Moon, Monitor } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 import { onUnauthorized } from '@/lib/error-bus'
 import { Toaster } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,12 @@ const accountOpen = ref(false)
 const { isEmbed, bgColor } = useEmbedMode()
 const { openLogin } = useLoginPrompt()
 const auth = useAuthStore()
+
+// Theme switcher (light → dark → system). Initializing the store activates its
+// apply-to-<html> side effect and the live system-preference listener for the session.
+const theme = useThemeStore()
+const themeIcon = computed(() => (theme.mode === 'light' ? Sun : theme.mode === 'dark' ? Moon : Monitor))
+const themeLabel = computed(() => (theme.mode === 'light' ? 'Light' : theme.mode === 'dark' ? 'Dark' : 'System'))
 
 watchEffect(() => {
   if (bgColor.value) {
@@ -136,6 +143,16 @@ async function doLogout() {
           </Tooltip>
         </nav>
         <div class="flex flex-col items-center gap-1 pb-3">
+          <!-- Theme switcher: light → dark → system -->
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button variant="ghost" size="icon" aria-label="Toggle theme" @click="theme.cycle()">
+                <component :is="themeIcon" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Theme: {{ themeLabel }}</TooltipContent>
+          </Tooltip>
+
           <!-- Account menu / login -->
           <Tooltip v-if="!auth.isAuthenticated">
             <TooltipTrigger as-child>
@@ -211,6 +228,10 @@ async function doLogout() {
               </Button>
             </nav>
             <div class="border-t p-2 space-y-1">
+              <!-- Theme switcher: light → dark → system (keeps drawer open for repeat cycling) -->
+              <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="theme.cycle()">
+                <component :is="themeIcon" /> Theme: {{ themeLabel }}
+              </Button>
               <Button
                 v-if="!auth.isAuthenticated"
                 variant="ghost" size="lg" class="w-full justify-start gap-3"
