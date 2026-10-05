@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useQAStore } from '@/stores/qa'
-import { useAuthStore } from '@/stores/auth'
 import { MessageSquare, RefreshCw, ChevronLeft, ChevronRight } from '@lucide/vue'
 import QAFeedPanel from '@/components/QAFeedPanel.vue'
 import AppPage from '@/components/AppPage.vue'
@@ -10,7 +9,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 const qaStore = useQAStore()
-const auth = useAuthStore()
 const scrollEl = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
@@ -40,7 +38,7 @@ async function goToPage(page: number) {
   }
 }
 
-// Admin-only: switch between own entries and all users' entries, re-fetching from page 1.
+// Every authenticated viewer can switch between own and all users' entries.
 async function onScopeChange(scope: 'mine' | 'all') {
   if (qaStore.feedScope === scope) return
   qaStore.feedScope = scope
@@ -51,8 +49,7 @@ async function onScopeChange(scope: 'mine' | 'all') {
 <template>
   <AppPage fill>
     <template #actions>
-      <!-- Admin-only: scope toggle between own Q&A and every user's Q&A (server enforces admin). -->
-      <div v-if="auth.isAdmin" class="inline-flex rounded-md ring-1 ring-foreground/10 overflow-hidden mr-1">
+      <div class="inline-flex rounded-md ring-1 ring-foreground/10 overflow-hidden mr-1">
         <Button
           variant="ghost"
           size="sm"
