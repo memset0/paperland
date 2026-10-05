@@ -53,8 +53,8 @@ defineExpose({ selectByKey })
 </script>
 
 <template>
-  <div class="flex h-full">
-    <div class="w-[340px] shrink-0 border-r overflow-y-auto bg-background">
+  <div class="flex flex-col md:flex-row h-full">
+    <div class="w-full md:w-[340px] shrink-0 border-b md:border-b-0 md:border-r overflow-y-auto bg-background max-h-[45vh] md:max-h-none">
       <div v-if="ideas.length === 0" class="p-6 text-center text-sm text-muted-foreground">
         No ideas found
       </div>

@@ -254,4 +254,10 @@ function navigateTo(entry: { key: string }, index: number) {
   opacity: 1;
   font-weight: 500;
 }
+
+/* Scroll-spy rail is a desktop affordance; on phones it overlaps the article's
+   right edge (and its tap-expand covers the screen), so hide it. */
+@media (max-width: 767px) {
+  .qa-panel-nav { display: none; }
+}
 </style>
