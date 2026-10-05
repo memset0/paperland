@@ -4,7 +4,7 @@ import { useNotesStore } from '@/stores/notes'
 import { useAuthStore } from '@/stores/auth'
 import { Card } from '@/components/ui/card'
 import NoteMindmap from './notes/NoteMindmap.vue'
-import { NotebookPen } from '@lucide/vue'
+import { NotebookPen, ExternalLink } from '@lucide/vue'
 
 // Notes card: the single note document rendered as a heading-derived mind-map. The center node
 // is the paper (its preamble); editing happens in floating windows opened from nodes. The full
@@ -28,6 +28,14 @@ watch(() => props.paperId, (id) => load(id))
         <NotebookPen class="h-4 w-4" /> Notes
         <span v-if="auth.isAuthenticated" class="font-normal text-muted-foreground">({{ store.noteCount }})</span>
       </h3>
+      <button
+        v-if="auth.isAuthenticated"
+        class="p-1 rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+        title="Edit note in a floating window"
+        @click="store.openDocEditor()"
+      >
+        <ExternalLink class="h-3.5 w-3.5" />
+      </button>
     </div>
 
     <div v-if="!auth.isAuthenticated" class="px-5 py-8 text-center text-sm text-muted-foreground">

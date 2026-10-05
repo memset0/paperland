@@ -5,7 +5,8 @@ import { usePapersStore } from '@/stores/papers'
 import { useTagsStore } from '@/stores/tags'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
-import { Plus, Search, FileText, ChevronLeft, ChevronRight, ArrowUpDown, Tag, Loader2 } from '@lucide/vue'
+import { Plus, Search, FileText, ChevronLeft, ChevronRight, ArrowUpDown, Tag, Loader2, Circle, CircleCheck, CircleDashed } from '@lucide/vue'
+import { notesApi } from '@/api/client'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import CountCell from '@/components/CountCell.vue'
@@ -42,6 +43,23 @@ const adding = ref(false)
 const selectedTagIds = ref<number[]>([])
 const showTagFilter = ref(false)
 
+// Per-paper note status for the current user (presence = a non-empty note; value = completed).
+const noteDone = ref<Record<number, boolean>>({})
+async function loadNoteStatuses() {
+  if (!auth.isAuthenticated) { noteDone.value = {}; return }
+  try {
+    const res = await notesApi.listAll()
+    const map: Record<number, boolean> = {}
+    for (const n of res.data) map[n.paper_id] = n.completed
+    noteDone.value = map
+  } catch { noteDone.value = {} }
+}
+function noteState(id: number): 'none' | 'has' | 'done' {
+  if (!(id in noteDone.value)) return 'none'
+  return noteDone.value[id] ? 'done' : 'has'
+}
+function openNotes(id: number, e: Event) { e.stopPropagation(); router.push(`/papers/${id}?view=note`) }
+
 onMounted(() => {
   const tagsParam = route.query.tags as string
   if (tagsParam) {
@@ -49,6 +67,7 @@ onMounted(() => {
   }
   tagsStore.ensureLoaded()
   fetchWithFilters()
+  loadNoteStatuses()
 })
 
 function fetchWithFilters(page = 1) {
@@ -209,6 +228,7 @@ async function addPaper() {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead class="w-14 text-center">笔记</TableHead>
             <TableHead>标题</TableHead>
             <TableHead class="w-40 hidden md:table-cell">作者</TableHead>
             <TableHead class="w-32">来源</TableHead>
@@ -224,6 +244,17 @@ async function addPaper() {
             :class="paper.listed ? 'cursor-pointer' : 'opacity-70'"
             @click="onRowClick(paper)"
           >
+            <TableCell class="text-center">
+              <button
+                class="inline-flex items-center justify-center p-1 rounded hover:bg-muted"
+                :title="noteState(paper.id) === 'done' ? '精读完成 · 打开笔记' : noteState(paper.id) === 'has' ? '有笔记 · 打开笔记' : '暂无笔记 · 打开笔记'"
+                @click="openNotes(paper.id, $event)"
+              >
+                <CircleCheck v-if="noteState(paper.id) === 'done'" class="h-4 w-4 text-primary" />
+                <Circle v-else-if="noteState(paper.id) === 'has'" class="h-4 w-4 text-foreground" />
+                <CircleDashed v-else class="h-4 w-4 text-muted-foreground/40" />
+              </button>
+            </TableCell>
             <TableCell>
               <div class="flex items-center gap-2">
                 <div class="font-medium line-clamp-1">{{ paper.title }}</div>

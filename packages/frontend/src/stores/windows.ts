@@ -1,12 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-// A floating editor window edits ONE section's leaf content, identified by its section id
-// within the note document, or the document preamble when `sectionId` is null (the center node).
+// A floating editor window is either a SECTION window (edits one section's leaf content, keyed by
+// `sectionId`; null = the preamble/center node) or the single whole-DOCUMENT window for a paper
+// (`kind: 'doc'`, edits the entire note body). A doc window and section windows are mutually
+// exclusive per paper (see `open`).
 export interface NoteWindowTarget {
   paperId: number
-  sectionId: string | null // null = the preamble (center node)
+  sectionId: string | null // null = the preamble (center node); ignored for doc windows
   title: string
+  kind?: 'section' | 'doc' // defaults to 'section'
 }
 
 export interface NoteWindow extends NoteWindowTarget {
@@ -45,7 +48,7 @@ export const useWindowsStore = defineStore('note-windows', () => {
   let topZ = 100
 
   function keyFor(t: NoteWindowTarget): string {
-    return `${t.paperId}:${t.sectionId ?? 'preamble'}`
+    return t.kind === 'doc' ? `${t.paperId}:doc` : `${t.paperId}:${t.sectionId ?? 'preamble'}`
   }
 
   /** Open a window for a target, or focus it if already open. `at` seeds the position. */
@@ -55,6 +58,12 @@ export const useWindowsStore = defineStore('note-windows', () => {
     if (existing) {
       focus(key)
       return
+    }
+    // Mutual exclusion per paper: a doc window and section windows can't be open together.
+    if (target.kind === 'doc') {
+      windows.value = windows.value.filter((w) => !(w.paperId === target.paperId && w.kind !== 'doc'))
+    } else {
+      windows.value = windows.value.filter((w) => !(w.paperId === target.paperId && w.kind === 'doc'))
     }
     const { w, h } = lastSize.value
     const cascade = windows.value.length * 26
@@ -82,6 +91,11 @@ export const useWindowsStore = defineStore('note-windows', () => {
     windows.value = []
   }
 
+  /** Whether the whole-document window is open for a paper. */
+  function isDocOpen(paperId: number): boolean {
+    return windows.value.some((w) => w.paperId === paperId && w.kind === 'doc')
+  }
+
   /** Bring a window to the top of the stack (called on click / focus). */
   function focus(key: string) {
     const w = windows.value.find((x) => x.key === key)
@@ -103,5 +117,5 @@ export const useWindowsStore = defineStore('note-windows', () => {
     if (w) w.title = title
   }
 
-  return { windows, lastSize, open, close, closeForPaper, closeAll, focus, setGeometry, setTitle }
+  return { windows, lastSize, open, close, closeForPaper, closeAll, isDocOpen, focus, setGeometry, setTitle }
 })
