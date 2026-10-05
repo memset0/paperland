@@ -8,6 +8,7 @@ import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { onUnauthorized } from '@/lib/error-bus'
+import { configApi } from '@/api/client'
 import { Toaster } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -39,6 +40,23 @@ watchEffect(() => {
   if (bgColor.value) {
     document.documentElement.style.backgroundColor = bgColor.value
   }
+})
+
+// Note-image width tiers (the `w=sm|md|lg` alt-text directive) are configurable in config.yml.
+// Fetch once for authenticated users and publish them as CSS custom properties; anonymous /
+// public-note views fall back to the defaults baked into MarkdownContent's CSS.
+let tiersFetched = false
+watchEffect(() => {
+  if (!auth.isAuthenticated || tiersFetched) return
+  tiersFetched = true
+  configApi.notes().then((c) => {
+    const t = c?.image_width_tiers
+    if (!t) return
+    const root = document.documentElement.style
+    root.setProperty('--note-img-w-sm', `${t.sm}px`)
+    root.setProperty('--note-img-w-md', `${t.md}px`)
+    root.setProperty('--note-img-w-lg', `${t.lg}px`)
+  }).catch(() => { tiersFetched = false })
 })
 
 function onResize() { isMobile.value = window.innerWidth < 768 }

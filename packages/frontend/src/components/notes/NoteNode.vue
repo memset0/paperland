@@ -191,7 +191,7 @@ function onPointerCancel() {
   <div class="nn-node">
     <!-- Read-only content node (from a leading blockquote): text / image / formula, half-border. -->
     <div v-if="isContent" class="nn-box nn-content" :data-nid="node.id">
-      <MarkdownContent :content="node.content || ''" :paper-id="paperId" :disable-highlights="true" :public-note="readonly" class="nn-content-md" />
+      <MarkdownContent :content="node.content || ''" :paper-id="paperId" :disable-highlights="true" :public-note="readonly" :apply-image-width="false" class="nn-content-md" />
     </div>
 
     <!-- Heading / center node: tap to edit, drag to restructure, actions in a hover tooltip. -->
