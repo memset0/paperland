@@ -101,6 +101,7 @@ export const arxivMetadataService: PaperBoundServiceDef = {
   type: 'paper_bound',
   depends_on: ['arxiv_id'],
   produces: ['link'],
+  requires_listed: true, // metadata comes from S2 first; only hit arxiv once the paper is listed
 
   async execute(paperId: number, paper: any): Promise<Record<string, any>> {
     const arxivId = paper.arxiv_id
@@ -130,6 +131,7 @@ export const arxivPdfService: PaperBoundServiceDef = {
   type: 'paper_bound',
   depends_on: ['arxiv_id'],
   produces: ['pdf_path'],
+  requires_listed: true, // PDF download deferred until the paper is added to the library
 
   async execute(paperId: number, paper: any): Promise<Record<string, any>> {
     const arxivId = paper.arxiv_id

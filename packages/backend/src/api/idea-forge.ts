@@ -402,6 +402,8 @@ export async function ideaForgeRoutes(app: FastifyInstance): Promise<void> {
       } else {
         papers = db.select().from(schema.papers).all()
       }
+      // Metadata-only (listed=0) papers are not dumpable to idea-forge
+      papers = papers.filter((p: any) => p.listed !== 0)
 
       const papersDir = resolve(projectPath, 'papers')
       let dumpedCount = 0

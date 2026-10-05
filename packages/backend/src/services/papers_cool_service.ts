@@ -92,6 +92,7 @@ export const papersCoolService: PaperBoundServiceDef = {
   type: 'paper_bound',
   depends_on: ['arxiv_id'],
   produces: ['papers_cool_summary'],
+  requires_listed: true, // external scrape deferred until the paper is listed
 
   async execute(paperId: number, paper: any): Promise<Record<string, any>> {
     const arxivId = paper.arxiv_id

@@ -42,6 +42,7 @@ export const pdfParseService: PaperBoundServiceDef = {
   type: 'paper_bound',
   depends_on: ['pdf_path'],
   produces: ['contents.pdf_parsed'],
+  requires_listed: true, // depends on the (deferred) PDF; only relevant once listed
 
   async execute(paperId: number, paper: any): Promise<Record<string, any>> {
     const pdfPath = paper.pdf_path
