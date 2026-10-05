@@ -7,31 +7,56 @@ const props = defineProps<{
   arxivId?: string | null
 }>()
 
-const info = computed(() => {
-  if (!props.link) return null
-  try {
-    const url = new URL(props.link)
-    if (url.hostname.includes('arxiv.org') && props.arxivId) {
-      return { label: `arxiv:${props.arxivId}`, variant: 'destructive' as const }
-    }
-    return { label: url.hostname.replace(/^www\./, ''), variant: 'secondary' as const }
-  } catch {
-    return { label: props.link, variant: 'secondary' as const }
+type BadgeInfo = { label: string; href: string; variant: 'destructive' | 'secondary' }
+
+// The arXiv id is a first-class field on the paper — it must show whenever it's
+// set, regardless of `link` (conference-imported papers resolve an arxiv_id via
+// S2 but keep no arxiv URL in `papers.link`). A separate non-arxiv `link`
+// (project page, etc.) is shown alongside.
+const badges = computed<BadgeInfo[]>(() => {
+  const out: BadgeInfo[] = []
+  if (props.arxivId) {
+    out.push({
+      label: `arxiv:${props.arxivId}`,
+      href: `https://arxiv.org/abs/${props.arxivId}`,
+      variant: 'destructive',
+    })
   }
+  if (props.link) {
+    let host: string | null = null
+    try {
+      host = new URL(props.link).hostname.replace(/^www\./, '')
+    } catch {
+      host = null
+    }
+    const isArxiv = host?.includes('arxiv.org') ?? false
+    // Skip an arxiv.org link when we already rendered the arxiv id badge above.
+    if (!(isArxiv && props.arxivId)) {
+      out.push({
+        label: host ?? props.link,
+        href: props.link,
+        variant: isArxiv ? 'destructive' : 'secondary',
+      })
+    }
+  }
+  return out
 })
 </script>
 
 <template>
-  <Badge
-    v-if="info"
-    as="a"
-    :variant="info.variant"
-    :href="link!"
-    target="_blank"
-    rel="noopener"
-    @click.stop
-  >
-    {{ info.label }}
-  </Badge>
+  <template v-if="badges.length">
+    <Badge
+      v-for="(b, i) in badges"
+      :key="i"
+      as="a"
+      :variant="b.variant"
+      :href="b.href"
+      target="_blank"
+      rel="noopener"
+      @click.stop
+    >
+      {{ b.label }}
+    </Badge>
+  </template>
   <span v-else class="text-muted-foreground">-</span>
 </template>
