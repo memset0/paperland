@@ -19,6 +19,12 @@
 
 ## 项目结构
 
+### 生产运行
+
+从项目根目录执行 `bun run --filter '@paperland/frontend' build`，再运行 `bun run packages/backend/src/index.ts`。`frontend_hosting.ts` 使用已安装的 `@fastify/static`，在 `packages/frontend/dist/index.html` 存在时托管 Vue SPA；缺少构建产物时保留 API-only 启动。后端始终绑定 `127.0.0.1:3000`，Caddy 将 `paperland.dev.mem.ac` 反代到该端口，并以 `flush_interval -1` 透传 SSE。
+
+线上后端使用 systemd 的 `paperland.service`，`WorkingDirectory=/root/yulun/paperland`，支持自动重启和开机启动；模型所需环境变量保存在机器本地 `/etc/paperland/backend.env`（root-only，不入 Git）。更新构建后执行 `systemctl restart paperland`。开发使用 `bun run dev`，仍通过 Vite 5173 访问。静态入口 HTML 禁止长期缓存，带构建版本的 `/assets/` 使用一年 immutable 缓存。部署时先检查运行中的服务任务，再重启后端。
+
 ```
 paperland/
 ├── config.yml                      # 全站统一配置

@@ -6,6 +6,12 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 数据库使用 SQLite。全站配置统一在 `config.yml` 中管理。
 
+### 生产托管
+
+前端经 `bun run --filter '@paperland/frontend' build` 构建到 `packages/frontend/dist/`。后端启动时检测 `dist/index.html`，存在即通过 `frontend_hosting.ts` 挂载静态文件和 GET/HEAD 页面路由回退；刷新 `/papers/:id`、`/images` 等页面返回 SPA 入口。HTML 使用 `Cache-Control: no-cache`，`/assets/` 构建资源使用一年 immutable 缓存。未知 `/api`、`/external-api`、`/image` 路径以及缺失资源返回错误，不回退到 HTML。
+
+线上 `https://paperland.dev.mem.ac` 由 Caddy 转发到 `127.0.0.1:3000`，页面、API、图片共用入口；SSE 反代使用 `flush_interval -1`。后端由 `paperland.service` 运行，工作目录为项目根目录。开发仍使用根目录下的 `bun run dev` 和 Vite 5173；未构建前端时后端可独立提供 API。
+
 ## UI 技术栈
 
 - **框架**：Vue 3 + Vite，状态管理 Pinia，路由 vue-router

@@ -34,6 +34,7 @@ import { papersCoolService } from './services/papers_cool_service.js'
 import { ideaForgeRoutes } from './api/idea-forge.js'
 import { conferenceRoutes } from './api/conferences.js'
 import { ensureIdeaForgeRoot } from './idea-forge/utils.js'
+import { registerFrontendHosting } from './frontend_hosting.js'
 
 async function main() {
   // Load config
@@ -166,6 +167,10 @@ async function main() {
   // Register external API routes
   await app.register(externalPaperRoutes)
   await app.register(externalTagRoutes)
+
+  // Production frontend shares the API entry point; Vite remains the dev server.
+  const frontendMounted = await registerFrontendHosting(app)
+  app.log.info({ frontend_mounted: frontendMounted }, 'Frontend build hosting')
 
   // Start server
   const port = 3000

@@ -1,8 +1,5 @@
-# single-port-access Specification
+## MODIFIED Requirements
 
-## Purpose
-Provide a single browser and API entry point for Vite development and backend-hosted production deployments while keeping the backend bound to loopback behind the HTTPS reverse proxy.
-## Requirements
 ### Requirement: Single port access
 Frontend pages and API requests SHALL share one entry point in each deployment mode: port 5173 through Vite in development, or the loopback backend through an HTTPS reverse proxy in production.
 
@@ -22,12 +19,7 @@ Frontend pages and API requests SHALL share one entry point in each deployment m
 - **WHEN** the frontend production build is present and the user visits the production HTTPS hostname
 - **THEN** the same backend SHALL provide the built frontend, APIs, and image routes without a running Vite server
 
-### Requirement: Backend not externally accessible
-The backend SHALL listen on 127.0.0.1 only, not on 0.0.0.0.
-
-#### Scenario: Backend rejects external connections
-- **WHEN** an external client attempts to connect directly to port 3000
-- **THEN** the connection SHALL be refused
+## ADDED Requirements
 
 ### Requirement: Production frontend assets and navigation
 When the frontend build contains index.html, the backend SHALL serve the built frontend with correct file content types and SHALL serve index.html for GET or HEAD browser navigation paths. The entry HTML SHALL require revalidation and built assets SHALL support long-lived immutable caching.

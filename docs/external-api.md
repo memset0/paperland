@@ -4,6 +4,8 @@
 
 External API 是独立于前端 Internal API 的第三方接口，主要用于 Zotero 插件等外部服务与 Paperland 进行数据同步。
 
+生产入口为 `https://paperland.dev.mem.ac/external-api/v1`：Caddy 将整个站点转发到仅监听 `127.0.0.1:3000` 的后端，后端同时托管前端构建产物。开发入口仍经 Vite 5173 转发。此次托管调整不改变 Bearer Token 认证或接口契约；未知 External API 路径继续返回错误，不能落入前端 SPA 的 HTML 回退。
+
 文本翻译、PDF 稳定选区划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅登录用户会自动触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭、新稳定选区替换，以及等待首个译文时显示所选原文的 UI fallback，均是 Internal UI 生命周期/呈现行为，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
 
 ---
