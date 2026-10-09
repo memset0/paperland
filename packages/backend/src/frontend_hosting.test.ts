@@ -31,7 +31,7 @@ afterAll(async () => {
 
 describe('backend frontend hosting', () => {
   test('serves fresh entry HTML on root, index, and deep links', async () => {
-    for (const url of ['/', '/index.html', '/papers/1?view=note', '/images', '/idea-forge/project',
+    for (const url of ['/', '/index.html', '/papers/1?view=note', '/images', '/notes',
       '/open/arxiv/2401.12345?token=t', '/open/arxiv/hep-th/9901001v2?token=t']) {
       const response = await app.inject(url)
       expect(response.statusCode).toBe(200)

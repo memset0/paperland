@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, desc, isNotNull } from 'drizzle-orm'
+import { and, eq, desc, isNotNull, isNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { requireUser, requireAdmin } from '../auth/guards.js'
@@ -130,6 +130,33 @@ export async function serviceRoutes(app: FastifyInstance): Promise<void> {
       try { meta = p.metadata ? JSON.parse(p.metadata) : {} } catch {}
       // Needs (re)processing if enrichment OR the citation graph is missing.
       return meta.citation_count === undefined || !withGraph.has(p.id)
+    })
+
+    for (const p of eligible) {
+      serviceRunner.executeServiceForPaper('semantic_scholar_service', p.id).catch(() => {})
+    }
+
+    return { success: true, queued: eligible.length }
+  })
+
+  // One-time backfill for s2_pdf_service: corpus-only papers enriched before S2 stored
+  // `openAccessPdf` never captured `open_access_pdf_url`. Re-run semantic_scholar_service
+  // for them; the runner's live-key re-trigger then chains s2_pdf_service.
+  app.post('/api/services/backfill/s2_pdf_service', { preHandler: requireAdmin }, async () => {
+    const db = getDatabase()
+    const rows = db.select({ id: schema.papers.id, metadata: schema.papers.metadata })
+      .from(schema.papers)
+      .where(and(
+        isNull(schema.papers.arxiv_id),
+        isNotNull(schema.papers.corpus_id),
+        isNull(schema.papers.pdf_path),
+        eq(schema.papers.listed, 1),
+      ))
+      .all()
+    const eligible = rows.filter((p) => {
+      let meta: any = {}
+      try { meta = p.metadata ? JSON.parse(p.metadata) : {} } catch {}
+      return meta.open_access_pdf_status === undefined
     })
 
     for (const p of eligible) {

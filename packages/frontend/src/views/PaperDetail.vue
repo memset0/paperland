@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, computed, ref, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
+import { useDoc2xStore } from '@/stores/doc2x'
 import { useBlockAnchor } from '@/composables/useBlockAnchor'
 import { usePdfNavigation } from '@/composables/usePdfNavigation'
 import { usePublicNoteOpen } from '@/composables/usePublicNoteOpen'
@@ -21,11 +22,13 @@ import PaperViewerPanel from '@/components/PaperViewerPanel.vue'
 import QAList from '@/components/QAList.vue'
 import PaperNotesCard from '@/components/PaperNotesCard.vue'
 import ReferenceLinksSection from '@/components/ReferenceLinksSection.vue'
+import PaperFullTextCopy from '@/components/PaperFullTextCopy.vue'
 import PaperCitations from '@/components/PaperCitations.vue'
 import QAInput from '@/components/QAInput.vue'
 import BilingualText from '@/components/BilingualText.vue'
 import PaperActionLauncher, { type LauncherAction } from '@/components/PaperActionLauncher.vue'
 import { useQAWindow, QA_DEFAULT_HEIGHT } from '@/composables/useQAWindow'
+import { useQAComposer } from '@/composables/useQAComposer'
 import QAPanelNav from '@/components/QAPanelNav.vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useHighlightStore } from '@/stores/highlights'
@@ -42,10 +45,11 @@ const route = useRoute()
 const router = useRouter()
 const store = usePapersStore()
 const qaStore = useQAStore()
+const doc2xStore = useDoc2xStore()
 const highlightStore = useHighlightStore()
 const tagsStore = useTagsStore()
 const { isEmbed } = useEmbedMode()
-const { locateBlock } = useBlockAnchor()
+const { locateBlock, revealQAEntry } = useBlockAnchor()
 const { requestPdfNavigation } = usePdfNavigation()
 const { requestPublicNote } = usePublicNoteOpen()
 const auth = useAuthStore()
@@ -106,6 +110,7 @@ function toggleCollapse() {
 
 // ---- Paper-detail function launcher (top-right list / mobile FAB) + QA window ----
 const qaWin = useQAWindow()
+const composer = useQAComposer()
 
 /**
  * Open the "提问" panel with a default geometry computed fresh from the current
@@ -118,7 +123,10 @@ function openQA() {
     qaWin.open({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight })
     return
   }
+  // Leave room for the follow-up line / attachment chips when the draft has them.
   const height = QA_DEFAULT_HEIGHT
+    + (composer.followup.value ? 20 : 0)
+    + (composer.attachments.value.length ? 28 : 0)
   const m = 12 // small inset so the default panel sits a bit smaller within the area
   if (showSplitView.value) {
     // Double-column: bottom-left within the left (PDF) column (sticking to the
@@ -142,6 +150,11 @@ function openQA() {
     })
   }
 }
+
+// PDF "加入提问框", answer 追问, and #moonlight links ask for the question box.
+watch(composer.openRequests, () => {
+  if (!qaWin.isOpen.value) openQA()
+})
 
 // Ordered per the paper-detail function order (引用 → 笔记 → 提问); only 提问 today.
 const paperActions = computed<LauncherAction[]>(() => [
@@ -170,6 +183,27 @@ function handleAnchorFromRoute() {
   if (typeof note === 'string' && note) {
     const noteId = parseInt(note, 10)
     if (!Number.isNaN(noteId)) handleNoteDeepLink(noteId)
+    return
+  }
+  // A Q&A link (`?qa=<entry>[&result=]`) reveals that entry; it was already routed to the paper
+  // that actually owns the entry.
+  const qa = route.query.qa
+  if (typeof qa === 'string' && qa) {
+    const entryId = parseInt(qa, 10)
+    const result = typeof route.query.result === 'string' ? parseInt(route.query.result, 10) : null
+    if (!Number.isNaN(entryId)) {
+      revealQAEntry(entryId, result).then(() => {
+        // `followup=1` (from the /qa feed): open the question box continuing that answer.
+        if (route.query.followup !== '1' || result == null) return
+        const entries = [...Object.values(qaStore.qaData.template), ...qaStore.qaData.free]
+        const entry = entries.find((candidate) => candidate.entry_id === entryId)
+        const target = entry?.results.find((candidate) => candidate.id === result)
+        if (!entry || !target || target.status !== 'done') return
+        const title = ('prompt' in entry && typeof entry.prompt === 'string' && entry.prompt) || `QA-${entryId}`
+        const prefill = typeof route.query.fq === 'string' ? route.query.fq : undefined
+        void composer.startFollowup({ result_id: result, entry_id: entryId, title, model_name: target.model_name }, prefill)
+      })
+    }
     return
   }
   // PDF page/region anchor takes precedence and routes to the embedded viewer.
@@ -208,6 +242,7 @@ async function loadPaperData() {
   await store.fetchPaper(paperId.value)
   highlightStore.loadForPathname(route.path)
   qaStore.switchPaper(paperId.value)
+  doc2xStore.load(paperId.value) // doc2x parse/translate status (viewer tab + full-text copy)
   await qaStore.fetchQA(paperId.value, true)
 }
 
@@ -222,7 +257,7 @@ onMounted(async () => {
 
 // Anchor deep-links (`/papers/:id?h=`) and cross-paper anchor jumps. RouterView is not
 // keyed, so navigating paper→paper reuses this component — reload data on id change.
-watch(() => [route.params.id, route.query.note, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te, route.query.rx, route.query.ry, route.query.rw, route.query.rh], async (next, prev) => {
+watch(() => [route.params.id, route.query.qa, route.query.result, route.query.note, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te, route.query.rx, route.query.ry, route.query.rw, route.query.rh], async (next, prev) => {
   if (next[0] !== prev[0]) {
     qaWin.close() // don't carry an open QA window across papers
     await loadPaperData()
@@ -265,6 +300,7 @@ async function saveTags() {
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   qaStore.stopPolling()
+  doc2xStore.release()
   qaWin.close()
 })
 
@@ -427,7 +463,13 @@ async function promote() {
         class="shrink-0 overflow-hidden relative"
         :class="{ 'transition-[width] duration-300 ease-in-out': !dragging }"
       >
-        <PaperViewerPanel :pdf-path="store.currentPaper?.pdf_path || null" :arxiv-id="store.currentPaper?.arxiv_id || null" :paper-id="paperId" />
+        <PaperViewerPanel
+          :pdf-path="store.currentPaper?.pdf_path || null"
+          :arxiv-id="store.currentPaper?.arxiv_id || null"
+          :paper-id="paperId"
+          :pdf-status="store.currentPaper?.pdf_status"
+          :pdf-unavailable-reason="store.currentPaper?.pdf_unavailable_reason"
+        />
       </div>
 
       <div
@@ -547,6 +589,7 @@ async function promote() {
                   <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
                 </template>
               </div>
+              <PaperFullTextCopy :paper-id="paperId" />
               <ReferenceLinksSection :paper-id="paperId" />
               <div v-if="store.currentPaper.abstract" class="space-y-2">
                 <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
@@ -696,6 +739,7 @@ async function promote() {
                 <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
               </template>
             </div>
+            <PaperFullTextCopy :paper-id="paperId" />
             <ReferenceLinksSection :paper-id="paperId" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">
               <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>

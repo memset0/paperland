@@ -8,6 +8,12 @@ export interface PaperBoundServiceDef {
    * (`listed=0`) papers it is deferred until the paper is promoted to the library.
    */
   requires_listed?: boolean
+  /**
+   * Optional gate for automatic scheduling (initial trigger + post-completion re-check).
+   * When it returns false the service is skipped silently (no blocked/deferred record).
+   * Explicit `executeServiceForPaper` calls bypass it.
+   */
+  eligible?: (paper: any) => boolean
   execute: (paperId: number, paper: any) => Promise<Partial<Record<string, any>>>
 }
 

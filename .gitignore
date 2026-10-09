@@ -18,6 +18,6 @@ packages/backend/data/
 .env
 config.yml
 *.pdf
-data/idea-forge/*
-!data/idea-forge/demo-project/
+data/idea-forge/
 data/images/
+data/doc2x/

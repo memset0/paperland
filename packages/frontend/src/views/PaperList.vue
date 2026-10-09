@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useTagsStore } from '@/stores/tags'
@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { Plus, Search, FileText, ChevronLeft, ChevronRight, ArrowUpDown, Tag, Loader2, Circle, CircleCheck, CircleDashed } from '@lucide/vue'
 import { notesApi } from '@/api/client'
+import { parseS2Input } from '@/lib/s2-input'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import CountCell from '@/components/CountCell.vue'
@@ -37,7 +38,10 @@ const route = useRoute()
 const search = ref('')
 const showAdd = ref(false)
 const addTab = ref<'arxiv' | 'corpus' | 'manual'>('arxiv')
-const addForm = ref({ arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '', tags: [] as string[] })
+const addForm = ref({ arxiv_id: '', s2_input: '', title: '', authors: '', content: '', link: '', tags: [] as string[] })
+// Semantic Scholar tab: Corpus ID / S2 paper id / semanticscholar.org URL → routed field.
+const s2Parsed = computed(() => parseS2Input(addForm.value.s2_input))
+const s2Invalid = computed(() => addTab.value === 'corpus' && addForm.value.s2_input.trim() !== '' && !s2Parsed.value)
 const adding = ref(false)
 
 const selectedTagIds = ref<number[]>([])
@@ -139,11 +143,12 @@ function formatAuthors(a: string[]) {
 }
 
 async function addPaper() {
+  if (addTab.value === 'corpus' && !s2Parsed.value) return
   adding.value = true
   try {
     const data: any = {}
     if (addTab.value === 'arxiv') data.arxiv_id = addForm.value.arxiv_id
-    else if (addTab.value === 'corpus') data.corpus_id = addForm.value.corpus_id
+    else if (addTab.value === 'corpus') Object.assign(data, s2Parsed.value)
     else {
       data.title = addForm.value.title
       data.authors = addForm.value.authors.split(',').map(s => s.trim()).filter(Boolean)
@@ -153,7 +158,7 @@ async function addPaper() {
     }
     const result = await store.createPaper(data)
     showAdd.value = false
-    addForm.value = { arxiv_id: '', corpus_id: '', title: '', authors: '', content: '', link: '', tags: [] }
+    addForm.value = { arxiv_id: '', s2_input: '', title: '', authors: '', content: '', link: '', tags: [] }
     tagsStore.refreshCache()
     store.fetchPapers()
     if (result.id) router.push(`/papers/${result.id}`)
@@ -318,14 +323,16 @@ async function addPaper() {
         <Tabs v-model="addTab">
           <TabsList class="grid grid-cols-3 w-full">
             <TabsTrigger value="arxiv">arXiv ID</TabsTrigger>
-            <TabsTrigger value="corpus">Corpus ID</TabsTrigger>
+            <TabsTrigger value="corpus">Semantic Scholar</TabsTrigger>
             <TabsTrigger value="manual">手动输入</TabsTrigger>
           </TabsList>
           <TabsContent value="arxiv">
             <Input v-model="addForm.arxiv_id" placeholder="例: 1706.03762" />
           </TabsContent>
-          <TabsContent value="corpus">
-            <Input v-model="addForm.corpus_id" placeholder="例: 123456789" />
+          <TabsContent value="corpus" class="space-y-1.5">
+            <Input v-model="addForm.s2_input" placeholder="Corpus ID / S2 paper ID / semanticscholar.org 链接" />
+            <p v-if="s2Invalid" class="text-xs text-destructive">无法识别：请输入 Corpus ID、40 位 S2 paper ID 或 Semantic Scholar 论文链接</p>
+            <p v-else class="text-xs text-muted-foreground">例: 13756489、CorpusId:13756489、204e3073…b72e776 或论文页面链接</p>
           </TabsContent>
           <TabsContent value="manual" class="space-y-3">
             <Input v-model="addForm.title" placeholder="标题" />
@@ -337,7 +344,7 @@ async function addPaper() {
         </Tabs>
         <DialogFooter>
           <Button variant="ghost" @click="showAdd = false">取消</Button>
-          <Button :disabled="adding" @click="addPaper">
+          <Button :disabled="adding || (addTab === 'corpus' && !s2Parsed)" @click="addPaper">
             {{ adding ? '添加中...' : '添加' }}
           </Button>
         </DialogFooter>

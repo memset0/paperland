@@ -46,14 +46,15 @@ Base URL: `/external-api/v1`
 
 #### POST /papers
 
-创建论文条目。如果论文已存在（通过 arxiv_id 或 corpus_id 匹配），则绑定到已有记录并补充缺失信息。
+创建论文条目。如果论文已存在（依次按 arxiv_id → corpus_id → s2_paper_id 匹配），则绑定到已有记录并补充缺失的 ID。
 
 **Request Body:**
 
 ```json
 {
   "arxiv_id": "2401.12345",       // 可选
-  "corpus_id": "123456789",       // 可选
+  "corpus_id": "123456789",       // 可选，也接受 "CorpusId:123456789" 或 S2 链接
+  "s2_paper_id": "204e3073870fae3d05bcbc2f6a8e263d9b72e776",  // 可选，40 位十六进制 S2 paperId，也接受 semanticscholar.org 论文链接
   "title": "Paper Title",         // 可选，手动创建时必填
   "authors": ["Author A", "Author B"],  // 可选
   "link": "https://example.com/paper",  // 可选，论文来源链接
@@ -61,7 +62,9 @@ Base URL: `/external-api/v1`
 }
 ```
 
-- `arxiv_id` 和 `corpus_id` 至少提供一个，或提供 `title` 进行手动创建
+- `arxiv_id`、`corpus_id`、`s2_paper_id` 至少提供一个，或提供 `title` 进行手动创建
+- S2 标识会在服务端规范化：`s2_paper_id` 转小写并校验为 40 位十六进制；`corpus_id` 接受纯数字或 `CorpusId:<n>`；任一字段传入 semanticscholar.org 链接（`/paper/[<slug>/]<paperId>` 或 `/CorpusID:<n>`）都会被解析到对应字段。无法识别 → `422 VALIDATION_ERROR`
+- 仅凭 `s2_paper_id` 创建的论文由 `semantic_scholar_service` 直接用 paperId 查询 S2，异步补全 `corpus_id` / `arxiv_id` 与引用富化
 - 创建/绑定成功后自动触发对应的 fetch services
 
 **Response:**
@@ -126,7 +129,7 @@ Base URL: `/external-api/v1`
 
 #### DELETE /papers/:id
 
-彻底删除论文及所有关联数据。在单个事务中级联删除：qa_results → qa_entries → service_executions → paper_tags → highlights → paper。
+彻底删除论文及所有关联数据。在单个事务中级联删除：qa_result_cites → qa_results（含已软删除的回答）→ qa_entries → service_executions → paper_tags → highlights → paper。
 
 **Response:**
 
@@ -139,7 +142,7 @@ Base URL: `/external-api/v1`
 
 删除后 ID 不复用。论文不存在时返回 `404`。
 
-#### GET /papers?arxiv_id=xxx 或 GET /papers?corpus_id=xxx
+#### GET /papers?arxiv_id=xxx / ?corpus_id=xxx / ?s2_paper_id=xxx
 
 按外部 ID 查询论文。
 
@@ -163,15 +166,16 @@ Base URL: `/external-api/v1`
 
 获取论文所有信息（包括 Q&A、Service 执行历史）。同步接口，开启 `auto_create` 或 `auto_template_qa` 时会等待所有操作完成后再返回（长 timeout）。
 
-**查询方式（三选一）：**
+**查询方式（四选一）：**
 
 | 参数 | 说明 |
 |------|------|
 | `?id=42` | 按内部 ID 查询 |
 | `?arxiv_id=2401.12345` | 按 arXiv ID 查询 |
 | `?corpus_id=123456789` | 按 corpus ID 查询 |
+| `?s2_paper_id=204e30…` | 按 S2 paperId 查询（同样接受 S2 链接） |
 
-**可选参数（仅 arxiv_id / corpus_id 查询时生效）：**
+**可选参数（仅 arxiv_id / corpus_id / s2_paper_id 查询时生效）：**
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
@@ -180,7 +184,7 @@ Base URL: `/external-api/v1`
 | `exclude` | (无) | 排除指定字段，逗号分隔。如 `exclude=contents,services` |
 
 **注意事项：**
-- `auto_create=true` 时按所提供的 arxiv_id / corpus_id 创建并触发抓取。`semantic_scholar_service` 现在是**双向**的：带 arxiv_id 的论文会查 `ARXIV:{id}` 补全 corpus_id 与引用富化，**仅凭 corpus_id 创建的论文也会查 `CORPUSID:{id}` 反查 arxiv_id 并做同样的富化**（若该论文确实存在 arXiv 版本）；解析出 arxiv_id 后，arxiv 元数据/PDF 抓取会经依赖图自动衔接
+- `auto_create=true` 时按所提供的 arxiv_id / corpus_id / s2_paper_id 创建并触发抓取。`semantic_scholar_service` 现在是**双向**的：带 arxiv_id 的论文会查 `ARXIV:{id}` 补全 corpus_id 与引用富化，**仅凭 corpus_id 创建的论文也会查 `CORPUSID:{id}` 反查 arxiv_id 并做同样的富化**（若该论文确实存在 arXiv 版本）；解析出 arxiv_id 后，arxiv 元数据/PDF 抓取会经依赖图自动衔接。若 S2 记录**没有** arXiv 版本，但提供了开放获取 PDF（`metadata.open_access_pdf_url`），`s2_pdf_service` 会下载该 PDF 并写入 `pdf_path`，后续解析服务照常衔接；闭源论文（`metadata.open_access_pdf_status` = `CLOSED`、无 url）不会有 `pdf_path`，`services` 中 `s2_pdf_service` 显示为 `blocked`。这类论文需由用户在站内论文详情页左侧「需要上传 PDF」面板手动上传（站内接口 `POST /api/papers/:id/pdf`，External API 不提供上传）；上传后 `pdf_path` 出现、解析服务自动衔接
 - `auto_template_qa=true` 时，仅执行缺少 done Result 的模板提问（只有 failed/cancelled 历史仍可重试），每次调用仍通过统一 QA ServiceRunner，并等待新 Result 终态后返回
 - 模板提问会在调用模型前把 `config.yml` 中当时最新的问题文本持久化到 QA Entry；首次调用失败也不会丢失问题，之后重跑仍会重新读取配置中的最新文本
 - Internal UI 的 User Q&A `mine|all`、九种个人背景色（gray/brown/orange/yellow/green/blue/purple/pink/red）和 viewer-private 高亮/笔记引用计数不会改变 External API 的鉴权或查询范围。背景色仍是站内 preference，不新增 External API 字段；`qa.results[]` 可能附带内部稳定 `content_hash`，用于站内阅读标记，外部客户端无需依赖该字段
@@ -188,6 +192,7 @@ Base URL: `/external-api/v1`
 - 新生成 Result 的 `execution_id` 现在精确指向本次 ServiceRunner execution；字段名称和 External API 响应形状不变，历史歧义关联不自动重写
 - QA 的 `queued/awaiting_output/streaming/failed/cancelled`、局部 answer、Thinking 时间、Internal SSE 与 cancel API 均属于站内运行态；`/papers/full` 的 `qa.results[]` 只返回 `status=done` 的完成回答，并显式裁剪新增内部字段，因此现有 External API shape 不变
 - 本机交互式 Codex QA 模型迁移到 `stream:true` app-server 及其英文流式状态提示仅影响 Internal UI/Service 执行方式；Bearer External API 的 endpoint、鉴权和完成回答 shape 均不改变
+- 上下文提问（PDF 选段/截图提问、追问、system prompt 文件化、`#cite:` 引用）只属于 Internal API/UI，External API 不新增字段：`/papers/full` 的 QA 条目不返回 `instruction`/`inputs`/`parent_entry_id`。站内删除回答改为软删除，已软删除的回答不会出现在 `qa.results[]` 中；`qa.results[]` 改为按提问时间（`created_at`，再按 id）倒序。模板提问与站内一致，使用 `prompts/system/` 下的 system prompt 文件和新的 user 消息结构
 - 该接口设有较长 timeout，等待所有抓取和提问完成后返回完整数据
 
 **Response:**
@@ -203,7 +208,8 @@ Base URL: `/external-api/v1`
     "abstract": "The dominant sequence transduction models...",
     "contents": {
       "user_input": null,
-      "pdf_parsed": "We propose a new simple network architecture..."
+      "pdf_parsed": "We propose a new simple network architecture...",
+      "doc2x_parsed": "# Attention Is All You Need\n\n..."   // doc2x 精确解析 Markdown（启用 doc2x 且解析完成后才有）
     },
     "pdf_path": "/data/pdfs/2401.12345.pdf",
     "metadata": {
@@ -306,6 +312,8 @@ Base URL: `/external-api/v1`
 
 排除 `contents` 和 `services` 字段，减小响应体积。可排除的字段：`contents`, `qa`, `services`, `metadata`。
 
+> **doc2x**：External API 端点本身不变。启用 doc2x 后，`contents` 可能多出 `doc2x_parsed`，`metadata` 可能多出 `doc2x_translation`（对照/仅译文 PDF 路径），`services` 中可能出现 `doc2x_parse` / `doc2x_translate` 执行记录；Q&A 文本按 `content_priority`（默认 `user_input > doc2x_parsed > pdf_parsed`）选择。doc2x 的触发与状态查询只走内部 API（`GET /api/papers/:id/doc2x`、`POST /api/papers/:id/doc2x/parse`、`POST /api/papers/:id/doc2x/translate`，会话登录），不对 Bearer Token 开放。
+
 ---
 
 ### 标签相关
@@ -378,7 +386,8 @@ Base URL: `/external-api/v1`
       "corpus_id": "987654321",
       "link": "https://example.com/paper",
       "tags": ["tag2", "tag3"]
-    }
+    },
+    { "s2_paper_id": "204e3073870fae3d05bcbc2f6a8e263d9b72e776" }
   ]
 }
 ```
@@ -389,9 +398,15 @@ Base URL: `/external-api/v1`
 {
   "results": [
     { "id": 42, "arxiv_id": "2401.12345", "created": true },
-    { "id": 18, "corpus_id": "987654321", "created": false }
+    { "id": 18, "corpus_id": "987654321", "s2_paper_id": null, "created": false },
+    { "id": 19, "s2_paper_id": "204e3073870fae3d05bcbc2f6a8e263d9b72e776", "created": true }
   ]
 }
+```
+
+- 每条结果附带 `arxiv_id` / `corpus_id` / `s2_paper_id`；某条的 S2 标识无法识别时，该条返回 `{ "created": false, "error": { "code": "VALIDATION_ERROR", ... } }`，不影响其他条目
+
+```
 ```
 
 ---
@@ -431,7 +446,7 @@ Zotero 插件侧边栏面板
 |-------------|---------------|------|
 | arXiv ID (从 URL/extra 提取) | arxiv_id | 主要匹配方式 |
 | DOI | — | 可通过 DOI 反查 arxiv_id 或 corpus_id（**TBD**） |
-| Semantic Scholar URL | corpus_id | 备用匹配方式 |
+| Semantic Scholar URL | s2_paper_id / corpus_id | 备用匹配方式（链接可直接作为 `s2_paper_id` 传入） |
 
 ---
 

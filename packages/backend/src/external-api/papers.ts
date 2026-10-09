@@ -1,8 +1,11 @@
-import type { FastifyInstance } from 'fastify'
-import { eq, and, desc, like, inArray } from 'drizzle-orm'
+import type { FastifyInstance, FastifyReply } from 'fastify'
+import { eq, and, desc, like, inArray, isNull } from 'drizzle-orm'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
-import { withDedup, getDedupKey } from '../services/paper_dedup.js'
+import { withDedup } from '../services/paper_dedup.js'
+import { findExistingPaperByIds, paperDedupKey } from '../services/ingest_paper.js'
+import { normalizeS2Ids, S2IdError, type S2Ids } from '../utils/s2_ids.js'
 import { serviceRunner } from '../services/service_runner.js'
+import { removeDoc2xArtifacts } from '../services/doc2x_cli.js'
 import { resolveContent } from '../services/qa_service.js'
 import { loadTemplates } from '../services/template_loader.js'
 import { getConfig } from '../config.js'
@@ -49,6 +52,19 @@ export function serializeExternalQAResult(result: typeof schema.qaResults.$infer
   }
 }
 
+/** Normalize corpus_id / s2_paper_id (ids, `CorpusId:<n>`, or S2 URLs); sends 422 and returns null when invalid. */
+function parseS2IdsOr422(input: { corpus_id?: unknown; s2_paper_id?: unknown }, reply: FastifyReply): S2Ids | null {
+  try {
+    return normalizeS2Ids(input)
+  } catch (e) {
+    if (e instanceof S2IdError) {
+      reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: e.message } })
+      return null
+    }
+    throw e
+  }
+}
+
 // The token user's tags for a paper (External API acts as the token's owning user).
 function getTags(db: any, paperId: number, userId: number | null): string[] {
   return userTagsForPaper(db, paperId, userId).map((t) => t.name)
@@ -56,38 +72,32 @@ function getTags(db: any, paperId: number, userId: number | null): string[] {
 
 export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
   // Create paper
-  app.post<{ Body: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; link?: string; tags?: string[] } }>(
+  app.post<{ Body: { arxiv_id?: string; corpus_id?: string; s2_paper_id?: string; title?: string; authors?: string[]; link?: string; tags?: string[] } }>(
     '/external-api/v1/papers',
     async (request, reply) => {
       const db = getDatabase()
-      const { arxiv_id, corpus_id, title, authors, link, tags: tagNames } = request.body || {}
+      const { arxiv_id, title, authors, link, tags: tagNames } = request.body || {}
+      const s2Ids = parseS2IdsOr422(request.body || {}, reply)
+      if (!s2Ids) return
+      const { corpus_id, s2_paper_id } = s2Ids
 
-      if (!arxiv_id && !corpus_id && !title) {
-        reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Must provide arxiv_id, corpus_id, or title' } })
+      if (!arxiv_id && !corpus_id && !s2_paper_id && !title) {
+        reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Must provide arxiv_id, corpus_id, s2_paper_id, or title' } })
         return
       }
 
-      const dedupKey = arxiv_id ? getDedupKey('arxiv', arxiv_id) : corpus_id ? getDedupKey('corpus', corpus_id) : null
+      const dedupKey = paperDedupKey({ arxiv_id, corpus_id, s2_paper_id })
 
       const createFn = async () => {
-        if (arxiv_id) {
-          const existing = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, arxiv_id)).get()
-          if (existing) {
-            if (corpus_id && !existing.corpus_id) db.update(schema.papers).set({ corpus_id }).where(eq(schema.papers.id, existing.id)).run()
-            return { ...parsePaper(existing), tags: getTags(db, existing.id, request.user?.id ?? null), created: false }
-          }
-        }
-        if (corpus_id) {
-          const existing = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, corpus_id)).get()
-          if (existing) {
-            if (arxiv_id && !existing.arxiv_id) db.update(schema.papers).set({ arxiv_id }).where(eq(schema.papers.id, existing.id)).run()
-            return { ...parsePaper(existing), tags: getTags(db, existing.id, request.user?.id ?? null), created: false }
-          }
+        const existing = findExistingPaperByIds(db, { arxiv_id, corpus_id, s2_paper_id })
+        if (existing) {
+          const refetched = db.select().from(schema.papers).where(eq(schema.papers.id, existing.id)).get()!
+          return { ...parsePaper(refetched), tags: getTags(db, existing.id, request.user?.id ?? null), created: false }
         }
 
         const now = new Date().toISOString()
         const paper = db.insert(schema.papers).values({
-          arxiv_id: arxiv_id || null, corpus_id: corpus_id || null,
+          arxiv_id: arxiv_id || null, corpus_id: corpus_id || null, s2_paper_id: s2_paper_id || null,
           title: title || 'Untitled', authors: JSON.stringify(authors || []), link: link || null, created_at: now, updated_at: now,
         }).returning().get()
 
@@ -184,6 +194,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
           db.update(schema.highlights).set({ qa_result_id: null })
             .where(inArray(schema.highlights.qa_result_id, resultIds)).run()
         }
+        db.delete(schema.qaResultCites).where(eq(schema.qaResultCites.paper_id, id)).run()
         db.delete(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, entryIds)).run()
       }
       db.delete(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).run()
@@ -196,6 +207,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
       db.delete(schema.papers).where(eq(schema.papers.id, id)).run()
     })
     tx()
+    removeDoc2xArtifacts(id)
 
     return { success: true, deleted_id: id }
   })
@@ -210,38 +222,46 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Search paper by external ID
-  app.get<{ Querystring: { arxiv_id?: string; corpus_id?: string } }>('/external-api/v1/papers', async (request, reply) => {
+  app.get<{ Querystring: { arxiv_id?: string; corpus_id?: string; s2_paper_id?: string } }>('/external-api/v1/papers', async (request, reply) => {
     const db = getDatabase()
-    const { arxiv_id, corpus_id } = request.query
+    const { arxiv_id } = request.query
+    const s2Ids = parseS2IdsOr422(request.query, reply)
+    if (!s2Ids) return
+    const { corpus_id, s2_paper_id } = s2Ids
     let paper = null
     if (arxiv_id) paper = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, arxiv_id)).get()
     else if (corpus_id) paper = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, corpus_id)).get()
-    else { reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Provide arxiv_id or corpus_id' } }); return }
+    else if (s2_paper_id) paper = db.select().from(schema.papers).where(eq(schema.papers.s2_paper_id, s2_paper_id)).get()
+    else { reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Provide arxiv_id, corpus_id, or s2_paper_id' } }); return }
 
     if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
     return { paper: { ...parsePaper(paper), tags: getTags(db, paper.id, request.user?.id ?? null) } }
   })
 
   // Full paper info
-  app.get<{ Querystring: { id?: string; arxiv_id?: string; corpus_id?: string; auto_create?: string; auto_template_qa?: string; exclude?: string } }>(
+  app.get<{ Querystring: { id?: string; arxiv_id?: string; corpus_id?: string; s2_paper_id?: string; auto_create?: string; auto_template_qa?: string; exclude?: string } }>(
     '/external-api/v1/papers/full',
     async (request, reply) => {
       const db = getDatabase()
-      const { id, arxiv_id, corpus_id, auto_create, auto_template_qa, exclude } = request.query
+      const { id, arxiv_id, auto_create, auto_template_qa, exclude } = request.query
       const excludeFields = (exclude || '').split(',').filter(Boolean)
+      const s2Ids = parseS2IdsOr422(request.query, reply)
+      if (!s2Ids) return
+      const { corpus_id, s2_paper_id } = s2Ids
 
       // Find paper
       let paper = null
       if (id) paper = db.select().from(schema.papers).where(eq(schema.papers.id, parseInt(id, 10))).get()
       else if (arxiv_id) paper = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, arxiv_id)).get()
       else if (corpus_id) paper = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, corpus_id)).get()
-      else { reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Provide id, arxiv_id, or corpus_id' } }); return }
+      else if (s2_paper_id) paper = db.select().from(schema.papers).where(eq(schema.papers.s2_paper_id, s2_paper_id)).get()
+      else { reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Provide id, arxiv_id, corpus_id, or s2_paper_id' } }); return }
 
       // Auto-create if not found
-      if (!paper && auto_create === 'true' && (arxiv_id || corpus_id)) {
+      if (!paper && auto_create === 'true' && (arxiv_id || corpus_id || s2_paper_id)) {
         const now = new Date().toISOString()
         paper = db.insert(schema.papers).values({
-          arxiv_id: arxiv_id || null, corpus_id: corpus_id || null,
+          arxiv_id: arxiv_id || null, corpus_id: corpus_id || null, s2_paper_id: s2_paper_id || null,
           title: 'Untitled', authors: '[]', created_at: now, updated_at: now,
         }).returning().get()
 
@@ -268,7 +288,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
               .find((e) => e.type === 'template' && e.template_name === tmpl.name)
             if (existing) {
               const completed = db.select({ id: schema.qaResults.id }).from(schema.qaResults)
-                .where(and(eq(schema.qaResults.qa_entry_id, existing.id), eq(schema.qaResults.status, 'done')))
+                .where(and(eq(schema.qaResults.qa_entry_id, existing.id), eq(schema.qaResults.status, 'done'), isNull(schema.qaResults.deleted_at)))
                 .get()
               if (completed) continue
             }
@@ -308,8 +328,8 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         const freeQA: any[] = []
         for (const entry of entries) {
           const results = db.select().from(schema.qaResults)
-            .where(and(eq(schema.qaResults.qa_entry_id, entry.id), eq(schema.qaResults.status, 'done')))
-            .orderBy(desc(schema.qaResults.completed_at)).all()
+            .where(and(eq(schema.qaResults.qa_entry_id, entry.id), eq(schema.qaResults.status, 'done'), isNull(schema.qaResults.deleted_at)))
+            .orderBy(desc(schema.qaResults.created_at), desc(schema.qaResults.id)).all()
             .map(serializeExternalQAResult)
           if (entry.type === 'template' && entry.template_name) {
             templateQA[entry.template_name] = { entry_id: entry.id, results }
@@ -332,27 +352,30 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
   )
 
   // Batch create papers
-  app.post<{ Body: { papers: Array<{ arxiv_id?: string; corpus_id?: string; link?: string; tags?: string[] }> } }>(
+  app.post<{ Body: { papers: Array<{ arxiv_id?: string; corpus_id?: string; s2_paper_id?: string; link?: string; tags?: string[] }> } }>(
     '/external-api/v1/papers/batch',
     async (request) => {
       const { papers: paperDefs } = request.body || { papers: [] }
       const results = []
       for (const def of paperDefs) {
         const db = getDatabase()
-        const dedupKey = def.arxiv_id ? getDedupKey('arxiv', def.arxiv_id) : def.corpus_id ? getDedupKey('corpus', def.corpus_id) : null
+        let s2Ids: S2Ids
+        try {
+          s2Ids = normalizeS2Ids(def)
+        } catch (e) {
+          if (!(e instanceof S2IdError)) throw e
+          results.push({ created: false, error: { code: 'VALIDATION_ERROR', message: e.message } })
+          continue
+        }
+        const ids = { arxiv_id: def.arxiv_id, ...s2Ids }
+        const dedupKey = paperDedupKey(ids)
 
         const createFn = async () => {
-          if (def.arxiv_id) {
-            const existing = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, def.arxiv_id)).get()
-            if (existing) return { id: existing.id, arxiv_id: existing.arxiv_id, created: false }
-          }
-          if (def.corpus_id) {
-            const existing = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, def.corpus_id)).get()
-            if (existing) return { id: existing.id, corpus_id: existing.corpus_id, created: false }
-          }
+          const existing = findExistingPaperByIds(db, ids)
+          if (existing) return { id: existing.id, arxiv_id: existing.arxiv_id, corpus_id: existing.corpus_id, s2_paper_id: existing.s2_paper_id, created: false }
           const now = new Date().toISOString()
           const paper = db.insert(schema.papers).values({
-            arxiv_id: def.arxiv_id || null, corpus_id: def.corpus_id || null,
+            arxiv_id: def.arxiv_id || null, corpus_id: ids.corpus_id || null, s2_paper_id: ids.s2_paper_id || null,
             title: 'Untitled', authors: '[]', link: def.link || null, created_at: now, updated_at: now,
           }).returning().get()
 
@@ -365,7 +388,7 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
           }
 
           serviceRunner.triggerForPaper(paper.id).catch(() => {})
-          return { id: paper.id, arxiv_id: paper.arxiv_id, corpus_id: paper.corpus_id, created: true }
+          return { id: paper.id, arxiv_id: paper.arxiv_id, corpus_id: paper.corpus_id, s2_paper_id: paper.s2_paper_id, created: true }
         }
 
         results.push(dedupKey ? await withDedup(dedupKey, createFn) : await createFn())

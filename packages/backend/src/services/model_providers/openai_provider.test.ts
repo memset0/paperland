@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { ModelConfig } from '@paperland/shared'
-import { openAIProvider, SSEDataParser } from './openai_provider.js'
+import { chatMessages, openAIProvider, SSEDataParser } from './openai_provider.js'
 
 const config: ModelConfig = {
   name: 'stream-model',
@@ -69,5 +69,25 @@ describe('OpenAIProvider streaming', () => {
     const controller = new AbortController()
     controller.abort()
     await expect(openAIProvider.invoke('translate', config, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
+
+describe('chatMessages', () => {
+  test('sends a real system message and keeps text-only user content as a string', () => {
+    expect(chatMessages({ system: 'rules', user: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] })).toEqual([
+      { role: 'system', content: 'rules' },
+      { role: 'user', content: 'a\n\nb' },
+    ])
+  })
+
+  test('embeds local images as base64 data URLs in order', () => {
+    const dir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'paperland-openai-img-'))
+    const file = require('path').join(dir, 'x.png')
+    require('fs').writeFileSync(file, Buffer.from([1, 2, 3]))
+    const messages = chatMessages({ user: [{ type: 'text', text: 'see' }, { type: 'image', path: file, mime: 'image/png' }] })
+    expect(messages).toEqual([{ role: 'user', content: [
+      { type: 'text', text: 'see' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } },
+    ] }])
   })
 })

@@ -6,7 +6,7 @@ interface DedupEntry {
 
 const initializingPapers = new Map<string, DedupEntry>()
 
-export function getDedupKey(type: 'arxiv' | 'corpus', id: string): string {
+export function getDedupKey(type: 'arxiv' | 'corpus' | 's2', id: string): string {
   return `${type}:${id}`
 }
 

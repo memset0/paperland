@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, Tag, Lightbulb, CalendarDays, NotebookPen, Image as ImageIcon, Languages, Puzzle } from '@lucide/vue'
+import { FileText, MessageSquare, Activity, Settings, Tag, CalendarDays, NotebookPen, Image as ImageIcon, Languages, Puzzle } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
@@ -88,19 +88,6 @@ const routes = [
     component: () => import('@/views/ConferenceDetail.vue'),
     meta: { title: 'Conference Detail', icon: CalendarDays },
   },
-  {
-    path: '/idea-forge',
-    name: 'idea-forge',
-    component: () => import('@/views/idea-forge/ProjectList.vue'),
-    meta: { requiresAuth: true, title: 'Idea Forge', icon: Lightbulb },
-  },
-  {
-    path: '/idea-forge/:projectName',
-    name: 'idea-forge-project',
-    component: () => import('@/views/idea-forge/IdeaManager.vue'),
-    // Placeholder until projects load; IdeaManager overrides with the project name.
-    meta: { requiresAuth: true, title: 'Idea Forge' },
-  },
 ]
 
 export const router = createRouter({
@@ -129,7 +116,7 @@ router.beforeEach(async (to) => {
 })
 
 // Keep the browser tab title in sync with the page. Runs synchronously on every
-// confirmed navigation; dynamic pages (paper detail, idea-forge project) then
+// confirmed navigation; dynamic pages (e.g. paper detail) then
 // refine the title in-view via usePageTitle once their data resolves.
 router.afterEach((to) => {
   document.title = formatTitle(to.meta.title as string | undefined)

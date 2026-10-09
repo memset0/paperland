@@ -26,9 +26,6 @@ models:
   available:
 ${models}
 content_priority: [user_input, pdf_parsed]
-system_prompt: |
-  Question: {PROMPT}
-  Paper: {PAPER}
 qa:
   - name: summary
     prompt: Summarize it.
@@ -102,10 +99,15 @@ describe('model invocation compatibility baseline', () => {
     sqlite.exec(`
       CREATE TABLE papers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        arxiv_id TEXT, corpus_id TEXT, title TEXT NOT NULL, authors TEXT NOT NULL,
+        arxiv_id TEXT, corpus_id TEXT, s2_paper_id TEXT, title TEXT NOT NULL, authors TEXT NOT NULL,
         abstract TEXT, contents TEXT, pdf_path TEXT, metadata TEXT, link TEXT,
         tags_json TEXT, listed INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE paper_citations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, paper_id INTEGER NOT NULL, direction TEXT NOT NULL,
+        s2_paper_id TEXT, corpus_id TEXT, arxiv_id TEXT, doi TEXT, title TEXT, authors TEXT, year INTEGER,
+        venue TEXT, url TEXT, contexts TEXT, intents TEXT, is_influential INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
       );
       INSERT INTO papers (id, title, authors, contents, created_at, updated_at)
       VALUES (1, 'Baseline', '[]', '{"user_input":"Paper body"}', 'now', 'now');
@@ -150,10 +152,15 @@ describe('model invocation compatibility baseline', () => {
     sqlite.exec(`
       CREATE TABLE papers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        arxiv_id TEXT, corpus_id TEXT, title TEXT NOT NULL, authors TEXT NOT NULL,
+        arxiv_id TEXT, corpus_id TEXT, s2_paper_id TEXT, title TEXT NOT NULL, authors TEXT NOT NULL,
         abstract TEXT, contents TEXT, pdf_path TEXT, metadata TEXT, link TEXT,
         tags_json TEXT, listed INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE paper_citations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, paper_id INTEGER NOT NULL, direction TEXT NOT NULL,
+        s2_paper_id TEXT, corpus_id TEXT, arxiv_id TEXT, doi TEXT, title TEXT, authors TEXT, year INTEGER,
+        venue TEXT, url TEXT, contexts TEXT, intents TEXT, is_influential INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
       );
       INSERT INTO papers (id, title, authors, contents, created_at, updated_at)
       VALUES (2, 'Streaming baseline', '[]', '{"user_input":"Paper body"}', 'now', 'now');

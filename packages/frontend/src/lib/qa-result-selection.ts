@@ -5,18 +5,20 @@ export interface SelectableQAResult {
   status?: string
 }
 
-function completionTime(result: SelectableQAResult): number {
-  const timestamp = result.status && result.status !== 'done'
-    ? (result.created_at || result.completed_at)
-    : result.completed_at
-  const value = Date.parse(timestamp)
+/** When the answer was requested (created); legacy rows without created_at fall back to completion. */
+function requestTime(result: SelectableQAResult): number {
+  const value = Date.parse(result.created_at || result.completed_at)
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY
 }
 
-/** Comparator for Array.sort: newest completion first, then greatest id. */
+/**
+ * Comparator for Array.sort: most recently requested first (by created_at, regardless of status or
+ * completion time), then greatest id. Multi-model submissions create the first-listed model last,
+ * so it sorts first.
+ */
 export function compareQAResultsNewestFirst(a: SelectableQAResult, b: SelectableQAResult): number {
-  const aTime = completionTime(a)
-  const bTime = completionTime(b)
+  const aTime = requestTime(a)
+  const bTime = requestTime(b)
   if (aTime !== bTime) return bTime > aTime ? 1 : -1
   return b.id - a.id
 }
@@ -24,6 +26,14 @@ export function compareQAResultsNewestFirst(a: SelectableQAResult, b: Selectable
 export function latestQAResultId(results: SelectableQAResult[]): string {
   if (results.length === 0) return ''
   return String([...results].sort(compareQAResultsNewestFirst)[0].id)
+}
+
+/**
+ * The answer a follow-up continues by default: the most recently requested *completed* answer.
+ * Returns null when the entry has no completed answer (follow-ups are then unavailable).
+ */
+export function defaultFollowupResult<T extends SelectableQAResult>(results: T[]): T | null {
+  return [...results].filter((result) => (result.status ?? 'done') === 'done').sort(compareQAResultsNewestFirst)[0] ?? null
 }
 
 export function qaResultSignature(results: SelectableQAResult[]): string {

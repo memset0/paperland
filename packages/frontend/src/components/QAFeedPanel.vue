@@ -2,7 +2,10 @@
 import { ref, computed, watch } from 'vue'
 import { useQAStore } from '@/stores/qa'
 import { useHighlightStore } from '@/stores/highlights'
-import type { QAFeedEntry } from '@paperland/shared'
+import type { QAFeedEntry, QAResult } from '@paperland/shared'
+import { useRouter } from 'vue-router'
+import { toast } from 'vue-sonner'
+import QAInputSummary from './QAInputSummary.vue'
 import {
   CheckCircle2, Loader2, AlertCircle,
   RefreshCw, ExternalLink, User, Lock
@@ -26,6 +29,22 @@ const emit = defineEmits<{ refresh: [] }>()
 
 const store = useQAStore()
 const highlightStore = useHighlightStore()
+const router = useRouter()
+
+/** `QA-<id>`: copy a link to the entry (resolved by entry id). */
+async function copyEntryLink() {
+  const url = `paperland://paper/${props.entry.paper_id}?qa=${props.entry.entry_id}`
+  await navigator.clipboard.writeText(`[QA-${props.entry.entry_id}](${url})`)
+  toast.success(`已复制 QA-${props.entry.entry_id} 链接`, { position: 'bottom-center' })
+}
+
+/** The question box lives on the paper page: open it there with this answer as the follow-up target. */
+function startFollowup(result: QAResult, prefill?: string) {
+  if (result.status !== 'done') return
+  const query: Record<string, string> = { qa: String(props.entry.entry_id), result: String(result.id), followup: '1' }
+  if (prefill) query.fq = prefill
+  router.push({ path: `/papers/${props.entry.paper_id}`, query })
+}
 const isOpen = ref(false)
 
 // Models for the regenerate dialog come from the store (fetched once at the page level).
@@ -132,6 +151,11 @@ async function onDeleteResult(resultId: number) {
             <p class="flex-1 min-w-0 text-sm font-semibold line-clamp-1">{{ entry.prompt || '自由提问' }}</p>
 
             <div class="flex items-center gap-2 shrink-0">
+              <QAInputSummary :inputs="entry.inputs" />
+              <button
+                type="button" class="text-[10px] text-muted-foreground hover:text-foreground"
+                title="复制 QA 链接" @click.stop="copyEntryLink"
+              >QA-{{ entry.entry_id }}</button>
               <QAReadingIndicators :highlight-count="entry.highlight_count" :note-anchor-count="entry.note_anchor_count" />
               <QAEntryBackgroundPicker :entry-id="entry.entry_id" :color="entry.background_color" />
               <Badge v-if="entry.results.length > 1" variant="secondary">{{ entry.results.length }} 个回答</Badge>
@@ -154,6 +178,7 @@ async function onDeleteResult(resultId: number) {
                 @regenerate="(model: string) => openRegenDialog(model)"
                 @delete-result="onDeleteResult"
                 @cancel-result="store.cancelResult"
+                @followup="startFollowup"
               />
             </div>
             <div v-else-if="isActive" class="py-4 text-center">

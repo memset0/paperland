@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   chooseActiveQAResult,
   compareQAResultsNewestFirst,
+  defaultFollowupResult,
   latestQAResultId,
   qaResultSignature,
 } from './qa-result-selection'
@@ -9,6 +10,20 @@ import {
 const result = (id: number, completed_at: string) => ({ id, completed_at })
 
 describe('QA result selection', () => {
+  test('selects the most recently requested answer, not the latest completion', () => {
+    const early = { id: 1, created_at: '2026-01-01T10:00:00Z', completed_at: '2026-01-01T10:05:00Z', status: 'done' }
+    const late = { id: 2, created_at: '2026-01-01T10:01:00Z', completed_at: '2026-01-01T10:02:00Z', status: 'done' }
+    expect(latestQAResultId([early, late])).toBe('2')
+  })
+
+  test('default follow-up parent skips unfinished answers', () => {
+    const done = { id: 1, created_at: '2026-01-01T10:00:00Z', completed_at: '2026-01-01T10:05:00Z', status: 'done' }
+    const streaming = { id: 2, created_at: '2026-01-01T10:01:00Z', completed_at: '', status: 'streaming' }
+    const failed = { id: 3, created_at: '2026-01-01T10:02:00Z', completed_at: '', status: 'failed' }
+    expect(defaultFollowupResult([done, streaming, failed])?.id).toBe(1)
+    expect(defaultFollowupResult([streaming, failed])).toBeNull()
+  })
+
   test('sorts and selects newest completion first', () => {
     const rows = [result(1, '2026-01-01T00:00:00Z'), result(2, '2026-01-02T00:00:00Z')]
     expect([...rows].sort(compareQAResultsNewestFirst).map((row) => row.id)).toEqual([2, 1])

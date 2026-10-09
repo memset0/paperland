@@ -1,18 +1,28 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { FileText, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Link2, Loader2, AlertTriangle, MoveHorizontal, MoveVertical, Crop, Languages, X, Copy, RefreshCw } from '@lucide/vue'
-import type { TranslateResponse, TranslationStreamStatus } from '@paperland/shared'
+import { FileText, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Link2, Loader2, AlertTriangle, MoveHorizontal, MoveVertical, Crop, Languages, X, Copy, RefreshCw, MessageCircleQuestion, Plus, MessagesSquare, List } from '@lucide/vue'
+import type { QAImageInput, QATextSelectionInput, TranslateResponse, TranslationStreamStatus } from '@paperland/shared'
 import { toast } from 'vue-sonner'
 import { loadPdfjs } from '@/lib/pdfjs'
 import {
+  createMultiPageSelectionSnapshot,
   createPdfSelectionSnapshot,
   decideOutsidePanelSelection,
+  isMultiPageSelection,
   placeSelectionPanel,
   selectPdfTranslationPanelText,
   type PdfSelectionSnapshot,
   type RelativeRect,
 } from '@/lib/pdf-selection-translation'
-import { buildTextSegments, getSelectionOffsets } from '@/composables/useHighlight'
+import { buildTextSegments, getRangeOffsets, getSelectionOffsets } from '@/composables/useHighlight'
+import { useQAStore } from '@/stores/qa'
+import { usePapersStore } from '@/stores/papers'
+import { useQAComposer } from '@/composables/useQAComposer'
+import { useBlockAnchor } from '@/composables/useBlockAnchor'
+import { NO_QA_CONTENT_HINT, paperHasQAContent } from '@/lib/qa-content'
+import { defaultFollowupResult } from '@/lib/qa-result-selection'
+import MarkdownContent from '@/components/MarkdownContent.vue'
+import QAStreamingMarkdown from '@/components/QAStreamingMarkdown.vue'
 import { requestedPdfTarget, type PdfNavTarget } from '@/composables/usePdfNavigation'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
@@ -27,6 +37,10 @@ const rawUrl = computed(() => (props.pdfPath ? `/api/files/${encodeURIComponent(
 
 const theme = useThemeStore()
 const auth = useAuthStore()
+const qaStore = useQAStore()
+const paperStore = usePapersStore()
+const composer = useQAComposer()
+const { revealQAEntry } = useBlockAnchor()
 // Dark-mode PDF page colors (gray background, near-white text). Passed to pdf.js as
 // `pageColors`, which recolors inside the canvas raster. Keep the gray in sync with the
 // `.pdf-page` dark background in <style> so the loading gutter matches the page.
@@ -75,6 +89,23 @@ function toggleFitMode() {
   fitMode.value = fitMode.value === 'width' ? 'height' : 'width'
   zoom.value = 1
   updateFit()
+}
+
+/**
+ * Page box + the CSS variables pdf.js 5's TextLayer sizes itself with. pdf.js's own viewer sets
+ * `--total-scale-factor` on each page; without it every text span's `font-size` is invalid, so
+ * the selectable text drifts off the canvas glyphs. Binding it to the live effectiveScale keeps
+ * the text layer aligned while a zoom is CSS-scaled and waiting for its debounced re-raster.
+ */
+function pageStyle(p: { wPt: number; hPt: number }) {
+  const sc = effectiveScale.value
+  return {
+    width: `${p.wPt * sc}px`,
+    height: `${p.hPt * sc}px`,
+    '--total-scale-factor': String(sc),
+    '--scale-round-x': '1px',
+    '--scale-round-y': '1px',
+  }
 }
 
 // ---- Rendering (lazy, scale-aware) ----
@@ -136,9 +167,8 @@ async function renderPage(num: number) {
     const textLayer = ex?.textLayer ?? document.createElement('div')
     if (!ex?.textLayer) { textLayer.className = 'textLayer'; el.appendChild(textLayer) }
     textLayer.replaceChildren()
-    textLayer.style.setProperty('--scale-factor', String(sc))
-    textLayer.style.width = `${viewport.width}px`
-    textLayer.style.height = `${viewport.height}px`
+    // Span font sizes and layer dimensions come from `--total-scale-factor` on the page element
+    // (bound to effectiveScale in the template), so the text layer tracks CSS-scaled zooms too.
     const textContent = await page.getTextContent()
     await new pdfjs.TextLayer({ textContentSource: textContent, container: textLayer, viewport }).render()
 
@@ -329,6 +359,8 @@ function copyPageLink() {
 // ---- Selection capture → toolbar (copy link + on-demand streaming translation) ----
 const selRegion = ref<{ page: number; ts: number; te: number; text: string } | null>(null)
 const showSelToolbar = ref(false)
+/** The current selection spans pages: only the ask actions apply (translate/copy-link are single-page). */
+const selMultiPage = ref(false)
 const selToolbarRef = ref<HTMLElement | null>(null)
 const selBtnPos = ref({ x: 0, y: 0 })
 let selTimer: ReturnType<typeof setTimeout> | null = null
@@ -403,7 +435,8 @@ function readPdfSelection(): { snapshot: PdfSelectionSnapshot; range: Range } | 
   const elOf = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement)
   const startPage = elOf(range.startContainer)?.closest('.pdf-page') as HTMLElement | null
   const endPage = elOf(range.endContainer)?.closest('.pdf-page') as HTMLElement | null
-  if (!startPage || startPage !== endPage || !scroll.contains(startPage)) return null
+  if (!startPage || !endPage || !scroll.contains(startPage) || !scroll.contains(endPage)) return null
+  if (startPage !== endPage) return readMultiPageSelection(scroll, range, startPage, endPage)
   const textLayer = startPage.querySelector<HTMLElement>('.textLayer')
   if (!textLayer || !textLayer.contains(range.startContainer) || !textLayer.contains(range.endContainer)) return null
   const offsets = getSelectionOffsets(textLayer)
@@ -416,6 +449,36 @@ function readPdfSelection(): { snapshot: PdfSelectionSnapshot; range: Range } | 
     text: offsets.text,
     rect,
   })
+  return snapshot ? { snapshot, range: range.cloneRange() } : null
+}
+
+/**
+ * A selection continuing across pages (a paragraph broken by a page break): one offset segment per
+ * page, measured on sub-ranges clipped to each page's text layer. Only the ask actions use it.
+ */
+function readMultiPageSelection(
+  scroll: HTMLElement, range: Range, startPage: HTMLElement, endPage: HTMLElement,
+): { snapshot: PdfSelectionSnapshot; range: Range } | null {
+  const pageEls = Array.from(scroll.querySelectorAll<HTMLElement>('.pdf-page'))
+  const from = pageEls.indexOf(startPage)
+  const to = pageEls.indexOf(endPage)
+  const startLayer = startPage.querySelector<HTMLElement>('.textLayer')
+  const endLayer = endPage.querySelector<HTMLElement>('.textLayer')
+  if (from < 0 || to <= from || !startLayer?.contains(range.startContainer) || !endLayer?.contains(range.endContainer)) return null
+  const segments = []
+  for (let i = from; i <= to; i += 1) {
+    const layer = pageEls[i].querySelector<HTMLElement>('.textLayer')
+    if (!layer) continue
+    const sub = document.createRange()
+    if (i === from) sub.setStart(range.startContainer, range.startOffset)
+    else sub.setStart(layer, 0)
+    if (i === to) sub.setEnd(range.endContainer, range.endOffset)
+    else sub.setEnd(layer, layer.childNodes.length)
+    const offsets = getRangeOffsets(layer, sub)
+    if (offsets) segments.push({ page: Number(pageEls[i].dataset.pdfPage), ts: offsets.start_offset, te: offsets.end_offset, text: offsets.text })
+  }
+  const rect = relativeSelectionRect(range)
+  const snapshot = rect ? createMultiPageSelectionSnapshot(segments, rect) : null
   return snapshot ? { snapshot, range: range.cloneRange() } : null
 }
 
@@ -436,6 +499,7 @@ function updateTranslationPanelPlacement() {
 function activateTranslation(snapshot: PdfSelectionSnapshot) {
   if (!auth.isAuthenticated || captureMode.value || currentSelection?.identity !== snapshot.identity) return
   resetSelectionInteraction()
+  closeAskPanel()
   activeTranslation.value = { ...snapshot, rect: { ...snapshot.rect } }
   translationForce.value = false
   translationText.value = ''
@@ -448,7 +512,7 @@ function activateTranslation(snapshot: PdfSelectionSnapshot) {
 /** Toolbar 「翻译」: the only entry point that starts a selection translation. */
 function translateSelection() {
   const snapshot = currentSelection
-  if (!snapshot || activeTranslation.value?.identity === snapshot.identity) return
+  if (!snapshot || isMultiPageSelection(snapshot) || activeTranslation.value?.identity === snapshot.identity) return
   activateTranslation(snapshot)
 }
 
@@ -492,6 +556,7 @@ function handleSelectionSettled() {
     x: snapshot.rect.left + snapshot.rect.width / 2,
     y: snapshot.rect.bottom + 6,
   }
+  selMultiPage.value = isMultiPageSelection(snapshot)
   showSelToolbar.value = !!props.paperId || auth.isAuthenticated
   syncActiveTranslation(snapshot)
 }
@@ -603,6 +668,110 @@ function copySelectionLink() {
   hideSelBtn()
 }
 
+// ---- Contextual Q&A: ask directly, or add the passage/screenshot to the question box ----
+/** Ask actions need a logged-in user, a paper, and a paper with usable full text. */
+const showAskActions = computed(() => auth.isAuthenticated && !!props.paperId)
+const askDisabled = computed(() => {
+  const paper = paperStore.currentPaper
+  return !(paper && paper.id === props.paperId && paperHasQAContent(paper))
+})
+const askHint = computed(() => (askDisabled.value ? NO_QA_CONTENT_HINT : ''))
+
+const askPanelRef = ref<HTMLElement | null>(null)
+const askPanel = ref<{
+  entryId: number | null
+  preview: { kind: 'text'; text: string } | { kind: 'image'; url: string }
+  rect: RelativeRect
+  error: string | null
+} | null>(null)
+const askPanelPos = ref({ left: 8, top: 8, width: 360, placement: 'above' as 'above' | 'below' })
+
+/** The streamed answer of the direct ask, read from the paper's Q&A list (kept live by the store). */
+const askEntry = computed(() => {
+  const id = askPanel.value?.entryId
+  return id == null ? null : qaStore.qaData.free.find((entry) => entry.entry_id === id) ?? null
+})
+const askResult = computed(() => askEntry.value?.results[0] ?? null)
+/** No answer is chosen in the panel, so a follow-up continues the latest completed one. */
+const askFollowupTarget = computed(() => (askEntry.value ? defaultFollowupResult(askEntry.value.results) : null))
+
+function updateAskPanelPlacement() {
+  const outer = viewerRoot()
+  if (!outer || !askPanel.value) return
+  const measured = askPanelRef.value?.getBoundingClientRect()
+  askPanelPos.value = placeSelectionPanel({
+    viewerWidth: outer.clientWidth,
+    viewerHeight: outer.clientHeight,
+    selection: askPanel.value.rect,
+    panelWidth: measured?.width || 380,
+    panelHeight: measured?.height || 160,
+  })
+}
+
+function closeAskPanel() { askPanel.value = null }
+
+/** Submit a direct ask (preset question, default model) and stream its answer near the source. */
+async function startDirectAsk(
+  input: Omit<QATextSelectionInput, 'label'> | Omit<QAImageInput, 'label' | 'url'>,
+  preview: { kind: 'text'; text: string } | { kind: 'image'; url: string },
+  rect: RelativeRect,
+) {
+  if (!props.paperId || askDisabled.value) return
+  closeTranslationPanel()
+  askPanel.value = { entryId: null, preview, rect, error: null }
+  void nextTick(updateAskPanelPlacement)
+  try {
+    const res = await qaStore.askDirect(props.paperId, input)
+    if (!res) { closeAskPanel(); return } // cancelled at the doc2x confirmation
+    if (askPanel.value) askPanel.value.entryId = res.entry_id
+  } catch (e) {
+    if (askPanel.value) askPanel.value.error = e instanceof Error ? e.message : '提问失败'
+  }
+  void nextTick(updateAskPanelPlacement)
+}
+
+function selectionInput(): Omit<QATextSelectionInput, 'label'> | null {
+  const snapshot = currentSelection
+  if (!snapshot) return null
+  return { kind: 'text_selection', text: snapshot.text, pdf: snapshot.segments.map(({ page, ts, te }) => ({ page, ts, te })) }
+}
+
+/** Toolbar 「提问」: ask about the selected passage right away. */
+function askSelection() {
+  const input = selectionInput()
+  const snapshot = currentSelection
+  if (!input || !snapshot) return
+  const rect = { ...snapshot.rect }
+  window.getSelection()?.removeAllRanges()
+  hideSelBtn()
+  void startDirectAsk(input, { kind: 'text', text: input.text }, rect)
+}
+
+/** Toolbar 「加入提问框」: attach the passage to the question box (token inserted at the caret). */
+function addSelectionToQuestion() {
+  const input = selectionInput()
+  if (!input || askDisabled.value) return
+  composer.addAttachment(input)
+  window.getSelection()?.removeAllRanges()
+  hideSelBtn()
+}
+
+/** Continue the direct-ask answer in the question box (also from its #moonlight suggestions). */
+function followUpAsk(prefill?: string) {
+  const entry = askEntry.value
+  const result = askFollowupTarget.value
+  if (!entry || !result) return
+  void composer.startFollowup({
+    result_id: result.id, entry_id: entry.entry_id, title: entry.prompt || `QA-${entry.entry_id}`, model_name: result.model_name,
+  }, prefill)
+}
+
+function showAskInList() {
+  if (askEntry.value) void revealQAEntry(askEntry.value.entry_id, askResult.value?.id ?? null)
+}
+
+watch(() => [askResult.value?.answer.length, askResult.value?.status], () => { void nextTick(updateAskPanelPlacement) })
+
 // ---- Region screenshot: crop a normalized page region to a PNG data URL ----
 // Renders ONLY the selected region (not the whole page then crop) so a high-DPI
 // capture stays cheap in memory. `scale = dpi / 72` because PDF user-space units are
@@ -658,6 +827,7 @@ function exitCaptureMode() {
   captureMode.value = false
   dragRect.value = null
   dragStart = null
+  captureMenu.value = null
 }
 
 /** Page element under a client point, constrained to this viewer. */
@@ -673,6 +843,7 @@ function pageElAtPoint(clientX: number, clientY: number): HTMLElement | null {
 
 function onCaptureDown(e: MouseEvent) {
   if (!captureMode.value || capturing.value) return
+  captureMenu.value = null // starting another drag discards an undecided capture
   const pageEl = pageElAtPoint(e.clientX, e.clientY)
   const root = viewerRef.value
   if (!pageEl || !root) return
@@ -724,18 +895,65 @@ async function onCaptureUp(e: MouseEvent) {
     w: localW / pr.width,
     h: localH / pr.height,
   }
-  await captureRegion(region)
+  // Let the user choose: copy the screenshot link, ask about it, or add it to the question box.
+  const outer = viewerRoot()
+  if (!outer) return
+  const or = outer.getBoundingClientRect()
+  captureMenu.value = {
+    region,
+    rect: {
+      left: clampedLeft - or.left, top: clampedTop - or.top, right: clampedRight - or.left,
+      bottom: clampedBottom - or.top, width: localW, height: localH,
+    },
+    x: Math.min(clampedRight - or.left, outer.clientWidth - 8),
+    y: Math.min(clampedBottom - or.top + 6, outer.clientHeight - 40),
+  }
+}
+
+type CaptureRegion = { page: number; x: number; y: number; w: number; h: number }
+const captureMenu = ref<{ region: CaptureRegion; rect: RelativeRect; x: number; y: number } | null>(null)
+
+/** Render a region to PNG and upload it to the image host. */
+async function uploadRegion(region: CaptureRegion) {
+  const dataUrl = await cropRegionToImage(region, screenshotDpi.value)
+  if (!dataUrl) throw new Error('render failed')
+  const blob = await (await fetch(dataUrl)).blob()
+  return uploadImage(blob, `paper-${props.paperId}-p${region.page}.png`)
+}
+
+const r4 = (n: number) => Math.round(n * 1e4) / 1e4
+
+function regionInput(region: CaptureRegion, hash: string): Omit<QAImageInput, 'label' | 'url'> {
+  return { kind: 'image', image_hash: hash, pdf: { page: region.page, rx: r4(region.x), ry: r4(region.y), rw: r4(region.w), rh: r4(region.h) } }
+}
+
+async function onCaptureAction(action: 'copy' | 'ask' | 'add') {
+  const menu = captureMenu.value
+  captureMenu.value = null
+  if (!menu || !props.paperId) return
+  if (action === 'copy') { await captureRegion(menu.region); return }
+  if (askDisabled.value || capturing.value) return
+  capturing.value = true
+  try {
+    const { image, url } = await uploadRegion(menu.region)
+    exitCaptureMode()
+    if (action === 'ask') {
+      void startDirectAsk(regionInput(menu.region, image.hash), { kind: 'image', url }, menu.rect)
+    } else {
+      composer.addAttachment({ ...regionInput(menu.region, image.hash), url })
+    }
+  } catch {
+    toast.error('截图上传失败，请重试', { position: 'bottom-center' })
+  } finally {
+    capturing.value = false
+  }
 }
 
 async function captureRegion(region: { page: number; x: number; y: number; w: number; h: number }) {
   if (!props.paperId || capturing.value) return
   capturing.value = true
   try {
-    const dataUrl = await cropRegionToImage(region, screenshotDpi.value)
-    if (!dataUrl) throw new Error('render failed')
-    const blob = await (await fetch(dataUrl)).blob()
-    const { url } = await uploadImage(blob, `paper-${props.paperId}-p${region.page}.png`)
-    const r4 = (n: number) => Math.round(n * 1e4) / 1e4
+    const { url } = await uploadRegion(region)
     const anchor = `paperland://paper/${props.paperId}?pdf=${region.page}&rx=${r4(region.x)}&ry=${r4(region.y)}&rw=${r4(region.w)}&rh=${r4(region.h)}`
     await navigator.clipboard.writeText(`[![](${url})](${anchor})`)
     toast.success('已复制截图链接', { position: 'bottom-center' })
@@ -749,6 +967,10 @@ async function captureRegion(region: { page: number; x: number; y: number; w: nu
 
 function onCaptureKey(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
+  if (captureMenu.value) {
+    captureMenu.value = null
+    return
+  }
   if (activeTranslation.value) {
     closeTranslationPanel()
     return
@@ -786,6 +1008,7 @@ async function loadDocument() {
 
 function cleanupDoc() {
   hideSelBtn()
+  closeAskPanel()
   io?.disconnect(); io = null
   for (const { task } of renderTasks.values()) task?.cancel?.()
   renderTasks.clear()
@@ -953,7 +1176,7 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
         <div
           v-for="p in pages" :key="p.num"
           class="pdf-page" :data-pdf-page="p.num"
-          :style="{ width: p.wPt * effectiveScale + 'px', height: p.hPt * effectiveScale + 'px' }"
+          :style="pageStyle(p)"
         />
         <!-- Rubber-band selection rectangle (capture mode) -->
         <div
@@ -971,7 +1194,7 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
         :style="{ left: selBtnPos.x + 'px', top: selBtnPos.y + 'px' }"
       >
         <button
-          v-if="auth.isAuthenticated"
+          v-if="auth.isAuthenticated && !selMultiPage"
           class="pdf-sel-btn"
           :class="{ 'pdf-sel-btn-active': activeTranslation }"
           title="翻译选区"
@@ -981,7 +1204,27 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
           <Languages class="h-3.5 w-3.5" /> 翻译
         </button>
         <button
-          v-if="paperId"
+          v-if="showAskActions"
+          class="pdf-sel-btn"
+          :disabled="askDisabled"
+          :title="askHint || '用预设问题直接提问这段内容'"
+          @mousedown.prevent
+          @click="askSelection"
+        >
+          <MessageCircleQuestion class="h-3.5 w-3.5" /> 提问
+        </button>
+        <button
+          v-if="showAskActions"
+          class="pdf-sel-btn"
+          :disabled="askDisabled"
+          :title="askHint || '加入提问框，可继续添加选段或截图后再提问'"
+          @mousedown.prevent
+          @click="addSelectionToQuestion"
+        >
+          <Plus class="h-3.5 w-3.5" /> 加入提问框
+        </button>
+        <button
+          v-if="paperId && !selMultiPage"
           class="pdf-sel-btn"
           title="复制选区链接"
           @mousedown.prevent
@@ -1055,6 +1298,82 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
             @click="retrySelectionTranslation"
           >
             <RefreshCw class="h-3.5 w-3.5" /> 重试
+          </button>
+        </footer>
+      </aside>
+
+      <!-- Capture action menu: choose what to do with the dragged region (capture mode) -->
+      <div
+        v-if="captureMenu"
+        class="pdf-sel-toolbar pdf-capture-menu"
+        :style="{ left: captureMenu.x + 'px', top: captureMenu.y + 'px' }"
+      >
+        <button class="pdf-sel-btn" :disabled="capturing" title="复制截图链接" @click="onCaptureAction('copy')">
+          <Link2 class="h-3.5 w-3.5" /> 复制截图链接
+        </button>
+        <button
+          v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
+          :title="askHint || '用预设问题直接提问这张截图'" @click="onCaptureAction('ask')"
+        >
+          <MessageCircleQuestion class="h-3.5 w-3.5" /> 截图提问
+        </button>
+        <button
+          v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
+          :title="askHint || '加入提问框'" @click="onCaptureAction('add')"
+        >
+          <Plus class="h-3.5 w-3.5" /> 加入提问框
+        </button>
+        <button class="pdf-sel-btn" title="取消" @click="captureMenu = null">
+          <X class="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <!-- Direct ask: the passage/screenshot with its streamed answer, placed near the source -->
+      <aside
+        v-if="askPanel"
+        ref="askPanelRef"
+        class="pdf-selection-translation pdf-ask-panel"
+        :style="{ left: askPanelPos.left + 'px', top: askPanelPos.top + 'px', width: askPanelPos.width + 'px' }"
+        @pointerdown.stop
+      >
+        <header class="pdf-selection-translation-header">
+          <span class="pdf-selection-translation-title">
+            <MessageCircleQuestion class="h-3.5 w-3.5" /> Ask<template v-if="askEntry"> · QA-{{ askEntry.entry_id }}</template>
+          </span>
+          <span class="pdf-selection-translation-state">{{ askResult?.status ?? (askPanel.error ? 'failed' : 'submitting') }}</span>
+          <button class="pdf-selection-translation-icon" title="关闭" @mousedown.prevent @click="closeAskPanel()">
+            <X class="h-3.5 w-3.5" />
+          </button>
+        </header>
+        <div class="pdf-selection-translation-body pdf-ask-body">
+          <img v-if="askPanel.preview.kind === 'image'" :src="askPanel.preview.url" alt="" class="pdf-ask-thumb" />
+          <blockquote v-else class="pdf-ask-quote">{{ askPanel.preview.text }}</blockquote>
+          <p v-if="askPanel.error" class="pdf-selection-translation-error">{{ askPanel.error }}</p>
+          <MarkdownContent
+            v-else-if="askResult?.status === 'done'"
+            :content="askResult.answer"
+            :paper-id="paperId ?? undefined"
+            :qa-result-id="askResult.id"
+            qa-answer
+            disable-highlights
+            class="text-sm"
+            @moonlight="followUpAsk"
+          />
+          <QAStreamingMarkdown v-else-if="askResult?.answer" :content="askResult.answer" />
+          <p v-else-if="askResult && ['failed', 'cancelled'].includes(askResult.status)" class="pdf-selection-translation-error">
+            {{ askResult.error || 'Generation failed' }}
+          </p>
+          <p v-else class="pdf-ask-waiting"><Loader2 class="h-3.5 w-3.5 animate-spin" /> Thinking…</p>
+        </div>
+        <footer class="pdf-selection-translation-actions">
+          <button class="pdf-selection-translation-action" :disabled="!askEntry" @mousedown.prevent @click="showAskInList">
+            <List class="h-3.5 w-3.5" /> 在列表中查看
+          </button>
+          <button
+            class="pdf-selection-translation-action" :disabled="!askFollowupTarget"
+            @mousedown.prevent @click="followUpAsk()"
+          >
+            <MessagesSquare class="h-3.5 w-3.5" /> 追问
           </button>
         </footer>
       </aside>
@@ -1147,6 +1466,16 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
 .pdf-sel-btn:hover, .pdf-sel-btn-active { background: var(--accent); color: var(--accent-foreground); }
 
 /* Stable PDF selection translation; positioned in .pdf-viewer-root coordinates. */
+.pdf-sel-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pdf-capture-menu { transform: translateX(-100%); }
+.pdf-ask-panel { max-height: min(420px, calc(100% - 16px)); }
+.pdf-ask-body { display: flex; flex-direction: column; gap: 8px; }
+.pdf-ask-quote {
+  margin: 0; padding-left: 8px; border-left: 3px solid var(--border); color: var(--muted-foreground);
+  font-size: 12px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.pdf-ask-thumb { max-height: 96px; max-width: 100%; align-self: flex-start; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.pdf-ask-waiting { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); }
 .pdf-selection-translation {
   position: absolute; z-index: 60;
   display: flex; flex-direction: column; overflow: hidden;

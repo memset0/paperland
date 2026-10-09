@@ -3,7 +3,10 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { FileText } from '@lucide/vue'
 import PdfViewer from '@/components/PdfViewer.vue'
+import PdfUploadPanel from '@/components/PdfUploadPanel.vue'
 import NoteWalkthrough from '@/components/notes/NoteWalkthrough.vue'
+import Doc2xTranslationTab from '@/components/Doc2xTranslationTab.vue'
+import { useDoc2xStore } from '@/stores/doc2x'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { requestedPdfTarget } from '@/composables/usePdfNavigation'
 import { requestedPublicNote } from '@/composables/usePublicNoteOpen'
@@ -12,7 +15,7 @@ interface ViewerMode {
   id: string
   label: string
   available: boolean
-  type: 'pdf' | 'iframe' | 'walkthrough'
+  type: 'pdf' | 'iframe' | 'walkthrough' | 'doc2x'
   url?: string | null
 }
 
@@ -20,15 +23,28 @@ const props = defineProps<{
   pdfPath: string | null
   arxivId: string | null
   paperId?: number | null
+  pdfStatus?: 'available' | 'fetching' | 'upload_required'
+  pdfUnavailableReason?: 'closed_access' | 'download_failed' | 'not_found' | null
 }>()
+
+const doc2x = useDoc2xStore()
 
 const modes = computed<ViewerMode[]>(() => {
   const list: ViewerMode[] = []
   list.push({
     id: 'pdf',
     label: 'PDF 原文',
-    available: !!props.pdfPath,
+    // Always shown: without a PDF the tab renders PdfUploadPanel (fetching / upload required).
+    available: true,
     type: 'pdf',
+  })
+  // doc2x preserved-layout translation (bilingual / translation-only). Never the auto-default:
+  // pickDefault() takes the first non-Note mode and "PDF 原文" always precedes it.
+  list.push({
+    id: 'doc2x',
+    label: '对照翻译',
+    available: !!props.pdfPath && !!doc2x.status?.enabled,
+    type: 'doc2x',
   })
   list.push({
     id: 'translation',
@@ -125,13 +141,17 @@ watch(() => route.query.view, (v) => {
         </TabsList>
       </div>
       <TabsContent v-for="mode in availableModes" :key="mode.id" :value="mode.id" class="flex-1 overflow-hidden m-0">
-        <PdfViewer v-if="mode.type === 'pdf'" :pdf-path="pdfPath" :paper-id="paperId" />
+        <template v-if="mode.type === 'pdf'">
+          <PdfViewer v-if="pdfPath" :pdf-path="pdfPath" :paper-id="paperId" />
+          <PdfUploadPanel v-else :paper-id="paperId ?? null" :pdf-status="pdfStatus" :reason="pdfUnavailableReason" />
+        </template>
         <iframe
           v-else-if="mode.type === 'iframe' && mode.url"
           :src="mode.url"
           class="w-full h-full border-0"
           sandbox="allow-scripts allow-same-origin allow-popups"
         />
+        <Doc2xTranslationTab v-else-if="mode.type === 'doc2x'" />
         <NoteWalkthrough v-else-if="mode.type === 'walkthrough'" />
       </TabsContent>
     </Tabs>

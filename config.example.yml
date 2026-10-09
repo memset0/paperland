@@ -32,6 +32,13 @@ services:
   arxiv_pdf_service:
     max_concurrency: 2
     rate_limit_interval: 3
+  # Open-access PDF download via Semantic Scholar's openAccessPdf link, only for papers
+  # WITHOUT an arxiv_id (arXiv papers keep using arxiv_pdf_service).
+  s2_pdf_service:
+    max_concurrency: 2
+    rate_limit_interval: 2
+    download_timeout: 60        # seconds per download
+    max_file_size_mb: 100       # larger responses fail instead of being saved
   # Service name MUST match the code's registered name (semantic_scholar_service),
   # otherwise the configured concurrency/rate-limit is never bound to the service.
   semantic_scholar_service:
@@ -54,6 +61,13 @@ services:
   translation_service:
     max_concurrency: 2
     rate_limit_interval: 1
+  # doc2x CLI services share the Doc2X account-level task limit via one concurrency group.
+  doc2x_parse:
+    max_concurrency: 5
+    concurrency_group: doc2x
+  doc2x_translate:
+    max_concurrency: 5
+    concurrency_group: doc2x
 
 models:
   default: gpt-4o
@@ -63,6 +77,7 @@ models:
       endpoint: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
       stream: false                 # false/omitted = JSON; true = Chat Completions SSE
+      vision: true                  # accepts image input (Q&A screenshots); default false
     # Codex is a separate first-class provider. stream:false uses `codex exec --ephemeral`;
     # stream:true uses app-server and requires the structured fields below.
     # - name: codex-gpt-5.6-sol-xhigh
@@ -73,18 +88,48 @@ models:
     #   model_id: gpt-5.6-sol
     #   reasoning_effort: xhigh
     #   timeout: 1800
+    #   vision: true
 
 content_priority:
   - user_input
+  - doc2x_parsed
   - pdf_parsed
 
-system_prompt: |
-  Answer the following question based on the paper content: {PROMPT}
+# doc2x CLI integration: new papers are translated on import (preserved-layout bilingual PDF) and
+# the same run's parse is exported as precise Markdown; old papers on demand. Prerequisites (one-time, as the OS user that runs
+# the backend): `npm i -g @noedgeai-org/doc2x-cli@latest` (Node >= 22) and `doc2x login`.
+doc2x:
+  enabled: false
+  cli_path: doc2x                 # absolute path if doc2x is not on the backend's PATH
+  timeout: 1800                   # seconds per CLI run
+  output_dir: ./data/doc2x        # artifacts: <output_dir>/<paperId>/{parse,translate}/
+  # Papers created at/after this time are auto-translated on import (one doc2x run yields both the
+  # bilingual PDF and the precise Markdown); older papers are processed on demand only.
+  auto_since: '2026-10-09T06:30:00Z'
+  token_file: ~/.config/doc2x/cli-oauth-tokens.json   # written by `doc2x login`
+  gateway_url: https://v2c.doc2x.noedgeai.com
+  parse:
+    formula_mode: dollar          # $…$ / $$…$$ delimiters in the Markdown
+  translate:
+    target_language: zh
+    model: '85'                   # gemini-3.1-flash-lite-preview (see `doc2x models list`)
+    pdf_font_strategy: page-optimal
+    ignore_types: [reference]     # references are parsed but not translated
 
-  ---
+# Q&A prompt assembly. The system prompt is a file prompts/system/<name>.md (rules only, no paper);
+# the backend builds the user message from <paper> (content_priority), <references>, <inputs>,
+# <history> and <question>. System prompt files are re-read on every run (edits need no restart).
+# The former top-level `system_prompt` template is no longer accepted.
+qa_prompt:
+  # system_prompts_dir: ./prompts/system    # omitted = the repo's bundled prompts/system
+  default_system_prompt: paper-qa
+  direct_ask:                                # asking directly from a PDF selection/screenshot
+    # system_prompt: paper-qa                # omitted = default_system_prompt
+    question: "Explain this in detail in an easy-to-understand way, using bullet points."
+  codex_web_search: true                     # let Codex models search the web (e.g. Semantic Scholar ids)
+  max_history_turns: 20                      # follow-ups send at most this many earlier turns
 
-  {PAPER}
-
+# Preset questions. Each may set `system_prompt: <name>` to use another prompts/system/<name>.md.
 qa:
   - name: research-question
     prompt: "What problem does this paper try to solve?"
@@ -117,6 +162,11 @@ translation:
     {TEXT}
 
 # Embedded pdf.js viewer settings.
+pdf_upload:
+  # Max size of a PDF uploaded by a user for papers without an obtainable PDF
+  # (closed access / failed download). Larger uploads are rejected with 413.
+  max_file_size_mb: 100
+
 pdf_viewer:
   # DPI used when capturing a PDF region as a PNG screenshot (PdfViewer "框选截图" → 图床).
   # Higher = sharper but larger files. Render scale = screenshot_dpi / 72.

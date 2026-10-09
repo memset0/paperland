@@ -3,8 +3,7 @@ import {
   createPdfSelectionSnapshot,
   decideOutsidePanelSelection,
   placeSelectionPanel,
-  selectPdfTranslationPanelText,
-} from './pdf-selection-translation'
+  selectPdfTranslationPanelText, createMultiPageSelectionSnapshot, isMultiPageSelection } from './pdf-selection-translation'
 
 const rect = { left: 100, top: 200, right: 180, bottom: 220, width: 80, height: 20 }
 
@@ -66,5 +65,22 @@ describe('PDF selection translation helpers', () => {
     expect(selectPdfTranslationPanelText(source, '你好，世界')).toBe('你好，世界')
     expect(selectPdfTranslationPanelText(source, '')).toBe(source)
     expect(selectPdfTranslationPanelText(source, '缓存译文')).toBe('缓存译文')
+  })
+})
+
+describe('multi-page selection snapshot', () => {
+  const rect = { left: 0, top: 0, right: 10, bottom: 10, width: 10, height: 10 }
+  test('keeps one segment per page and joins the text', () => {
+    const snapshot = createMultiPageSelectionSnapshot([
+      { page: 3, ts: 100, te: 140, text: 'end of page three ' },
+      { page: 4, ts: 0, te: 20, text: ' start of four' },
+    ], rect)!
+    expect(snapshot.segments.map((segment) => segment.page)).toEqual([3, 4])
+    expect(snapshot.text).toBe('end of page three start of four')
+    expect(isMultiPageSelection(snapshot)).toBe(true)
+  })
+
+  test('a single valid segment is not a multi-page selection', () => {
+    expect(createMultiPageSelectionSnapshot([{ page: 3, ts: 0, te: 5, text: 'x' }, { page: 4, ts: 0, te: 0, text: '' }], rect)).toBeNull()
   })
 })

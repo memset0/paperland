@@ -1,6 +1,25 @@
 import type { ModelConfig } from '@paperland/shared'
-import type { ModelInvokeOptions, ModelProvider } from './types.js'
-import { throwIfAborted } from './types.js'
+import { readFileSync } from 'fs'
+import type { ModelInput, ModelInvokeOptions, ModelProvider } from './types.js'
+import { throwIfAborted, toModelInput } from './types.js'
+
+/**
+ * Chat Completions messages for a structured input: a real system message, then one user message.
+ * A text-only user message stays a plain string; images become base64 data-URL `image_url` parts
+ * (read from the local image host, so the model service never has to reach this server).
+ */
+export function chatMessages(input: ModelInput): unknown[] {
+  const messages: unknown[] = []
+  if (input.system) messages.push({ role: 'system', content: input.system })
+  const hasImage = input.user.some((part) => part.type === 'image')
+  const content = hasImage
+    ? input.user.map((part) => part.type === 'text'
+      ? { type: 'text', text: part.text }
+      : { type: 'image_url', image_url: { url: `data:${part.mime};base64,${readFileSync(part.path).toString('base64')}` } })
+    : input.user.map((part) => (part as { text: string }).text).join('\n\n')
+  messages.push({ role: 'user', content })
+  return messages
+}
 
 export class SSEDataParser {
   private buffer = ''
@@ -44,7 +63,7 @@ async function responseError(response: Response): Promise<Error> {
   return new Error(`OpenAI API error ${response.status}: ${body}`)
 }
 
-async function invokeJson(prompt: string, config: ModelConfig, options: ModelInvokeOptions): Promise<string> {
+async function invokeJson(input: ModelInput, config: ModelConfig, options: ModelInvokeOptions): Promise<string> {
   throwIfAborted(options.signal)
   const apiKey = process.env[config.api_key_env || 'OPENAI_API_KEY']
   if (!apiKey) throw new Error(`API key not found in env: ${config.api_key_env}`)
@@ -58,7 +77,7 @@ async function invokeJson(prompt: string, config: ModelConfig, options: ModelInv
     },
     body: JSON.stringify({
       model: config.name,
-      messages: [{ role: 'user', content: prompt }],
+      messages: chatMessages(input),
       max_tokens: 8192,
     }),
     signal: options.signal,
@@ -69,7 +88,7 @@ async function invokeJson(prompt: string, config: ModelConfig, options: ModelInv
   return data.choices?.[0]?.message?.content || ''
 }
 
-async function invokeStream(prompt: string, config: ModelConfig, options: ModelInvokeOptions): Promise<string> {
+async function invokeStream(input: ModelInput, config: ModelConfig, options: ModelInvokeOptions): Promise<string> {
   throwIfAborted(options.signal)
   const apiKey = process.env[config.api_key_env || 'OPENAI_API_KEY']
   if (!apiKey) throw new Error(`API key not found in env: ${config.api_key_env}`)
@@ -83,7 +102,7 @@ async function invokeStream(prompt: string, config: ModelConfig, options: ModelI
     },
     body: JSON.stringify({
       model: config.name,
-      messages: [{ role: 'user', content: prompt }],
+      messages: chatMessages(input),
       max_tokens: 8192,
       stream: true,
     }),
@@ -138,9 +157,10 @@ export const openAIProvider: ModelProvider = {
     return { streaming: config.stream === true }
   },
 
-  invoke(prompt, config, options = {}) {
+  invoke(input, config, options = {}) {
+    const structured = toModelInput(input)
     return config.stream === true
-      ? invokeStream(prompt, config, options)
-      : invokeJson(prompt, config, options)
+      ? invokeStream(structured, config, options)
+      : invokeJson(structured, config, options)
   },
 }

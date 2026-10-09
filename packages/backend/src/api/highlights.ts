@@ -60,7 +60,8 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
 
     const db = getDatabase()
     if (qa_result_id != null) {
-      const result = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, qa_result_id)).get()
+      const found = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, qa_result_id)).get()
+      const result = found && !found.deleted_at ? found : undefined
       const entry = result
         ? db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, result.qa_entry_id)).get()
         : null

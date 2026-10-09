@@ -30,12 +30,7 @@ paperland/
 ├── config.yml                      # 全站统一配置
 ├── data/
 │   ├── paperland.db                # SQLite 数据库
-│   ├── backups/                    # 每日备份
-│   └── idea-forge/                 # Idea Forge 文件存储（非数据库）
-│       └── {project-name}/
-│           ├── AGENTS.md           # AI agent 指引
-│           ├── papers/             # 导出的论文
-│           └── ideas/              # 研究想法（按分类目录）
+│   └── backups/                    # 每日备份
 ├── packages/
 │   ├── frontend/                   # Vue 3 + Vite
 │   │   ├── src/
@@ -44,11 +39,8 @@ paperland/
 │   │   │   │   ├── PaperDetail.vue
 │   │   │   │   ├── QAPage.vue
 │   │   │   │   ├── ServiceDashboard.vue
-│   │   │   │   ├── Settings.vue
-│   │   │   │   └── idea-forge/    # Idea Forge 页面
-│   │   │   │       ├── ProjectList.vue
-│   │   │   │       └── IdeaManager.vue
-│   │   │   ├── components/         # 通用组件
+│   │   │   │   └── Settings.vue
+│   │   │   ├── components/         # 通用组件（含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板）
 │   │   │   ├── composables/        # Vue composables
 │   │   │   ├── router/
 │   │   │   ├── stores/             # Pinia stores
@@ -65,11 +57,7 @@ paperland/
 │   │   │   │   ├── papers.ts
 │   │   │   │   ├── qa.ts
 │   │   │   │   ├── services.ts
-│   │   │   │   ├── settings.ts
-│   │   │   │   └── idea-forge.ts  # Idea Forge API (projects, ideas, paper dump)
-│   │   │   ├── idea-forge/        # Idea Forge 工具函数
-│   │   │   │   ├── utils.ts       # 目录操作、hash、路径解析
-│   │   │   │   └── frontmatter.ts # YAML frontmatter 解析/序列化
+│   │   │   │   └── settings.ts
 │   │   │   ├── external-api/       # External API routes (/external-api/v1/...)
 │   │   │   │   ├── papers.ts
 │   │   │   │   └── tags.ts
@@ -78,11 +66,17 @@ paperland/
 │   │   │   │   ├── arxiv_service.test.ts
 │   │   │   │   ├── semantic_scholar_service.ts
 │   │   │   │   ├── semantic_scholar_service.test.ts
+│   │   │   │   ├── s2_pdf_service.ts        # 无 arxiv_id 时经 S2 openAccessPdf 下载 PDF
+│   │   │   │   ├── s2_pdf_service.test.ts
 │   │   │   │   ├── pdf_parse_service.ts
 │   │   │   │   ├── pdf_parse_service.test.ts
 │   │   │   │   ├── qa_service.ts
 │   │   │   │   ├── qa_service.test.ts
 │   │   │   │   ├── papers_cool_service.ts  # papers.cool 中文摘要抓取
+│   │   │   │   ├── doc2x_cli.ts            # doc2x CLI 调用封装（--json、超时、错误映射）
+│   │   │   │   ├── doc2x_parse_service.ts  # doc2x 精确解析 → contents.doc2x_parsed
+│   │   │   │   ├── doc2x_translate_service.ts  # doc2x 对照翻译 PDF + 仅译文裁剪 (pdf-lib)
+│   │   │   │   ├── doc2x_gateway.ts        # 复用已存 parseId 建翻译任务（doc2x 网关，失败回退 CLI）
 │   │   │   │   └── service_runner.ts   # 服务调度器 (并发控制、状态管理)
 │   │   │   ├── db/                 # Drizzle schema + migrations
 │   │   │   │   ├── schema.ts       # 数据库 schema 定义
@@ -150,10 +144,11 @@ papers
   id              integer   primary key autoincrement
   arxiv_id        text      unique, nullable
   corpus_id       text      unique, nullable
+  s2_paper_id     text      unique, nullable  // 40-hex S2 paperId（迁移 0029 从 metadata.s2_url 回填）
   title           text      not null
   authors         text      not null          // JSON array
   abstract        text      nullable
-  contents        text      nullable          // JSON: { user_input, pdf_parsed, ... }
+  contents        text      nullable          // JSON: { user_input, pdf_parsed, doc2x_parsed, ... }
   pdf_path        text      nullable
   metadata        text      nullable          // JSON
   listed          integer   not null default 1 // 全局可见性: 1=列表显示+完整管线, 0=仅元数据/隐藏
@@ -191,6 +186,9 @@ qa_entries
   type            text      not null          // "template" | "free"
   template_name   text      nullable          // 模板类型时作为 key
   prompt          text      nullable          // 问题先于模型调用落库；仅不可恢复的历史失败行可为空
+  instruction     text      nullable          // system prompt 名（prompts/system/<name>.md），null = 默认
+  inputs          text      nullable          // JSON：text_selection / image(image_hash) / history(result_id)，链内唯一标号
+  parent_entry_id integer   nullable, indexed // 由 history input 派生，用于追问树
 
 qa_results
   id              integer   primary key autoincrement
@@ -210,6 +208,17 @@ qa_results
   first_chunk_at  text      nullable          // 首个真实非空 delta
   finished_at     text      nullable
   updated_at      text      not null          // 最近一次局部 answer 持久化
+  deleted_at      text      nullable          // 软删除：所有用户读取排除，追问历史仍读取
+
+qa_result_cites                               // 回答里不在本论文参考文献中的 #cite: id，留待以后处理
+  id              integer   primary key autoincrement
+  qa_result_id    integer   → qa_results.id, not null
+  paper_id        integer   → papers.id, not null
+  cite_id         text      not null          // 40 位 S2 paperId 或纯数字 CorpusId
+  id_kind         text      not null          // s2_paper_id | corpus_id
+  link_text       text      not null
+  created_at      text      not null
+  unique (qa_result_id, cite_id)
 
 qa_user_preferences
   user_id         integer   → users.id
@@ -351,6 +360,11 @@ services:
     max_concurrency: 1              # S2 带 key 默认 1 RPS
     rate_limit_interval: 1          # 无 key 建议 3；强制指数退避
     # api_key_env: SEMANTIC_SCHOLAR_API_KEY   # 或 api_key: <key>，经 x-api-key 头发送
+  s2_pdf_service:                   # 仅无 arxiv_id 的论文：经 S2 openAccessPdf 下载 PDF
+    max_concurrency: 2
+    rate_limit_interval: 2
+    download_timeout: 60            # 秒
+    max_file_size_mb: 100
   pdf_parse:
     max_concurrency: 2
     method: python                  # python | nodejs
@@ -363,6 +377,14 @@ services:
   translation_service:              # 翻译服务的 AI 调用并发/限流
     max_concurrency: 2
     rate_limit_interval: 1
+  # concurrency_group：同组服务共享一个并发信号量（组内 max_concurrency 取相同值）。
+  # doc2x 两个服务共享 Doc2X 账号级任务并发上限（暂按 5 假设）。
+  doc2x_parse:
+    max_concurrency: 5
+    concurrency_group: doc2x
+  doc2x_translate:
+    max_concurrency: 5
+    concurrency_group: doc2x
 
 # 模型配置
 models:
@@ -381,13 +403,51 @@ models:
       model_id: "gpt-5.3-codex-spark"
       reasoning_effort: xhigh
       timeout: 1800
+      vision: true                 # 能接收图片输入（截图提问）；缺省 false
 
 # BREAKING：原 claude_cli / codex_cli generic provider 已移除；Codex 统一迁移到 type: codex。
 
-# Q&A 文本上下文优先级
-content_priority:
+# Q&A 文本上下文优先级（运行时解析：doc2x 解析完成后新的提问/重新生成自动改用 doc2x 文本）
+pdf_upload:
+  max_file_size_mb: 100             # 用户上传 PDF（POST /api/papers/:id/pdf）的大小上限，超出 413
+
+content_priority:                   # 缺省即为下列值
   - user_input
+  - doc2x_parsed
   - pdf_parsed
+
+# QA prompt。system prompt 是 prompts/system/<name>.md 文件（只放规则，每次运行重新读取）；
+# 论文、参考文献、inputs、历史和问题由后端拼成 user 消息。旧的顶层 system_prompt 模板会让启动报错。
+qa_prompt:
+  # system_prompts_dir: ./prompts/system   # 缺省 = 仓库自带目录；相对路径相对 config.yml
+  default_system_prompt: paper-qa
+  direct_ask:                               # PDF 选段/截图直接提问
+    # system_prompt: paper-qa
+    question: "Explain this in detail in an easy-to-understand way, using bullet points."
+  codex_web_search: true                    # Codex 模型可联网搜索（如查 S2 paperId）
+  max_history_turns: 20                     # 追问最多带最近 N 轮历史
+
+qa:                                         # 只放 preset QA；可选 system_prompt: <name>
+  - name: research-question
+    prompt: "这篇论文试图解决什么问题？"
+
+# doc2x CLI（精确解析 + 保留排版对照翻译）。整块缺省 = 关闭。
+# 前置（以运行后端的同一 OS 用户，一次性）：npm i -g @noedgeai-org/doc2x-cli@latest（Node >= 22）+ doc2x login
+doc2x:
+  enabled: true
+  cli_path: doc2x                   # 绝对路径时其所在目录（含 node）会被加到子进程 PATH 前
+  timeout: 1800                     # 单次 CLI 运行超时（秒），超时 kill
+  output_dir: ./data/doc2x          # 产物：<output_dir>/<paperId>/{parse,translate}/，经 /api/files/* 访问
+  auto_since: '2026-10-09T06:30:00Z'  # created_at ≥ 此时间的论文自动解析；更早的仅手动触发
+  token_file: ~/.config/doc2x/cli-oauth-tokens.json  # doc2x login 写入的 OAuth token（复用 parseId 翻译时读取）
+  gateway_url: https://v2c.doc2x.noedgeai.com        # doc2x 网关（CLI 内部接口，未公开文档）
+  parse:
+    formula_mode: dollar            # $…$ 公式分隔符
+  translate:
+    target_language: zh
+    model: '85'                     # doc2x 翻译模型 id（doc2x models list）；85 = gemini-3.1-flash-lite-preview
+    pdf_font_strategy: page-optimal
+    ignore_types: [reference]       # 参考文献只解析不翻译
 
 # 翻译（英译中）。{TEXT} 占位符在翻译时替换为源文；model 可选，缺省回退 models.default。
 # 改 prompt 文案无需改代码。
@@ -425,13 +485,15 @@ notes:
 - `POST /api/translate/stream` —— body `{ text, force? }`，返回 `text/event-stream`：`start → delta* → done|error`。缓存命中为 `start(cached:true) → done`，非流式 provider 也只发 done，不伪造 chunk；断连向 provider 传播 abort。
 - `GET /api/translations/:hash`（可选 `?target_lang=`，默认 `zh`）—— 按 hash 仅查缓存，命中返回 `{ data }`，未命中 404，不触发 AI。
 
-`qa_service` 与 `translation_service` 继续共用 `services/model_invoke.ts` 的 `callModel(prompt, modelName, options?)` 门面，内部只路由到独立 `OpenAIProvider` / `CodexProvider`。`stream` 缺省为 false；Codex exec 与 app-server 都强制 ephemeral，app-server 还会在 `turn/start` 前验证 `thread.ephemeral === true`，不污染个人 Codex 历史。
+`qa_service` 与 `translation_service` 继续共用 `services/model_invoke.ts` 的 `callModel(input, modelName, options?)` 门面，内部只路由到独立 `OpenAIProvider` / `CodexProvider`。`input` 可以是字符串（单条 user 文本，翻译仍这样用），也可以是结构化 `ModelInput { system?, user: (text | image{path,mime})[], web_search? }`：OpenAI 发 `role: system` + 多 part user 消息（图片读本地图床文件转 base64 data URL）；Codex app-server 用 `developerInstructions`、`config.web_search: "live"`、`localImage`；Codex exec 用 `-c developer_instructions=…`、`-c web_search="live"`、`--image <path>`，文本仍走 stdin（`--image` 接收多值，不能把问题写在它后面）。`stream` 缺省为 false；Codex exec 与 app-server 都强制 ephemeral，app-server 还会在 `turn/start` 前验证 `thread.ephemeral === true`，不污染个人 Codex 历史。
 
 **PDF 划词翻译**：纯前端复用上述 Internal SSE API 与全局 `translations` cache，不新增 provider、endpoint、表或 migration。`PdfViewer` 以 60ms 选区捕获显示选区工具栏（复制链接 + 翻译），仅在登录用户点击「翻译」后对单页 text-layer 选区 identity 挂载 `StreamingTranslationText`，不再有 500ms 自动触发。Vue scoped slot 在 translated text 仍为空时显示 immutable selection snapshot 的原文，首个非空 delta 或 cache result 到达后切换为译文；这只是现有 SSE 消费端的 fallback，不改变 backend、数据库、provider、配置或依赖。面板内 pointer focus transfer 导致的 collapsed selection 不清理 active child；普通外部点击与不同的新选区都会立即 abort 旧 child。其他 viewer 生命周期变化仍会 abort；匿名用户不显示翻译按钮、不请求或弹登录。
 
 **QA prompt 持久化**：`qa_entries` 是问题文本的持久化来源。free QA 在创建 Entry 时写入 `prompt`，后续重跑只读该字段；template QA 每次运行前从 `config.yml` 读取最新模板并更新 Entry。历史 `qa_results.prompt` 仍保存每次成功调用实际使用的快照。迁移通过最新历史 Result 回填可恢复的 Entry；没有任何 Result 的旧失败 free QA 不会伪造原文，只有在用户明确授权且生成当前一致性备份后，才按精确 ID 清理。
 
 **QA ↔ Service execution**：QA 保持 ServiceRunner pure service。`executePureService` 把刚创建的 `executionId` 作为 typed callback context 传入，QA 成功后直接写入该 id；同 paper 并发或同 model 重跑不会再通过“最新 execution”误关联。历史错连缺少确定性映射信息，原样保留。Services 页面继续负责统一监控，不提供 QA 专属重试。
+
+**上下文提问（contextual QA）**：QA = system prompt（`prompts/system/*.md`）+ 有序 inputs（PDF 选段、图床截图、对话历史引用）+ 问题。`services/qa_formatter.ts` 按 `<paper>`（无全文时所有提问 409）→ `<references>`（`paper_citations` 中本论文引用的文献，S2 paperId + 论文库链接）→ `<inputs>`（整条追问链的截图在前、选段在后，各一次）→ `<history>`（祖先问题 + 被选中的回答，只用标号引用输入）→ `<question>` 组装，运行和「查看模型输入」（`GET /api/qa/results/:id/model-input`，按当前配置重建、不存储、全文只给来源和长度）共用。追问只接续 done 的回答（否则 409），可接续他人共享的回答，归属追问者；后端沿 `history.result_id` 回溯时不过滤可见性和软删除。删除回答改为软删除（`deleted_at`）；图床不再提供删除接口，`GET /api/images` 额外返回 `qa_reference_count`。新增 `GET /api/qa/entries/:id/tree`、`GET /api/qa/entries/:id/locate`；`POST /api/papers/:id/qa/free` 接受 `instruction`、`inputs`、`direct_ask`。迁移 `0030_contextual_qa`（加列 + `qa_result_cites`）。
 
 **QA durable streaming runtime**：每次调用通过 pure-service `onCreated` 在排队前插入一个 exact Result；execution context 带 `AbortSignal`，semaphore/rate-limit/provider 都可精确取消。provider delta 以约 200ms 合并，先 append 到 `qa_results.answer` 再发布 SSE；终态 flush 后由权威 final 覆盖并生成 hash。Internal `GET /api/qa/results/:resultId/stream` 使用 `start → delta* → done|error`，断开只取消订阅；`POST /api/qa/results/:resultId/cancel` 才取消运行。`thinking_duration_ms` 由 started/first_chunk/finished 时间戳派生，不写入数据库。启动时 stale active Result 保留局部内容后标为 failed，并重算 Entry 汇总状态。
 
@@ -440,7 +502,7 @@ notes:
 **QA 前端流式渲染**：Pinia 为当前可见 active Result 管理一个可重连 SSE observer，delta 先经 animation-frame batch；`QAThinkingTimer` 只更新固定宽度计时文本。`QAStreamingMarkdown` 保留稳定 Markdown block DOM、只解析尾部，流式期禁用不稳定的 hash 高亮/锚点；done 等待 pending paint 后切到标准 `MarkdownContent` 做一次 canonical render。不自动滚动或对答案容器做 transition。
 新增流式 UI copy 统一为英文：`Queued / Thinking / Streaming / Done / Stopped / Failed`、`Thought for · mm:ss`、`This model will display its answer when complete`、`Agent is thinking…`。
 
-**QA 多回答选择**：`QAResultView` 对 done 使用 `completed_at`，对 active Result 使用 `created_at`，再按 result id 判定最新回答。首次显示和新增 Result 时激活最新；status、Thinking 计时、answer delta 和等价轮询都不进入 selection signature，因此不重置手动 tab；删除当前 Result 回退最新；`requestedResultId` 锚点为一次性高优先级选择。
+**QA 多回答选择**：`QAResultView` 对所有状态都按 `created_at`（缺失回退 `completed_at`）+ result id 判定最新回答（按提问时间，不按完成时间）。多模型提交时后端按模型列表逆序创建 Result，排在前面的模型默认被选中；默认追问对象额外限定为 done（`defaultFollowupResult`）。首次显示和新增 Result 时激活最新；status、Thinking 计时、answer delta 和等价轮询都不进入 selection signature，因此不重置手动 tab；删除当前 Result 回退最新；`requestedResultId` 锚点为一次性高优先级选择。
 
 ---
 
@@ -457,6 +519,8 @@ notes:
 | better-sqlite3 | SQLite driver |
 | js-yaml | 解析 config.yml |
 | pdf-parse | Node.js PDF 解析 (可选方案) |
+| pdf-lib | 把 doc2x 左右对照 PDF 每页裁成右半边，生成「仅译文」PDF |
+| doc2x CLI（外部，`@noedgeai-org/doc2x-cli`） | doc2x 精确解析 / 对照翻译；以子进程 `Bun.spawn` 调用，OAuth 登录态取自 `~/.config/doc2x/` |
 | `Bun.password` (内置) | 密码哈希（argon2id），无需第三方依赖 |
 
 ### Frontend (packages/frontend)
@@ -475,7 +539,6 @@ notes:
 | tw-animate-css | Tailwind v4 动画工具（替代 v3 的 tailwindcss-animate） |
 | class-variance-authority + clsx + tailwind-merge | cn() 与变体管理 |
 | vue-sonner | Toast 通知（由 `<Toaster>` 组件包装） |
-| vuedraggable | 拖拽（idea-forge Kanban） |
 | pdfjs-dist | 嵌入式 PDF 查看器（替代浏览器原生插件）：canvas 渲染 + 文本层选区，支撑 `paperland://…?pdf=…` 页面/选区锚点。**版本精确 pin**（`ts/te` 为 pdf.js 文本偏移，需跨版本稳定）；动态 `import()` code-split，worker 经 `pdf.worker.min.mjs?url` 注册到 `GlobalWorkerOptions.workerSrc` |
 | turndown + turndown-plugin-gfm | 选区 HTML→Markdown 还原（「复制为锚点链接」：GFM 表格、数学按 `$`/`$$` 还原） |
 | monaco-editor | 笔记编辑器（`MonacoMarkdownEditor.vue`，浮窗 + 左面板 edit/split）：Markdown 语法高亮（`lib/monaco.ts` 用 `withMath` 扩展自带文法，加 `$…$`/`$$…$$` LaTeX 数学 token）、显示行号、跟随明暗主题。**懒加载**：`lib/monaco.ts` 动态 `import()` 仅取 `editor.api` + markdown 文法（独立 async chunk，不进首包），`editor.worker?worker` 注册到 `self.MonacoEnvironment`，`vite.config.ts` 设 `worker.format:'es'` |

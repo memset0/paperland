@@ -195,3 +195,65 @@ describe('service declaration', () => {
     expect(semanticScholarService.produces).not.toContain('tldr')
   })
 })
+
+describe('open-access PDF mapping', () => {
+  it('stores open_access_pdf_url and status when S2 has an open-access PDF', () => {
+    const r = __test__.mapS2ToPaperFields(
+      { externalIds: { CorpusId: 1 }, openAccessPdf: { url: 'https://example.org/p.pdf', status: 'GREEN' } },
+      { arxiv_id: null, corpus_id: '1' },
+    )
+    expect(r.open_access_pdf_url).toBe('https://example.org/p.pdf')
+    expect(r.open_access_pdf_status).toBe('GREEN')
+  })
+
+  it('stores only the status for closed-access papers (empty url)', () => {
+    const r = __test__.mapS2ToPaperFields(
+      { externalIds: { CorpusId: 1 }, openAccessPdf: { url: '', status: 'CLOSED' } },
+      { arxiv_id: null, corpus_id: '1' },
+    )
+    expect('open_access_pdf_url' in r).toBe(false)
+    expect(r.open_access_pdf_status).toBe('CLOSED')
+  })
+
+  it('stores neither key when openAccessPdf is absent or null', () => {
+    for (const oa of [undefined, null]) {
+      const r = __test__.mapS2ToPaperFields({ externalIds: { CorpusId: 1 }, openAccessPdf: oa }, { arxiv_id: null, corpus_id: '1' })
+      expect('open_access_pdf_url' in r).toBe(false)
+      expect('open_access_pdf_status' in r).toBe(false)
+    }
+  })
+
+  it('requests the openAccessPdf field', () => {
+    expect(__test__.S2_FIELDS.split(',')).toContain('openAccessPdf')
+  })
+})
+
+describe('s2_paper_id support', () => {
+  const PID = '649def34f8be52c8b66281af98ae884c09aef38b'
+
+  it('writes back the response paperId when the paper has none', () => {
+    const r = __test__.mapS2ToPaperFields({ paperId: PID.toUpperCase(), externalIds: { CorpusId: 1 } }, { arxiv_id: null, corpus_id: '1', s2_paper_id: null })
+    expect(r.s2_paper_id).toBe(PID)
+  })
+
+  it('does not overwrite an existing s2_paper_id', () => {
+    const r = __test__.mapS2ToPaperFields({ paperId: 'other', externalIds: {} }, { arxiv_id: null, corpus_id: '1', s2_paper_id: PID })
+    expect('s2_paper_id' in r).toBe(false)
+  })
+
+  it('queries by the bare paper id when the paper has only s2_paper_id', async () => {
+    const urls: string[] = []
+    globalThis.fetch = (async (url: string) => {
+      urls.push(String(url))
+      return makeResponse(200, String(url).includes('/references') || String(url).includes('/citations')
+        ? { data: [] }
+        : { paperId: PID, externalIds: { CorpusId: 13756489, ArXiv: '1706.03762' }, citationCount: 1 })
+    }) as typeof fetch
+    // Citation-graph persistence is best-effort; without a test DB it just logs.
+    const r = await semanticScholarService.execute(1, { arxiv_id: null, corpus_id: null, s2_paper_id: PID })
+    expect(urls[0]).toContain(`/graph/v1/paper/${PID}?`)
+    expect(r.corpus_id).toBe('13756489')
+    expect(r.arxiv_id).toBe('1706.03762')
+    expect('s2_paper_id' in r).toBe(false)
+  })
+})

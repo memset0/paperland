@@ -5,7 +5,9 @@ import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
 import { toast } from 'vue-sonner'
 import { useRouter, useRoute } from 'vue-router'
-import { Trash2, Link2, Copy } from '@lucide/vue'
+import { Trash2, Link2, Copy, ExternalLink, BookOpen } from '@lucide/vue'
+import { usePaperReferences, findReference, s2Url, type PaperReference } from '@/composables/usePaperReferences'
+import { useQAStore } from '@/stores/qa'
 import { useHighlightStore } from '@/stores/highlights'
 import { useAuthStore } from '@/stores/auth'
 import { applyHighlights, clearHighlights, getSelectionOffsets, isForeignHighlight } from '@/composables/useHighlight'
@@ -26,10 +28,16 @@ import { renderMarkdown } from '@/lib/markdown-renderer'
 // NOTE: `applyImageWidth` must default to TRUE. A Boolean-typed prop that the parent omits is
 // cast to `false` by Vue (not `undefined`), so without this default the directive would be
 // disabled everywhere it isn't explicitly passed (walkthrough, notes card, public notes, FAQ).
+// `qaAnswer` marks a Q&A answer: `#moonlight` links emit `moonlight` (open a pre-filled follow-up)
+// and `#cite:<id>` links become citation chips when the id is in the paper's references (else plain text).
 const props = withDefaults(
-  defineProps<{ content: string; highlightPathname?: string; paperId?: number; qaResultId?: number; disableHighlights?: boolean; publicNote?: boolean; applyImageWidth?: boolean }>(),
+  defineProps<{ content: string; highlightPathname?: string; paperId?: number; qaResultId?: number; disableHighlights?: boolean; publicNote?: boolean; applyImageWidth?: boolean; qaAnswer?: boolean }>(),
   { applyImageWidth: true },
 )
+const emit = defineEmits<{ moonlight: [question: string] }>()
+const qaStore = useQAStore()
+const references = props.qaAnswer && props.paperId ? usePaperReferences(props.paperId) : ref<PaperReference[] | null>(null)
+const activeCite = ref<{ ref: PaperReference; citeId: string; x: number; y: number } | null>(null)
 
 const highlightStore = useHighlightStore()
 const auth = useAuthStore()
@@ -111,6 +119,8 @@ function renderAndHighlight() {
   // Public-note mode: neutralize Q&A/block anchors so they can't resolve against this viewer's Q&A.
   if (props.publicNote) deactivateBlockAnchors(el)
 
+  if (props.qaAnswer) decorateQALinks(el)
+
   // Apply highlights after DOM update
   nextTick(() => {
     if (!el || myHighlights.value.length === 0) return
@@ -123,6 +133,9 @@ watch(() => props.content, () => {
   closeAllPopups()
   renderAndHighlight()
 }, { immediate: false })
+
+// Citation chips depend on the paper's reference list, which loads asynchronously.
+watch(references, () => { if (props.qaAnswer) renderAndHighlight() })
 
 // Watch highlight changes (e.g., after create/delete)
 watch(myHighlights, () => {
@@ -240,7 +253,7 @@ function parsePdfRect(params: URLSearchParams): PdfRect | null {
  * or `?pdf=<page>&rx=&ry=&rw=&rh=`). `pdf` takes precedence over `h`; within a PDF
  * target the rectangle takes precedence over `ts`/`te`. All sub-params optional.
  */
-function parsePaperlandUrl(href: string): { paperId: number; hash: string | null; range: AnchorRange | null; pdf: PdfAnchor | null } | null {
+function parsePaperlandUrl(href: string): { paperId: number; hash: string | null; range: AnchorRange | null; pdf: PdfAnchor | null; qa: { entryId: number; resultId: number | null } | null } | null {
   const m = href.match(/^paperland:\/\/paper\/(\d+)(?:\?(.*))?$/)
   if (!m) return null
   const params = new URLSearchParams(m[2] || '')
@@ -249,7 +262,14 @@ function parsePaperlandUrl(href: string): { paperId: number; hash: string | null
   const pdf = params.get('pdf')
   const ts = params.get('ts')
   const te = params.get('te')
+  const qa = params.get('qa')
+  const result = params.get('result')
+  const qaEntryId = qa != null ? parseInt(qa, 10) : NaN
   return {
+    // `qa` makes this a Q&A target; any h/s/e/pdf parameters are then ignored.
+    qa: Number.isFinite(qaEntryId)
+      ? { entryId: qaEntryId, resultId: result != null && Number.isFinite(parseInt(result, 10)) ? parseInt(result, 10) : null }
+      : null,
     paperId: parseInt(m[1], 10),
     hash: params.get('h'),
     range: s != null && e != null ? { start: parseInt(s, 10), end: parseInt(e, 10) } : null,
@@ -276,6 +296,85 @@ function deactivateBlockAnchors(el: HTMLElement) {
   }
 }
 
+/**
+ * Q&A answers: `#cite:<id>` links whose id is in this paper's references become citation chips
+ * (same text, so highlight offsets are unchanged); unknown ids become plain text. `#moonlight`
+ * follow-up suggestions stay links and are intercepted on click.
+ */
+function decorateQALinks(el: HTMLElement) {
+  for (const a of Array.from(el.querySelectorAll<HTMLAnchorElement>('a[href^="#cite:"]'))) {
+    const citeId = decodeURIComponent((a.getAttribute('href') || '').slice('#cite:'.length))
+    const span = document.createElement('span')
+    span.textContent = a.textContent || ''
+    if (findReference(references.value, citeId)) {
+      span.className = 'qa-cite-chip'
+      span.dataset.citeId = citeId
+      span.setAttribute('role', 'button')
+      span.tabIndex = 0
+    } else {
+      span.className = 'qa-cite-unknown'
+    }
+    a.replaceWith(span)
+  }
+  for (const a of Array.from(el.querySelectorAll<HTMLAnchorElement>('a[href="#moonlight"]'))) {
+    a.classList.add('qa-followup-link')
+  }
+}
+
+function openCiteCard(chip: HTMLElement) {
+  const ref = findReference(references.value, chip.dataset.citeId || '')
+  const host = containerRef.value?.parentElement
+  if (!ref || !host) return
+  const cr = chip.getBoundingClientRect()
+  const hr = host.getBoundingClientRect()
+  activeCite.value = { ref, citeId: chip.dataset.citeId!, x: cr.left - hr.left, y: cr.bottom - hr.top + 4 }
+}
+
+/** Q&A answer link clicks: suggested follow-ups and citation chips never navigate. */
+function onQALinkClick(e: MouseEvent | Event) {
+  if (!props.qaAnswer) return
+  const target = e.target as Element
+  const moonlight = target?.closest('a[href="#moonlight"]')
+  if (moonlight) {
+    e.preventDefault()
+    e.stopPropagation()
+    emit('moonlight', (moonlight.textContent || '').replace(/^\s*💬\s*/u, '').trim())
+    return
+  }
+  const chip = target?.closest('.qa-cite-chip') as HTMLElement | null
+  if (chip) {
+    e.stopPropagation()
+    if (activeCite.value?.citeId === chip.dataset.citeId) activeCite.value = null
+    else openCiteCard(chip)
+  }
+}
+
+function onCiteHover(e: MouseEvent) {
+  const chip = (e.target as Element)?.closest?.('.qa-cite-chip') as HTMLElement | null
+  if (chip && activeCite.value?.citeId !== chip.dataset.citeId) openCiteCard(chip)
+}
+
+function openLibraryPaper(paperId: number) {
+  activeCite.value = null
+  router.push(`/papers/${paperId}`)
+}
+
+/** Follow a `?qa=<entry>[&result=]` link: resolve the owning paper by entry id, then reveal it. */
+async function openQALink(entryId: number, resultId: number | null) {
+  let located
+  try {
+    located = await qaStore.locateEntry(entryId, resultId)
+  } catch {
+    toast.error('Q&A unavailable')
+    return
+  }
+  if (located.state === 'hidden') { toast.error('This Q&A is currently not visible'); return }
+  if (located.state === 'deleted' || located.paper_id == null) { toast.error('This Q&A has been deleted'); return }
+  const query: Record<string, string> = { qa: String(entryId) }
+  if (resultId != null) query.result = String(resultId)
+  router.push({ path: `/papers/${located.paper_id}`, query })
+}
+
 /** Intercept clicks on `paperland://` links: jump in-app instead of navigating the browser. */
 function onAnchorLinkClick(e: MouseEvent | Event) {
   const a = (e.target as Element)?.closest('a[href^="paperland://"]') as HTMLAnchorElement | null
@@ -284,6 +383,11 @@ function onAnchorLinkClick(e: MouseEvent | Event) {
   e.stopPropagation()
   const target = parsePaperlandUrl(a.getAttribute('href') || '')
   if (!target) return
+  // A Q&A target resolves by entry id alone (the link's paper id may be stale).
+  if (target.qa) {
+    void openQALink(target.qa.entryId, target.qa.resultId)
+    return
+  }
   // Backstop for public-note mode: never resolve a Q&A/block target against this viewer's Q&A.
   if (props.publicNote && target.pdf == null && target.hash != null) return
   const onSamePaper = route.name === 'paper-detail' && parseInt(route.params.id as string, 10) === target.paperId
@@ -494,8 +598,14 @@ const COLOR_LABELS: Record<HighlightColor, string> = { yellow: 'Yellow', green: 
 
 // ---- Lifecycle ----
 
+function onCiteDismiss(e: MouseEvent) {
+  const target = e.target as Element
+  if (!target?.closest('.qa-cite-card, .qa-cite-chip')) activeCite.value = null
+}
+
 onMounted(() => {
   renderAndHighlight()
+  if (props.qaAnswer) document.addEventListener('mousedown', onCiteDismiss)
   if (props.disableHighlights) return // read-only: no toolbar/menu listeners
   // Selection detection via selectionchange (works on both desktop and mobile)
   document.addEventListener('selectionchange', onSelectionChange)
@@ -505,6 +615,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onCiteDismiss)
   document.removeEventListener('selectionchange', onSelectionChange)
   document.removeEventListener('mousedown', onDocumentDismiss)
   document.removeEventListener('touchstart', onDocumentDismiss)
@@ -516,8 +627,32 @@ onBeforeUnmount(() => {
   <div class="markdown-content max-w-none relative" style="position: relative;" :data-content-hash="contentHash">
     <div
       ref="containerRef"
-      @click="onAnchorLinkClick($event); onMarkClick($event); onKatexClick($event)"
+      @click="onQALinkClick($event); onAnchorLinkClick($event); onMarkClick($event); onKatexClick($event)"
+      @mouseover="qaAnswer && onCiteHover($event)"
     />
+
+    <!-- Citation card for a `#cite:` chip (reference data comes from the paper's S2 references) -->
+    <div
+      v-if="activeCite"
+      class="qa-cite-card"
+      :style="{ left: activeCite.x + 'px', top: activeCite.y + 'px' }"
+      @mouseleave="activeCite = null"
+    >
+      <div class="qa-cite-card-title">{{ activeCite.ref.title || 'Untitled' }}</div>
+      <div class="qa-cite-card-meta">
+        <span v-if="activeCite.ref.authors.length">{{ activeCite.ref.authors.slice(0, 3).join(', ') }}<template v-if="activeCite.ref.authors.length > 3"> et al.</template></span>
+        <span v-if="activeCite.ref.year"> · {{ activeCite.ref.year }}</span>
+        <span v-if="activeCite.ref.venue"> · {{ activeCite.ref.venue }}</span>
+      </div>
+      <div class="qa-cite-card-actions">
+        <button v-if="activeCite.ref.library_paper_id" type="button" @click="openLibraryPaper(activeCite.ref.library_paper_id)">
+          <BookOpen class="hl-icon" /> 打开论文
+        </button>
+        <a :href="s2Url(activeCite.citeId)" target="_blank" rel="noopener noreferrer">
+          <ExternalLink class="hl-icon" /> Semantic Scholar
+        </a>
+      </div>
+    </div>
 
     <!-- Selection Toolbar -->
     <div
@@ -575,6 +710,27 @@ onBeforeUnmount(() => {
    overflow-wrap is inherited, so this covers p / li / headings too. Code blocks
    (<pre>) keep white-space:pre + their own overflow-x:auto and are unaffected. */
 .markdown-content { overflow-wrap: anywhere; }
+/* Q&A answers: citation chips (`#cite:` ids found in the paper's references), unknown ids as
+   plain text, and suggested follow-up links. Chip text equals the link text so highlight offsets hold. */
+.markdown-content :deep(.qa-cite-chip) {
+  display: inline; cursor: pointer; border-radius: 0.25rem; padding: 0 0.3em;
+  background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary);
+  border-bottom: 1px dashed color-mix(in oklch, var(--primary) 50%, transparent);
+}
+.markdown-content :deep(.qa-cite-chip)::before { content: '§ '; opacity: 0.6; }
+.markdown-content :deep(.qa-followup-link) { text-decoration: none; word-break: normal; }
+.markdown-content :deep(.qa-followup-link:hover) { text-decoration: underline; }
+.qa-cite-card {
+  position: absolute; z-index: 40; width: min(320px, 90%); padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem; border: 1px solid var(--border); background: var(--popover);
+  color: var(--popover-foreground); box-shadow: 0 8px 24px rgb(0 0 0 / 0.12); font-size: 0.8rem;
+}
+.qa-cite-card-title { font-weight: 600; line-height: 1.35; }
+.qa-cite-card-meta { margin-top: 0.2rem; color: var(--muted-foreground); }
+.qa-cite-card-actions { margin-top: 0.45rem; display: flex; gap: 0.75rem; }
+.qa-cite-card-actions button, .qa-cite-card-actions a {
+  display: inline-flex; align-items: center; gap: 0.25rem; color: var(--primary); text-decoration: none;
+}
 /* Inert Q&A/block anchor in public-note mode: looks like its text, not actionable. */
 .markdown-content :deep(.anchor-inert) { color: var(--muted-foreground); text-decoration: underline dotted; text-underline-offset: 2px; cursor: default; }
 .markdown-content :deep(h1) { font-size: 1.25em; font-weight: 700; margin: 1em 0 0.5em; }

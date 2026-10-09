@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { ModelConfig } from '@paperland/shared'
-import { codexProvider } from './codex_provider.js'
+import { appServerInput, codexProvider, execArgs } from './codex_provider.js'
 
 let fixtureDir = ''
 let codexHome = ''
@@ -124,5 +124,61 @@ exec sleep 1`)
     const controller = new AbortController()
     setTimeout(() => controller.abort(), 20)
     await expect(codexProvider.invoke('translate', appServerConfig(hanging), { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
+
+describe('CodexProvider structured input', () => {
+  const structured = {
+    system: "Rules: don't invent ids",
+    user: [
+      { type: 'text' as const, text: '<question>What is @Image1?</question>' },
+      { type: 'image' as const, path: '/data/images/a b.png', mime: 'image/png' },
+    ],
+    web_search: true,
+  }
+
+  test('exec passes the system prompt, web search, and images as flags and keeps text on stdin', async () => {
+    expect(execArgs(structured)).toBe(
+      ` -c 'developer_instructions="Rules: don'\\''t invent ids"' -c 'web_search="live"' --image '/data/images/a b.png'`)
+    const argsFile = join(fixtureDir, 'exec-args.txt')
+    const stdinFile = join(fixtureDir, 'exec-stdin.txt')
+    const config: ModelConfig = {
+      name: 'codex-exec',
+      type: 'codex',
+      stream: false,
+      shell: `sh -c 'printf "%s\\n" "$@" > ${argsFile}; cat > ${stdinFile}; printf done' check`,
+      timeout: 2,
+    }
+    await expect(codexProvider.invoke(structured, config)).resolves.toBe('done')
+    expect(require('fs').readFileSync(argsFile, 'utf8').split('\n').filter(Boolean)).toEqual([
+      '-c', `developer_instructions="Rules: don't invent ids"`, '-c', 'web_search="live"',
+      '--image', '/data/images/a b.png', '--ephemeral', '-',
+    ])
+    expect(require('fs').readFileSync(stdinFile, 'utf8')).toBe('<question>What is @Image1?</question>')
+  })
+
+  test('app-server sends developerInstructions, web search config, and localImage items', async () => {
+    const logFile = join(fixtureDir, 'app-server-log.txt')
+    const cliPath = executable('fake-codex-structured', `
+IFS= read -r initialize
+printf '%s\n' '{"id":0,"result":{}}'
+IFS= read -r initialized
+IFS= read -r thread_start
+printf '%s\n' "$thread_start" > ${logFile}
+printf '%s\n' '{"id":1,"result":{"thread":{"id":"thread-1","ephemeral":true}}}'
+IFS= read -r turn_start
+printf '%s\n' "$turn_start" >> ${logFile}
+printf '%s\n' '{"id":2,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/started","params":{"item":{"type":"agentMessage","id":"final","phase":"final_answer"}}}'
+printf '%s\n' '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"final","phase":"final_answer","text":"ok"}}}'
+printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}'
+exec sleep 1`)
+    await expect(codexProvider.invoke(structured, appServerConfig(cliPath))).resolves.toBe('ok')
+    const [threadStart, turnStart] = require('fs').readFileSync(logFile, 'utf8').trim().split('\n').map((line: string) => JSON.parse(line))
+    expect(threadStart.params.developerInstructions).toBe(structured.system)
+    expect(threadStart.params.baseInstructions).toBeUndefined()
+    expect(threadStart.params.config).toEqual({ web_search: 'live' })
+    expect(turnStart.params.input).toEqual(appServerInput(structured))
+    expect(turnStart.params.input[1]).toEqual({ type: 'localImage', path: '/data/images/a b.png' })
   })
 })

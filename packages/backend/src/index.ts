@@ -15,6 +15,7 @@ import { paperRoutes } from './api/papers.js'
 import { serviceRoutes } from './api/services.js'
 import { qaRoutes } from './api/qa.js'
 import { translationRoutes } from './api/translation.js'
+import { doc2xRoutes } from './api/doc2x.js'
 import { highlightsRoutes } from './api/highlights.js'
 import { notesRoutes } from './api/notes.js'
 import { referenceLinksRoutes } from './api/reference_links.js'
@@ -30,12 +31,13 @@ import { inArray } from 'drizzle-orm'
 import { serviceRunner } from './services/service_runner.js'
 import { recoverInterruptedQAResults } from './services/qa_runtime.js'
 import { arxivMetadataService, arxivPdfService } from './services/arxiv_service.js'
+import { s2PdfService } from './services/s2_pdf_service.js'
 import { semanticScholarService } from './services/semantic_scholar_service.js'
 import { pdfParseService } from './services/pdf_parse_service.js'
+import { doc2xParseService } from './services/doc2x_parse_service.js'
+import { doc2xTranslateService } from './services/doc2x_translate_service.js'
 import { papersCoolService } from './services/papers_cool_service.js'
-import { ideaForgeRoutes } from './api/idea-forge.js'
 import { conferenceRoutes } from './api/conferences.js'
-import { ensureIdeaForgeRoot } from './idea-forge/utils.js'
 import { registerFrontendHosting } from './frontend_hosting.js'
 
 async function main() {
@@ -62,9 +64,6 @@ async function main() {
     console.log(`Cleaned up stale service executions and ${recoveredQA.resultCount} QA results`)
   }
 
-  // Ensure idea-forge directory exists
-  ensureIdeaForgeRoot()
-
   // Start backup scheduler
   startBackupScheduler()
 
@@ -73,8 +72,11 @@ async function main() {
   serviceRunner.register(arxivMetadataService)
   serviceRunner.register(arxivPdfService)
   serviceRunner.register(semanticScholarService)
+  serviceRunner.register(s2PdfService)
   serviceRunner.register(pdfParseService)
   serviceRunner.register(papersCoolService)
+  serviceRunner.register(doc2xParseService)
+  serviceRunner.register(doc2xTranslateService)
   serviceRunner.register({ name: 'qa', type: 'pure', execute: async () => {} })
 
   // Create Fastify instance
@@ -155,15 +157,13 @@ async function main() {
   await app.register(serviceRoutes)
   await app.register(qaRoutes)
   await app.register(translationRoutes)
+  await app.register(doc2xRoutes)
   await app.register(highlightsRoutes)
   await app.register(notesRoutes)
   await app.register(referenceLinksRoutes)
   await app.register(imagesRoutes)
   await app.register(extensionRoutes)
   await app.register(tagRoutes)
-
-  // Register idea-forge routes
-  await app.register(ideaForgeRoutes)
 
   // Register conferences routes
   await app.register(conferenceRoutes)

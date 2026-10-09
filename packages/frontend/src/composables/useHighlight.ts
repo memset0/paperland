@@ -233,9 +233,16 @@ export function getSelectionOffsets(container: HTMLElement): {
   const selection = window.getSelection()
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
 
-  const range = selection.getRangeAt(0)
+  return getRangeOffsets(container, selection.getRangeAt(0))
+}
 
-  // Check if selection is within the container
+/** Offsets and text of a DOM range lying inside `container` (see getSelectionOffsets). */
+export function getRangeOffsets(container: HTMLElement, range: Range): {
+  start_offset: number
+  end_offset: number
+  text: string
+} | null {
+  // Check if the range is within the container
   if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) {
     return null
   }

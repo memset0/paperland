@@ -25,13 +25,12 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 ### 组件迁移约定
 
-- 所有 button / input / textarea / dialog / sheet / select / tabs / badge / card / popover / tooltip / dropdown-menu / table / alert / scroll-area / sonner / command / checkbox / label / collapsible / skeleton 都来自 `@/components/ui/*`
+- 所有 button / input / textarea / dialog / sheet / select / tabs / badge / card / popover / tooltip / dropdown-menu / table / alert / sonner / checkbox / label / collapsible / skeleton 都来自 `@/components/ui/*`
 - 折叠 disclosure 用 `<Collapsible>` 而非 HTML `<details>`；展开状态用 reactive `openMap`（如 `Record<string, boolean>`）管理
 - **`Tooltip` 必须位于某个 `TooltipProvider` 内**。`App.vue` 挂了**两处** provider：一处包桌面侧边栏 `<aside>`，一处包主内容 `<main>` 的 `<RouterView />`。页面内容（路由组件）里用 `Tooltip` 时直接用即可，无需自己再套 provider；反过来，脱离 `App.vue` 外壳单独挂载用到 `Tooltip` 的组件会抛 "must be used within `TooltipProvider`"
 - 单个 `.vue` 文件中的 Tailwind utility **主要承担布局**（grid/flex/spacing/responsive），不再用 utility 模仿按钮 / 输入框 / 卡片视觉
 - 颜色用语义 token：`bg-primary`、`text-muted-foreground`、`text-destructive` 等。**不**使用 `text-indigo-600`、`bg-emerald-50` 之类的具体色阶
 - Tag 徽章统一用 `TagBadge`（`components/TagBadge.vue`）：默认渲染中性 `secondary` 药丸；传入 `color` prop 时渲染该标签**自身颜色的淡色调 chip**（标签色文字 + 同色半透明底/描边，亮/暗模式皆可读）。标签管理页（`/tags`）即用 `color` 渲染真彩 chip；论文列表/详情目前不传 `color`，保持中性 `secondary`。后端始终保留每标签颜色（`tags.color`，前端 `tagsStore.getTagColor`）
-- idea-forge 的类别映射（`IDEA_CATEGORIES` / `IDEA_CATEGORY_LABELS` / `IDEA_CATEGORY_VARIANT`）集中在 `src/lib/idea-categories.ts`，组件统一从这里导入
 
 ---
 
@@ -41,7 +40,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
 │ Paperland                                                                                │
 ├────────┬─────────────┬──────┬─────┬───────┬────────────┬───────────┬──────────┬──────────┤
-│ Papers │ Conferences │ Tags │ Q&A │ Notes │ Idea Forge │ Extension │ Services │ Settings │
+│ Papers │ Conferences │ Tags │ Q&A │ Notes │ Extension │ Services │ Settings │
 └────────┴─────────────┴──────┴─────┴───────┴────────────┴───────────┴──────────┴──────────┘
 ```
 
@@ -49,8 +48,8 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 每个页面根据内容设置浏览器标签标题，统一格式 `{页面标题} · Paperland`，无标题时回退为 `Paperland`。`index.html` 的静态 `<title>Paperland</title>` 仅作首屏 / 兜底。
 
-- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Papers `/`、Conferences `/conferences`、Tags `/tags`、Q&A `/qa`、Idea Forge `/idea-forge`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Conference Detail `/conferences/:id`）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
-- **动态标题**：内容驱动的页面在视图内用 `composables/usePageTitle.ts` 的 `usePageTitle(() => …)`（基于 `@vueuse/core` 的 `useTitle`）响应式覆盖占位——论文详情用论文标题（加载前显示「Paper Detail」），Idea Forge 项目页用项目名。守卫先于视图执行，故占位标题在数据就绪后被组件覆盖；离开页面时视图作用域销毁停止 watcher，由目标页守卫重置标题。
+- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Papers `/`、Conferences `/conferences`、Tags `/tags`、Q&A `/qa`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Conference Detail `/conferences/:id`）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
+- **动态标题**：内容驱动的页面在视图内用 `composables/usePageTitle.ts` 的 `usePageTitle(() => …)`（基于 `@vueuse/core` 的 `useTitle`）响应式覆盖占位——论文详情用论文标题（加载前显示「Paper Detail」）。守卫先于视图执行，故占位标题在数据就绪后被组件覆盖；离开页面时视图作用域销毁停止 watcher，由目标页守卫重置标题。
 - **格式来源**：`formatTitle(name?)` 是格式与 ` · Paperland` 后缀的唯一来源，守卫与各视图共用。新增路由只需补 `meta.title`（缺省则回退 `Paperland`）。
 
 ### 响应式 / 移动端布局
@@ -64,7 +63,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - **列表表格**：移动端用 `hidden md:table-cell` 隐藏次要列（如作者、添加/修改日期），只保留关键列（标题 + 来源），避免窄屏出现横向滚动。
 - **工具栏**：搜索 + 下拉等控件行用 `flex flex-wrap`，搜索框移动端 `w-full`（独占一行）、桌面端 `md:flex-1`。
 - **Markdown 正文**（`MarkdownContent.vue`）：容器 `overflow-wrap: anywhere`，行内 `code` / 长链接 `word-break`，防止长 URL / 标识符撑宽正文（代码块仍保留 `white-space: pre` + 自身横向滚动）。
-- **双栏 / master-detail 降级**：`PaperDetail` 宽屏 split view 在 < 900px 降级为单栏；idea-forge `InboxView` 移动端由左右双栏改为纵向堆叠（列表 `w-full` + `max-h-[45vh]`，详情在下）。
+- **双栏 / master-detail 降级**：`PaperDetail` 宽屏 split view 在 < 900px 降级为单栏。
 - **PaperDetail 根高度**：用 `h-full`（贴合 `main` 内容盒高度）而非 `h-screen`，以正确扣除移动端 navbar 的 `pt-12`，避免 100vh + 48px 造成的纵向溢出与双滚动条。
 - **QAPanelNav**：滚动定位条（scroll-spy 竖向小圆点）是桌面悬浮态交互，< 768px 直接 `display: none`，避免在窄屏右缘压住正文。
 
@@ -82,7 +81,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 各「XX 管理」页通过共享组件 `components/AppPage.vue` 统一页面标题与内容宽度，不再各自手写页头 / 宽度容器：
 
 - **标题**：固定置于内容区顶部，统一 `text-xl font-semibold`，左侧带**对应图标**、**无描述副标题**。标题文字默认取 `route.meta.title`（英文，与侧边栏标签、浏览器标签一致），可用 `title` prop 覆盖。
-- **标题图标**：默认取 `route.meta.icon`（在 `router/index.ts` 为每个管理路由声明，与侧边栏导航图标一致：Papers→FileText、Conferences→CalendarDays、Tags→Tag、Q&A→MessageSquare、Notes→NotebookPen、Idea Forge→Lightbulb、Services→Activity、Settings→Settings），可用 `icon` prop 覆盖。图标只在 `meta` 里定义一处，避免与侧边栏图标漂移。
+- **标题图标**：默认取 `route.meta.icon`（在 `router/index.ts` 为每个管理路由声明，与侧边栏导航图标一致：Papers→FileText、Conferences→CalendarDays、Tags→Tag、Q&A→MessageSquare、Notes→NotebookPen、Services→Activity、Settings→Settings），可用 `icon` prop 覆盖。图标只在 `meta` 里定义一处，避免与侧边栏图标漂移。
 - **宽度**：默认居中收窄 `mx-auto max-w-5xl`；传 `full` 则全宽、无最大宽度限制。
 - **`fill` 模式**：用于自管内部滚动的页面（如 Q&A）——外层 `h-full flex flex-col`，标题头 `shrink-0` 不随滚动，内容区为 `flex-1 min-h-0 overflow-hidden`，页面内部的 `overflow-y-auto` 子元素照常滚动。非 `fill` 时页面随 `<main>` 整体滚动。
 - **操作按钮**：经 `#actions` 具名插槽渲染在标题右侧（如「添加论文」「新建会议」「New Project」、服务管理「回填 S2」、会议详情「刷新 / 解析 / 导入」）。
@@ -90,8 +89,8 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 各路由归类：
 
 - **全宽（`full`）**：论文管理 `/`（表格需要整页宽）。
-- **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/images`（图床画廊）、`/conferences`、`/conferences/:id`（标题固定为 `Conferences`，会议名 + 返回按钮置于内容区）、`/services`、`/settings`、`/idea-forge`。
-- **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`、Idea 工作区 `/idea-forge/:projectName`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
+- **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/images`（图床画廊）、`/conferences`、`/conferences/:id`（标题固定为 `Conferences`，会议名 + 返回按钮置于内容区）、`/services`、`/settings`。
+- **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
 
 > **新建管理页 checklist**：① 在 `router/index.ts` 给路由加 `meta.title`（英文，与侧边栏/标签一致）+ `meta.icon`（`@lucide/vue` 图标）；② 在 `App.vue` 加侧边栏导航项（同图标 + 英文标签）；③ 视图根用 `<AppPage>` 包裹，**不要再手写 `<h1>` 或宽度容器**——标题/图标由 `AppPage` 从 `meta` 自动渲染；画廊/看板/表格类传 `full`，自管内部滚动类传 `fill`，右上角按钮放 `#actions` 插槽。详情页除外。
 
@@ -129,7 +128,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 #### Extension 页面（`/extension`）
 
-- 侧边栏 **Extension**（`Puzzle` 图标，位于 Idea Forge 之后，需登录），`views/ExtensionPage.vue`，使用 `AppPage`。
+- 侧边栏 **Extension**（`Puzzle` 图标，位于 Images 之后，需登录），`views/ExtensionPage.vue`，使用 `AppPage`。
 - 内容：下载按钮（普通 `<a href download>` 指向 `GET /api/extension/download?base_url=<window.location.origin>`，同源请求携带会话 cookie）、Chrome/Edge 与 Firefox 安装步骤（Tabs）、使用方式与支持站点、Site URL + Token（复制 / 重新生成，与 Account settings 中的区块是同一个 token）。
 - `base_url` 用浏览器看到的 origin，而不是后端推断的地址，这样在 Caddy 反代和 Vite 代理下都正确。
 
@@ -141,14 +140,14 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - token 是每用户的 CSRF token：仅凭 token 无法操作（还需会话 cookie），用于防止第三方页面用链接诱导已登录用户创建论文。在 **Account settings → Browser Extension** 查看站点地址与 token（复制 / 重新生成）。
 - 生产托管：`frontend_hosting.ts` 对 `/open/` 前缀豁免「带扩展名即视为静态文件」规则（`2401.12345` 看起来像扩展名），保证该路径返回 SPA 入口。
 
-#### 方式二：通过 corpus_id 创建
+#### 方式二：通过 Semantic Scholar 标识创建
 
-- 用户输入 corpus_id
+- 添加对话框的「Semantic Scholar」标签页只有一个输入框，接受 Corpus ID（`123` / `CorpusId:123`）、40 位 S2 paper ID 或 semanticscholar.org 论文链接；`lib/s2-input.ts` 的 `parseS2Input` 把它路由为 `corpus_id` 或 `s2_paper_id` 提交（无法识别时就地提示并禁用「添加」，后端 `utils/s2_ids.ts` 再次校验）
+- 系统依次按 arxiv_id → corpus_id → s2_paper_id 查找已有论文
 - 系统查找是否已有匹配论文
   - 已存在 → 绑定（补充缺失 id）
   - 不存在 → 创建新记录
-- 仅凭 corpus_id 添加的论文保持该 id，**不再**自动反查 arxiv_id（单 id 即保留）；如需进入 arxiv PDF/解析链请补充 arxiv_id
-- 自动触发依赖 arxiv_id 的 fetch services（若该论文有 arxiv_id）
+- `semantic_scholar_service` 先用 S2 反查 arxiv_id（及 corpus_id / s2_paper_id）：查到 arxiv_id 则走原 arXiv 元数据/PDF 链；没有 arXiv 版本时由 `s2_pdf_service` 尝试下载开放获取 PDF
 
 #### 方式三：手动输入创建
 
@@ -277,7 +276,8 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 | 模式 | 条件 | 内容 |
 |------|------|------|
-| PDF 原文 | 论文有 `pdf_path` | 嵌入式 **pdf.js** 查看器（PdfViewer 组件，见下方「嵌入式 pdf.js 查看器」） |
+| PDF 原文 | **始终可用** | 有 `pdf_path` 时为嵌入式 **pdf.js** 查看器（PdfViewer 组件，见下方「嵌入式 pdf.js 查看器」）；没有时渲染 `PdfUploadPanel`（见下方「PDF 缺失与用户上传」） |
+| 对照翻译 | 论文有 `pdf_path` 且 doc2x 启用 | `Doc2xTranslationTab`：顶部显示 doc2x 精确解析状态（未开始/失败时可「开始解析」）；未翻译显示「开始翻译」，排队（等解析）/进行中/失败（可重试）各有状态；完成后用 `PdfViewer`（`paper-id=null`，不生成锚点）显示，可在「左右对照」（doc2x 拼页 PDF）与「仅译文」（后端裁出的右半页 PDF，页数相同）间切换，选择记在 `localStorage['paperland.doc2x.view']` |
 | 幻觉翻译 | 论文有 `arxiv_id` | 嵌入 `https://hjfy.top/arxiv/{arxiv_id}` iframe |
 | Note | **始终可用**（空笔记/匿名时渲染空状态） | 整篇大笔记的三模式文档视图（render / edit / split，见下方「Note / 文档视图」）；从论文列表 note 列点进来（`?view=note`）会自动选中此 Tab |
 
@@ -286,7 +286,25 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 - 无可用模式时显示占位提示
 - 模式系统可扩展：添加新模式只需在 modes 数组中增加条目
 - Note Tab 始终可用（`available: true`），内容是当前论文那篇单文档笔记（空笔记/匿名时渲染空状态），由始终挂载的 `PaperNotesCard` 负责拉取
+- 「对照翻译」排在「PDF 原文」之后，`pickDefault()` 因此永远先选 PDF 原文，不会自动默认到它
+- doc2x 状态由 `stores/doc2x.ts` 统一维护：`PaperDetail` 在加载论文时 `load(paperId)`、卸载时 `release()`；它请求 `GET /api/papers/:id/doc2x`，在解析/翻译进行中（或机械解析尚未产出）时每 5 秒轮询，供「对照翻译」tab 与「复制全文」按钮共用
 - `PaperViewerPanel` 还监听 `usePdfNavigation` 的 `requestedPdfTarget`：一旦有 PDF 锚点跳转请求且 PDF 可用，自动把 active Tab 切到「PDF 原文」（并置 `userChose`）
+
+#### PDF 缺失与用户上传（PdfUploadPanel）
+
+闭源论文照常添加并抓取能抓到的信息（S2 元数据、引用等），但拿不到 PDF；此时左侧「PDF 原文」Tab 显示 `PdfUploadPanel`，由 `GET /api/papers/:id` 派生的两个字段驱动（`utils/pdf_status.ts`，只在详情接口返回）：
+
+| `pdf_status` | 条件 | 面板 |
+|---|---|---|
+| `available` | 有 `pdf_path` | 不显示面板，直接 PdfViewer |
+| `fetching` | `arxiv_pdf_service` / `s2_pdf_service` 最近一次执行 pending/running，或无 arxiv_id 论文的 `semantic_scholar_service` 正在跑 | 「正在获取 PDF…」，每 5 秒 `store.refreshCurrentPaper()` 轮询直到状态变化 |
+| `upload_required` | 其他情况 | 「需要上传 PDF」+ 原因 + 选择文件按钮 / 拖放上传 |
+
+`pdf_unavailable_reason`：`download_failed`（最近一次 PDF 下载服务 failed）> `closed_access`（metadata 有 `open_access_pdf_status` 但无 `open_access_pdf_url`）> `not_found`。
+
+- 上传走 `POST /api/papers/:id/pdf`（需登录，原始 `application/pdf` body，`api.upload()`），后端校验 `%PDF` 头与 `config.yml` 的 `pdf_upload.max_file_size_mb`（默认 100，超出 413），存为 `data/pdfs/upload_<id>_<sha256 前 8 位>.pdf`（内容哈希命名，避开 `/api/files` 的 24h 缓存），条件写入 `pdf_path`（已有 PDF → 409 `PDF_EXISTS`；非 PDF → 422 `INVALID_PDF`），随后 `triggerForPaper` 让 pdf_parse / doc2x 等自动接上
+- `store.uploadPdf()` 用响应替换 `currentPaper`，`pdf_path` 出现后面板即被 PdfViewer 取代，无需刷新页面
+- 匿名用户只看到原因与「登录后可上传 PDF」；不支持替换已有 PDF
 
 #### 嵌入式 pdf.js 查看器（PdfViewer）
 
@@ -296,18 +314,39 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 - **渲染**：连续纵向滚动，每页一个按宽高比预留的占位 `.pdf-page`；`IntersectionObserver`（`rootMargin 200%`）在临近视口时把该页渲染到 canvas（HiDPI 用 `transform:[dpr,…]`）+ pdf.js 文本层（透明、可原生选中），远离视口时卸载 canvas 以省内存。
 - **主题感知渲染（夜间模式）**：读 `stores/theme.ts` 的 `resolved`，夜间时给 `page.render({ pageColors })` 传 pdf.js **原生** `pageColors`（灰底 `#3a3a3a` / 近白字 `#e8e8e8`，与 `.pdf-page` 的 `.dark` 背景一致），由 pdf.js 在栅格内重新着色——比 CSS `invert()` 更准（可独立设灰底/白字），且选区高亮、`pdf-region-flash` 在 canvas 之上、仍走 UI token 不被反色。`pageColors` 烤进 canvas 无法原地变色，故 `watch(theme.resolved)` 在主题切换时对当前已渲染（可见/邻近）页用新配色重渲染（`rendered`/`renderTasks` 项带 `dark` 标记，使「同尺度已渲染」判断在仅主题变化时也重渲染），离屏页滚动到时再渲染。pdf.js 无现成「夜间模式」开关，`pageColors`（原为高对比/forced-colors 设计）是其支持的着色原语。
 - **无白闪渲染**：pdf.js 在每次 render **开始**时把 canvas 填白（`background || "#ffffff"`），夜间的 `pageColors`（HCM 滤镜）要到 render **结束**才套上。若 canvas 先挂进 DOM 再渲染，浏览器会画出「白底→黑字→暗色滤镜」的中间帧 → 闪白。故每页渲染到**离屏新建 canvas**，待 `renderTask.promise` 完成（已是暗色）后再 `appendChild`/`replaceWith` 换入；旧 canvas 保留到换入瞬间。这样首帧即暗色不闪白，主题切换/缩放重栅格期间也不空屏不闪。
-- **当前页 / 跳转 / 缩放 / 适配模式**：滚动时按页矩形与视口中线判定「当前页」；工具栏含 上/下一页、页码跳转输入、缩放、**适配模式切换**（宽度铺满 ↔ 高度铺满，`MoveHorizontal`/`MoveVertical` 图标，**仅当前打开有效、不记忆**，默认宽度铺满；切换会把 zoom 重置为 1 使适配精确）。`effectiveScale = fitScale × zoom`，`fitScale` 由 `fitMode` 取「容器宽 / 首页宽」或「容器高 / 首页高」；缩放/适配后 canvas + 文本层按新尺度重渲染并保持对齐，文本层设 `--scale-factor`。
+- **当前页 / 跳转 / 缩放 / 适配模式**：滚动时按页矩形与视口中线判定「当前页」；工具栏含 上/下一页、页码跳转输入、缩放、**适配模式切换**（宽度铺满 ↔ 高度铺满，`MoveHorizontal`/`MoveVertical` 图标，**仅当前打开有效、不记忆**，默认宽度铺满；切换会把 zoom 重置为 1 使适配精确）。`effectiveScale = fitScale × zoom`，`fitScale` 由 `fitMode` 取「容器宽 / 首页宽」或「容器高 / 首页高」；缩放/适配后 canvas + 文本层按新尺度重渲染并保持对齐。
+- **文本层对齐（选区不漂移）**：pdf.js 5.x 的 `TextLayer` 用 CSS 变量 `--total-scale-factor` 计算每个 span 的 `font-size` 与文本层宽高（`--scale-round-x/y` 用于取整）；官方查看器在每页上设置它，我们自绘页面必须自己设。`pageStyle()` 在每个 `.pdf-page` 上把 `--total-scale-factor` 绑定到实时 `effectiveScale`（`--scale-round-x/y: 1px`）。缺失时 span 字号无效而回退为继承字号，选区会横向越拉越偏、上下串行（历史 bug，旧代码只设了老变量名 `--scale-factor`）。由于绑定的是实时尺度，缩放/拖动分屏的去抖窗口内文本层也随 CSS 缩放的 canvas 同步缩放，选区依旧对齐。
 - **拖动分屏不卡**：宽度变化时只即时缩放占位页与 CSS 填充的 canvas，昂贵的重栅格化（canvas + 文本层）去抖 ~320ms（`RE_RASTER_DEBOUNCE_MS`），待尺度真正稳定后只做一次；期间页面保持 CSS 缩放（略软）直到落定（高度铺满模式下拖动分屏宽度不改变 `fitScale`，更不触发重渲染）。
-- **选区 → 链接**：文本层支持原生选区；落定后用 `getSelectionOffsets`（复用 `useHighlight`）算出该页 `ts/te` 偏移，在选区下方弹出浮动选区工具栏（`.pdf-sel-toolbar`，样式对齐 Markdown 划线高亮工具栏）：登录用户有「翻译」按钮，有 `paperId` 时有「复制选区链接」，后者复制 `<选区文本> [#](paperland://paper/<id>?pdf=<page>&ts=<ts>&te=<te>)`；工具栏「复制本页链接」复制 `[PDF p.N](paperland://paper/<id>?pdf=N)`。
+- **选区 → 链接**：文本层支持原生选区；落定后用 `getSelectionOffsets`（复用 `useHighlight`）算出该页 `ts/te` 偏移，在选区下方弹出浮动选区工具栏（`.pdf-sel-toolbar`，样式对齐 Markdown 划线高亮工具栏）：登录用户有「翻译」按钮，登录且有 `paperId` 时有「提问」「加入提问框」（见下文「上下文提问」），有 `paperId` 时有「复制选区链接」。选区跨页时（段落被分页打断）按页用 `getRangeOffsets` 在各页文本层上裁出子 Range 分别求偏移，snapshot 带 `segments: [{page,ts,te,text}]`；跨页选区只显示「提问」「加入提问框」，翻译和复制链接仍只支持单页，后者复制 `<选区文本> [#](paperland://paper/<id>?pdf=<page>&ts=<ts>&te=<te>)`；工具栏「复制本页链接」复制 `[PDF p.N](paperland://paper/<id>?pdf=N)`。
 - **选区 → 按需流式翻译**：不再自动翻译（旧的 500ms stable-intent 已移除）。选区捕获约 60ms 落定后只显示工具栏；登录用户点击工具栏「翻译」才对当前 page/`ts`/`te`/text identity 挂载 `StreamingTranslationText` 调 `/api/translate/stream`（同一 identity 已打开时再次点击为 no-op）。浮层优先居中放在选区上方，空间不足时放到下方并为工具栏预留位置；宽度/x/y 都 clamp 在 viewer 内，内容增长由 ResizeObserver 重算。请求开始但尚无译文时，结果区直接显示原文，不显示“加载翻译”类占位文字；首个非空 delta 或 cache result 到达后，真实译文立即替换原文预览。每个真实 delta 整段追加后让出一帧，cache hit 直接完成。面板与工具栏内的 pointer interaction 拥有其引发的临时 selection collapse：浮层/source snapshot 保留并在 pointer-up 尝试恢复 Range；普通外部点击才关闭。选中不同的有效选区会立即 abort 旧请求并关闭旧浮层，新选区只显示工具栏。scroll Range 失效、zoom/theme text-layer 重渲染、PDF 切换、截图模式、Escape 或卸载会关闭工具栏/abort 请求/关闭浮层，late event 不得覆盖新选区；scroll 保持 Range 有效时按 rAF 重定位。匿名用户不显示「翻译」按钮、不调用 API、不弹登录。
 - **跳转 + 高亮**：监听 `requestedPdfTarget`，`{page}` 滚动到该页；`{page,ts,te}` 先确保该页渲染，再用 `buildTextSegments` 把偏移映射为 `Range.getClientRects()`，在页面上叠加临时高亮 div（`pdf-region-flash`，2.2s 淡出，不落库）并滚动到选区中心；`{page,rect}` 则把归一化 `[0,1]` 矩形直接换算到页面像素框画同款临时高亮（`highlightRect`）。`rect` 优先于 `ts/te`；偏移越界 / 矩形非法则退化为仅跳页 + toast 提示。
 - **失败兜底**：pdf.js 加载/解析失败时显示错误态并给出原始文件链接 `/api/files/<pdf_path>`；无 `pdf_path` 时保留「暂无 PDF」占位。
-- **框选截图 → 图床**：工具栏 `Crop` 图标进入截图模式（仅在传入 `paperId` 时显示，激活态高亮）。模式下滚动区 `cursor:crosshair`、文本层 `pointer-events:none` + `user-select:none`，从而拖拽画出橡皮筋矩形而非选中文字（`mousedown`→`mousemove`→`mouseup`，`Esc` 或再次点击取消）。松手后把该矩形钳制到所在 `.pdf-page`、归一化为 `{page,x,y,w,h}`，调 `cropRegionToImage(region, dpi)` 渲成 PNG，经 `utils/uploadImage` 上传图床，剪贴板写入 `[![](<image_url>)](paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=)`（坐标保留 4 位小数）并 toast 提示；上传期间 `capturing` 置位、忽略后续拖拽。
+- **框选截图 → 图床**：工具栏 `Crop` 图标进入截图模式（仅在传入 `paperId` 时显示，激活态高亮）。模式下滚动区 `cursor:crosshair`、文本层 `pointer-events:none` + `user-select:none`，从而拖拽画出橡皮筋矩形而非选中文字（`mousedown`→`mousemove`→`mouseup`，`Esc` 或再次点击取消）。松手后把该矩形钳制到所在 `.pdf-page`、归一化为 `{page,x,y,w,h}`，在框选处弹出操作菜单（`.pdf-capture-menu`）：「复制截图链接」/「截图提问」/「加入提问框」（后两项仅登录用户，见下文「上下文提问」），`Esc`、点 × 或开始新的拖拽都会丢弃这次截图且不上传。选「复制截图链接」后调 `cropRegionToImage(region, dpi)` 渲成 PNG，经 `utils/uploadImage` 上传图床，剪贴板写入 `[![](<image_url>)](paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=)`（坐标保留 4 位小数）并 toast 提示；上传期间 `capturing` 置位、忽略后续拖拽。
 - **DPI 可配置（不硬编码）**：`cropRegionToImage(region, dpi)` 按 `scale = dpi/72` **只渲染选区**（平移 transform `[1,0,0,-sx,-sy]`，避免高 DPI 下整页栅格化）。默认 DPI 来自 `config.yml` 的 `pdf_viewer.screenshot_dpi`，挂载时经 `GET /api/config/pdf`（`configApi.pdf()`）拉取存入 `screenshotDpi` ref，请求失败回退 300。
 
 #### 窄屏布局
 
 单栏布局（<900px）下，左侧查看器面板隐藏，仅显示论文信息和 Q&A 内容。
+
+#### doc2x 提问确认 + 复制全文
+
+- **提问确认**：`stores/qa.ts` 的提问入口（`triggerAllTemplates` / `regenerateTemplate` / `submitFreeQuestion`（含 PDF 直接提问 `askDirect`）/ `regenerateEntry`）先调 `confirmDoc2xIfNeeded(paperId)`：取 `GET /api/papers/:id/doc2x`，若 `qa_needs_confirm`（doc2x 已启用、有 PDF、无 user_input 且 doc2x 解析未完成）就 `window.confirm` 提醒「doc2x 精确解析尚未完成，将基于机械解析文本」，取消则不发请求（`QAInput` 保留已输入的问题）。同一论文的并发调用（模板对多个模型循环重新生成）共享一次确认。doc2x 解析完成后不再提示——后端 `content_priority` 为 `[user_input, doc2x_parsed, pdf_parsed]` 且在每次运行时取文本，重新提问/重新生成会**静默**改用 doc2x 文本。
+- **复制全文**：`PaperFullTextCopy` 在详情信息卡（宽/窄两套布局）「参考链接」之前显示「复制全文（直接解析）」「复制全文（doc2x）」两个按钮，分别复制 `contents.pdf_parsed` / `contents.doc2x_parsed`；对应文本存在（已加载的论文或 doc2x 状态的 `text_sources`）之前按钮禁用。页面打开期间解析完成，轮询到的状态会让按钮变可用，点击时再拉取最新论文内容。
+
+#### 上下文提问（选段 / 截图 / 追问）
+
+QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 选段、框选截图（必须先上传到本服务图床，按 `image_hash` 引用）、对话历史（只引用父回答 id）。普通提问就是没有 inputs 的特例。
+
+- **直接提问**（`PdfViewer`）：选区工具栏「提问」或截图菜单「截图提问」→ `qaStore.askDirect(paperId, input)` → `POST /api/papers/:id/qa/free` 带 `direct_ask: true`。后端把问题定为 `@Quote1 <qa_prompt.direct_ask.question>`，只用 `models.default`。提问前同样走 doc2x 确认。回答在选区/截图旁的浮层 `.pdf-ask-panel` 里流式显示（浮层读 `qaStore.qaData.free` 中对应 entry，由 store 的 SSE 实时更新；完成后用 `MarkdownContent qa-answer`），底部有「在列表中查看」（`revealQAEntry`）和「追问」（默认接续最近一次已完成的回答，`defaultFollowupResult`）。与翻译浮层互斥。
+- **加入提问框**：选区「加入提问框」或截图菜单「加入提问框」→ `useQAComposer().addAttachment(input)`：按类别续号（`Quote1`、`Image2`…，追问时从祖先链已用的最大编号往后数），在输入框光标处插入 `@Quote1 ` 并请求打开提问面板（`PaperDetail` 监听 `composer.openRequests` 调 `openQA()`）。
+- **提问框 composer（`composables/useQAComposer.ts`）**：模块级单例，保存问题文本、附件（已带标号）、追问目标（父 result/entry + 祖先链 inputs）。草稿按「用户 + 论文」存 `localStorage`（`paperland_qa_draft_<user>_<paper>`，读写 try/catch），刷新后恢复，提交成功后清空；附件不限数量。移除附件时其他标号不重排，并删掉问题里该附件的 token。
+- **`QAInput` 面板**：顶部行下依次是追问提示条（「追问 QA-12 · 模型 · 问题」，× 取消追问）、附件栏（类别图标 + `@标号` + 摘要/缩略图 + 页码，跨页显示 `p.3–4`，可移除）、输入框。输入 `@` 弹出补全菜单，列出祖先链和本轮的全部可引用输入（↑↓ 选择、Enter/Tab 插入）。整条链有图片时，所选模型都必须 `vision: true`（来自 `/api/config/models`），否则禁用提交并提示。论文没有可用全文（`lib/qa-content.ts` 的 `paperHasQAContent`）时提交和 PDF 提问入口都置灰并提示。
+- **追问**：每个回答下的 `MessagesSquare` 按钮（只有 done 的回答可用）、回答里模型给出的 `[💬 …](#moonlight)` 链接（`MarkdownContent` 以 `qa-answer` 渲染时拦截，预填问题）都会调 `composer.startFollowup(...)`；它先取 `GET /api/qa/entries/:id/tree` 收集祖先链 inputs 供 `@` 菜单使用。`/qa` 页没有提问框，追问跳到论文页 `?qa=<entry>&result=<id>&followup=1[&fq=<预填>]`，由 `PaperDetail.handleAnchorFromRoute` 打开。
+- **列表展示**：`QAList`/`QAFeedPanel` 折叠标题栏用 `QAInputSummary` 只显示 inputs 类别图标 + 数量（选段 `TextQuote`、截图 `Image`、历史 `MessagesSquare`），不展开内容；标题栏的 `QA-<id>` 点击复制 `[QA-<id>](paperland://paper/<pid>?qa=<id>)`；追问展开后有「接续 QA-x 的回答」，父回答不可见/已删除时只 toast「当前不可见」/「已删除」。
+- **回答操作**：`QAResultBody` 新增「追问」「复制回答链接」（`[QA-<id> · 模型](paperland://paper/<pid>?qa=<id>&result=<rid>)`）、「查看模型输入」（`QAModelInputDialog`，打开时才请求 `GET /api/qa/results/:id/model-input`，显示按当前配置重建的 system prompt、全文摘要（来源 + 字符数，不展开全文）、references、inputs（截图缩略图）、history、question）。
+- **引用链接**：`MarkdownContent` 的 `qa-answer` 模式把 `#cite:<id>`（40 位 S2 paperId，或纯数字 CorpusId）换成引用标签 `.qa-cite-chip`（文字不变，不影响高亮偏移）——前提是 id 在本论文的参考文献里（`usePaperReferences` 按论文缓存 `GET /api/papers/:id/citations?direction=reference`）；悬停/点击弹出卡片（标题、作者、年份、venue、Semantic Scholar 链接，库内论文可「打开论文」）。不在列表里的 id 降级为纯文本 `.qa-cite-unknown`（后端已把它们存进 `qa_result_cites`）。
+- **图床不再支持删除**：`/images` 去掉删除按钮（后端也没有删除接口），每张图同时显示「被笔记引用次数」和「被 QA 引用次数」（`qa_reference_count`，统计所有 `qa_entries.inputs` 中的 image input），保证追问和重新生成时截图一直可用。
+- **默认选中的回答**：`lib/qa-result-selection.ts` 对所有状态按 `created_at`（缺失回退 `completed_at`）+ id 判定最新；多模型提交时后端按模型列表逆序创建，所以排在前面的模型默认被选中。
 
 #### 按需浮动提问面板（QAInput）+ 功能入口（PaperActionLauncher）
 
@@ -400,7 +439,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 ### 1A.4 入库链路（复用 `papers` ingest pipeline）
 
-后端把原 `POST /api/papers` 的核心逻辑抽成可复用函数 `ingestPaper({ arxiv_id?, corpus_id?, title?, authors?, link?, content? })`（位于 `services/ingest_paper.ts`），负责 dedup 检查（命中已有 `arxiv_id`/`corpus_id` 时直接关联，互补缺失的 ID）+ insert + 异步 `serviceRunner.triggerForPaper(...)`。
+后端把原 `POST /api/papers` 的核心逻辑抽成可复用函数 `ingestPaper({ arxiv_id?, corpus_id?, s2_paper_id?, title?, authors?, link?, content? })`（位于 `services/ingest_paper.ts`），负责 dedup 检查（`findExistingPaperByIds` 依次按 `arxiv_id`/`corpus_id`/`s2_paper_id` 命中已有论文时直接关联，互补缺失的 ID；External API 的创建/批量创建复用同一函数）+ insert + 异步 `serviceRunner.triggerForPaper(...)`。
 
 会议一键入库的来源映射：
 - `source='arxiv'` → `arxiv_id = external_id`
@@ -447,7 +486,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 - **会议候选解析**：`POST /api/conferences/:id/resolve`（后台、~1 RPS）对未关联候选用 S2 `search/match` 把标题解析为 corpus/arxiv id，`ingestPaper(listed:false)` 建/并出隐藏论文并回填 `conference_papers.paper_id`，缓存 matchScore 供复核；未命中留"待添加"。会议候选状态由 `paper_id` + 关联论文的 `listed` **派生**（待添加 / 仅元数据 / 已加入），不再用 pending/candidate。`GET /api/conferences/:id/papers` 会附加关联论文的 `paper_listed`、`paper_arxiv_id`、`paper_corpus_id`，以及用于就地筛选的 `paper_abstract`、`paper_tldr`、`paper_citation_count`、`paper_fields_of_study`（均派生自关联论文、零冗余）。批量「加入列表」用 `POST /api/conferences/:id/papers/promote { ids }`（对每条关联论文翻 `listed=1` + 触发完整管线）。
 - **前端**：论文列表页有 已列出 / 仅元数据 / 全部 三态切换；仅元数据行显示"仅元数据"徽章 + 行内"抓取"按钮（提升）。会议详情页有"解析"按钮与逐条"加入列表"按钮。论文详情页对 `listed=0` 论文显示"加入列表"。提升经 `PATCH /api/papers/:id { listed: true }`。
 - **列表资格门禁**：仅有 OpenReview 链接、且无 `arxiv_id`/`corpus_id` 的"OpenReview-only"论文不可加入列表。API 响应（列表 `GET /api/papers` 与详情 `GET /api/papers/:id`）含派生布尔 `listable`；前端对 `listable === false` 的行**禁用**"抓取"/"加入列表"按钮并加 tooltip 说明。若后端仍拒绝（`422 LISTING_NOT_ALLOWED`），API client 弹出错误提示且本地状态不变（`promote` 仅在 await 成功后才改本地 `listed`）。**后端约定**：凡把 `listed` 置为 `true` 的路径（`PATCH /api/papers/:id`、`PATCH /external-api/v1/papers/:id`、会议批量 ingest / 候选关联、`ingestPaper` 自动提升）都必须经 `utils/listing.ts` 的 `canList` 判定。
-- **列表过滤**：论文列表（按模式）、External API、idea-forge paper dump 默认只含 `listed=1`；`GET /api/papers/:id` 直链与会议详情页可访问隐藏论文。
+- **列表过滤**：论文列表（按模式）、External API 默认只含 `listed=1`；`GET /api/papers/:id` 直链与会议详情页可访问隐藏论文。
 
 ---
 
@@ -467,8 +506,8 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 #### 模板定义
 
-- 定义在 `config.yml` 的 `qa` 列表中，每项包含 `name` 和 `prompt`
-- `system_prompt` 字段定义论文内容与问题的拼接模板，使用 `{PAPER}` 和 `{PROMPT}` 占位符
+- 定义在 `config.yml` 的 `qa` 列表中，每项包含 `name`、`prompt`，可选 `system_prompt`（指定 `prompts/system/<name>.md`）
+- system prompt 是 `prompts/system/*.md` 文件（规则，不含论文），默认 `qa_prompt.default_system_prompt`；论文、参考文献、inputs、历史和问题由后端拼成 user 消息（见 4.2）
 - 列表顺序决定前端展示顺序
 
 #### 一键生成按钮
@@ -661,16 +700,27 @@ content_priority:
 semantic_scholar_service:
   depends_on: []            # 双向：对任何 paper 都可执行，运行时挑 id
   produces:   [corpus_id, citation_count, influential_citation_count, reference_count, references]
+  # 查询 id 优先级：ARXIV:{arxiv_id} → CORPUSID:{corpus_id} → 裸 {s2_paper_id}；响应 paperId 缺失时回写到 s2_paper_id 列（与他人冲突则跳过）
   # 有 arxiv_id 用 ARXIV:{id}、否则用 CORPUSID:{id} 查询 S2，单次拿到对侧 id + 引用富化；
   # arxiv_id 故意不放进 produces：corpus-only 论文解析出 arxiv_id 后，arxiv 元数据/PDF 服务
   #   靠 runner「完成后按实时 key 重触发」自然衔接，而非被提前调度；
   # reference_count 取 S2 referenceCount（权威总数，不受 references 单页截断影响）；
   # tldr/venue/year/doi/fields_of_study/s2_url 等存入 metadata（不纳入 produces，可能缺失）；
+  # 同时请求 openAccessPdf：url 非空时存 open_access_pdf_url，status（GREEN/BRONZE/CLOSED...）存 open_access_pdf_status；
   # 既无 arxiv_id 也无 corpus_id 的手动论文：no-op（不发请求）
 
 arxiv_service:
   depends_on: [arxiv_id]
   produces:   [pdf_path, arxiv_categories, ...]
+
+s2_pdf_service:
+  depends_on: [open_access_pdf_url]   # 不在任何 produces 中 → 首次调度标 blocked，S2 写入 url 后经实时 key 重触发
+  produces:   [pdf_path]
+  eligible:   !arxiv_id && !pdf_path   # 有 arxiv_id（含 S2 刚反查出的）一律走 arxiv_pdf_service
+  requires_listed: true
+  # 无 arXiv 版本的 corpus-only 论文：从 S2 开放获取链接下载 PDF 到 data/pdfs/s2_<corpus_id>.pdf；
+  # 跟随重定向、download_timeout / max_file_size_mb 限制、必须以 %PDF 开头（HTML 落地页/403 → failed，可重试，不留文件）；
+  # 闭源论文（无 url）保持 blocked，不报错。存量论文：POST /api/services/backfill/s2_pdf_service（admin）
 
 pdf_parse_service:
   depends_on: [pdf_path]
@@ -685,6 +735,8 @@ arxiv_id ─┐
 corpus_id ┴─→ semantic_scholar_service ──→ 对侧 id + 引用富化 (citation_count / reference_count / references / tldr ...)
               （corpus-only 解析出 arxiv_id 后 ↓ 经重触发衔接）
 arxiv_id ─────→ arxiv_service ──→ pdf_path ──→ pdf_parse_service ──→ contents.pdf_parsed
+                                     ↑
+open_access_pdf_url (S2, 仅无 arxiv_id) ─→ s2_pdf_service
 ```
 
 #### 自动调度逻辑
@@ -711,6 +763,24 @@ arxiv_id ─────→ arxiv_service ──→ pdf_path ──→ pdf_parse
      → 标记 partial/failed
      → 用户可手动触发重新执行所有服务
 ```
+
+doc2x 两个 paper-bound 服务（配置见 tech-stack.md `doc2x` 块）：
+
+```typescript
+doc2x_parse:                # 自动：created_at ≥ doc2x.auto_since 的新论文；旧论文仅手动
+  depends_on: [pdf_path]
+  produces:   [contents.doc2x_parsed]   # doc2x Markdown（$ 公式、含参考文献）；同时写 metadata.doc2x_parse_id
+  eligible:   enabled && pdf_path && (新论文 || metadata.doc2x_parse_requested)
+
+doc2x_translate:            # 手动排队；解析完成后由依赖图「完成后重检查」自动开始
+  depends_on: [contents.doc2x_parsed]
+  produces:   [doc2x_translation]       # metadata：{ bilingual_pdf_path, translated_pdf_path, parse_id, translate_id, ... }
+  eligible:   enabled && metadata.doc2x_translate_requested && contents.doc2x_parsed
+```
+
+- **eligible 门槛**：paper-bound 服务可以声明 `eligible(paper)`。在自动调度中（初次触发和完成后的重检查），不满足门槛的服务会被**静默跳过**，不写 blocked/deferred 记录；显式调用 `executeServiceForPaper` 不受门槛约束。
+- **共享并发组**：`services.<name>.concurrency_group` 相同的服务共用一个信号量。doc2x 两个服务都在 `doc2x` 组里，上限 5（Doc2X 账号级并发上限的假设值）。
+- **翻译复用 parseId**：`doc2x_translate` 优先用 `metadata.doc2x_parse_id`，通过 doc2x 网关（CLI 内部使用、未公开的接口：`CreateTranslateTask` → `GetTaskStatus` → `CreateExternalPDFMergeTask`）直接从已有解析建翻译任务。这样不会重新解析，不扣页数，只扣翻译积分（约 10.6 积分/页）。没有 parseId 或网关失败时，回退到 `doc2x translate` CLI，CLI 会重新解析，因此要再扣一次页数。
 
 ### 3.3 Pure Service
 
@@ -743,6 +813,10 @@ arxiv_id ─────→ arxiv_service ──→ pdf_path ──→ pdf_parse
 │  semantic_scholar_service: max_concurrency: 1               │
 │    ┌─┐                  rate_limit_interval: 1s            │
 │    └─┘                  (带 key 1 RPS；无 key 建议 3s)      │
+│                                                             │
+│  s2_pdf_service:          max_concurrency: 2                │
+│    ┌─┐ ┌─┐                rate_limit_interval: 2s           │
+│    └─┘ └─┘                (开放获取 PDF 下载)               │
 │                                                             │
 │  pdf_parse_service:       max_concurrency: 2                │
 │    ┌─┐ ┌─┐                (本地操作，无需限流)               │
@@ -821,6 +895,9 @@ pending ──→ waiting ──→ running ──→ done
 
 ```yaml
 # 数据库
+pdf_upload:
+  max_file_size_mb: 100        # 用户上传 PDF 的大小上限，超出返回 413
+
 database:
   type: sqlite
   path: ./data/paperland.db
@@ -841,6 +918,11 @@ services:
     max_concurrency: 1         # S2 带 key 默认 1 RPS（所有端点）
     rate_limit_interval: 1     # 无 key 建议 3；S2 强制指数退避
     # api_key_env: SEMANTIC_SCHOLAR_API_KEY   # 或 api_key: <key>（config.yml 已 gitignore），经 x-api-key 头发送
+  s2_pdf_service:              # 仅无 arxiv_id 的论文：经 S2 openAccessPdf 下载 PDF
+    max_concurrency: 2
+    rate_limit_interval: 2
+    download_timeout: 60       # 秒
+    max_file_size_mb: 100      # 超出则 failed，不落盘
   pdf_parse:
     max_concurrency: 2
     method: python             # python | nodejs
@@ -870,9 +952,10 @@ models:
 
 ### 4.2 Prompt 模板
 
-- 定义在 `config.yml` 中的 `system_prompt` 和 `qa` 字段
-- `system_prompt`：多行字符串模板，使用 `{PAPER}` 和 `{PROMPT}` 占位符定义论文与问题的拼接方式
-- `qa`：有序数组，每项包含 `name`（模板名，作为 QA Entry 的 key）和 `prompt`（问题文本）
+- **system prompt 文件**：`prompts/system/<name>.md`（随仓库提交，英文书写），整份作为模型的 system 内容，每次运行重新读取（改了不用重启）。`config.yml` 的 `qa_prompt` 指定 `default_system_prompt`（默认 `paper-qa`）、`direct_ask.{system_prompt?, question}`、`codex_web_search`（默认 true）、`max_history_turns`（默认 20），`system_prompts_dir` 省略时用仓库自带目录。启动时校验被引用的文件都存在；旧的顶层 `system_prompt` 模板一旦出现直接启动报错。
+- **user 消息**（后端 `services/qa_formatter.ts`，运行和「查看模型输入」共用）：`<paper>`（`content_priority` 选出的全文，没有全文时所有提问返回 409）→ `<references>`（本论文引用的文献：`cite:<S2 paperId>` 或 `no id`、标题、第一作者 et al.、年份、venue，库内论文标 `in library: paperland://paper/<id>`）→ `<inputs>`（整条追问链的截图在前、选段在后，各出现一次，带标号与页码；截图作为图片 part 紧跟标号行）→ `<history>`（祖先各轮的问题 + 被选中的回答，只用标号引用输入，最多 `max_history_turns` 轮）→ `<question>`。
+- **provider 映射**：OpenAI 兼容 API 发真正的 `role: system`，图片读本地图床文件转 base64 data URL；Codex app-server 用 `thread/start` 的 `developerInstructions` + `config.web_search: "live"`，图片用 `localImage`（图床文件绝对路径）；Codex exec 用 `-c developer_instructions=…`、`-c web_search="live"`、`--image <path>`，问题文本走 stdin。
+- `qa`：有序数组，每项包含 `name`（模板名，作为 QA Entry 的 key）、`prompt`（问题文本）和可选 `system_prompt`
 - 列表顺序决定前端展示顺序
 
 ### 4.3 前端设置页面
@@ -914,7 +997,7 @@ models:
 |------|------|
 | **公开（免登录）** | 论文列表 / 详情、模板问答（template Q&A）、PDF / 查看器、`/api/health`、`login`、`me`、**公开笔记读**（`GET /api/papers/:id/public-notes`、`GET /api/notes/:noteId` 公开/属主/管理员）、`GET /api/notes?scope=all`（匿名得公开部分） |
 | **公开但按 viewer 过滤** | `GET /api/papers/:id/qa`（template 全量；free 默认 mine，登录用户可显式 all；匿名无 free）、`GET /api/highlights`、`GET /api/papers/:id/tags`（匿名返回空、200）、`GET /api/papers/:id/note`（仅本人、含 `is_public`） |
-| **需登录（任意用户）** | 增 / 改 / 删论文、所有问答触发与重生成、高亮增改删、标签管理、`/qa` 列表、Idea Forge、单篇论文服务状态 / 触发、改本人账户 |
+| **需登录（任意用户）** | 增 / 改 / 删论文、所有问答触发与重生成、高亮增改删、标签管理、`/qa` 列表、单篇论文服务状态 / 触发、改本人账户 |
 | **仅管理员** | 服务管理 Dashboard（`/api/services*`）、设置页 Token 管理（`/api/settings/tokens*`）、用户管理（`/api/users*`） |
 
 - 前端路由守卫：受限路由未登录弹登录框、非管理员访问管理员页提示无权限。
@@ -969,6 +1052,7 @@ models:
 | id | integer (auto increment) | 内部主键 |
 | arxiv_id | text (nullable, unique) | arXiv ID |
 | corpus_id | text (nullable, unique) | Semantic Scholar corpus ID |
+| s2_paper_id | text (nullable, unique) | Semantic Scholar paperId（40 位十六进制小写；迁移 0029 从 `metadata.s2_url` 回填，S2 富化时回写） |
 | title | text | 标题 |
 | authors | text (JSON array) | 作者列表 |
 | abstract | text (nullable) | 摘要 |
@@ -1058,6 +1142,11 @@ papers 表新增 `tags_json` (text, nullable) 字段，存储 `[{"id":1,"name":"
 | status | text: "pending" \| "running" \| "done" \| "failed" | 执行状态 |
 | error | text (nullable) | 错误信息 |
 | created_at | datetime | 创建时间 |
+| instruction | text (nullable) | system prompt 名称（`prompts/system/<name>.md`），null 用默认；追问默认沿用父 entry |
+| inputs | text (JSON, nullable) | 不可变的有序 inputs：`text_selection`（`label`、`text`、`pdf: [{page,ts,te}]`）、`image`（`label`、`image_hash`、`url`、`pdf: {page,rx,ry,rw,rh}`）、至多一个 `history`（`result_id`）；标号在整条追问链内唯一 |
+| parent_entry_id | integer (nullable, indexed) | 由 `history` input 派生的父 entry，用于树查询 |
+
+`qa_entries.id` 即全站唯一的 QA 编号，界面显示为 `QA-<id>`。
 
 ### 6.4 QA Result
 
@@ -1078,6 +1167,9 @@ papers 表新增 `tags_json` (text, nullable) 字段，存储 `[{"id":1,"name":"
 | requested_by_user_id | integer (nullable) → User.id | 本次发起人；用于共享 preset 的取消授权，用户删除时置空 |
 | streaming_capable | boolean | provider 是否能提供真实增量输出 |
 | created_at / started_at / first_chunk_at / finished_at / updated_at | datetime | 排队、Thinking 开始、首输出、终态及最后持久化时间 |
+| deleted_at | datetime (nullable) | 软删除时间：删除回答只写这一列，所有面向用户的读取（列表、详情、SSE、计数）都排除；后端拼追问历史时仍读取 |
+
+`qa_result_cites`：回答完成时解析答案里的 `#cite:<id>`，不在本论文参考文献中的 id（`cite_id`、`id_kind` = `s2_paper_id`/`corpus_id`、`link_text`）每个回答每个 id 存一行，留待以后处理；删除论文时一并删除。
 
 Internal serializer 额外返回派生的 `thinking_duration_ms` 和当前 viewer 的 `can_cancel`，不存 duration 计数：首输出前为 server-now − started，输出后为 first-chunk − started，无输出终止时为 finished − started。
 
@@ -1261,78 +1353,6 @@ Paper (1) ──→ (N) QA Entry (1) ──→ (N) QA Result
 
 ---
 
-## Idea Forge (研究想法管理)
-
-### 概述
-
-Idea Forge 是集成在 Paperland 中的研究想法管理系统。数据存储在本地文件系统 `data/idea-forge/{project-name}/`，不使用数据库。每个想法是一个带 YAML frontmatter 的 README.md 文件。
-
-### 页面
-
-#### 项目列表页 (`/idea-forge`)
-
-- `views/idea-forge/ProjectList.vue`
-- 显示所有项目卡片（名称、idea 数量、paper 数量）
-- 支持创建新项目（名称校验：`[a-z0-9][a-z0-9_-]*`）
-
-#### 想法管理页 (`/idea-forge/:projectName`)
-
-- `views/idea-forge/IdeaManager.vue`
-- 三种视图模式，通过 URL `?view=inbox|kanban|list` 切换
-- 顶部控制栏：视图切换、标签筛选、分类筛选、排序控制、Paper Dump 按钮
-
-### 视图模式
-
-#### Inbox 模式
-
-- `components/idea-forge/InboxView.vue`
-- 左侧列表（340px）+ 右侧详情面板
-- 默认筛选 `unreviewed` 分类，按 `update_time` 降序
-
-#### Kanban 模式
-
-- `components/idea-forge/KanbanView.vue`
-- 四列看板：unreviewed / under-review / validating / archived
-- 每列最小宽度 280px，超出横向滚动
-- 使用 `vuedraggable` 实现拖拽移动分类
-
-#### List 模式
-
-- `components/idea-forge/ListView.vue`
-- 平铺表格，列：名称、分类、摘要、评分、LLM评分、作者、标签、创建/更新时间
-- 点击行跳转到 inbox 模式
-
-### 核心组件
-
-- **IdeaDetail** (`components/idea-forge/IdeaDetail.vue`)：想法详情面板
-  - 固定顶部：评分（星星）、LLM 评分（只读）、作者、保存按钮、分类快切按钮、评论输入框
-  - 可滚动底部：摘要（可编辑）、正文（Markdown 预览/编辑切换）、标签、时间戳
-- **ScoreInput** (`components/idea-forge/ScoreInput.vue`)：0-5 星选择器
-- **PaperDumpDialog** (`components/idea-forge/PaperDumpDialog.vue`)：论文导出对话框
-
-### 编辑与保存
-
-- 正文/摘要编辑：2 秒防抖自动保存
-- 评分/评论/分类变更：立即保存
-- Ctrl+S 手动保存
-- 冲突检测：基于 content_hash（SHA-256），409 响应时显示"文件已被外部修改"错误 + Reload 按钮
-
-### Pinia Stores
-
-- `stores/idea-forge.ts`：项目列表、创建项目、Paper Dump
-- `stores/ideas.ts`：想法列表、详情、更新、移动、冲突状态追踪
-
-### Idea 分类
-
-| 分类 | 含义 |
-|------|------|
-| `unreviewed` | 新创建，未审阅 |
-| `under-review` | 正在评估 |
-| `validating` | 已接受，验证中 |
-| `archived` | 已归档 |
-
----
-
 ## 笔记 (Notes)
 
 按用户私有的、面向整篇论文的笔记。每 (用户, 论文) = **一篇 Markdown 大笔记**（单文档）。UI 文案统一用英文（Notes）。思维导图与 Walk-through 都是这篇文档的**派生视图**（由其 Markdown 标题结构推导），不再有笔记树。
@@ -1358,7 +1378,10 @@ paperland://paper/<id>?h=<hash>&s=<start>&e=<end>  // 块内文本范围
 paperland://paper/<id>?pdf=<page>            // 跳到 PDF 第 page 页（1 起）
 paperland://paper/<id>?pdf=<page>&ts=<start>&te=<end>  // 跳到该页并高亮某段选区
 paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=      // 跳到该页并高亮某个矩形区域（归一化 [0,1]，框选截图生成）
+paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某个回答），按 entry id 解析，链接里的论文 id 只作展示
 ```
+
+- **QA 目标**：带 `qa` 时按 QA 处理，忽略 `h/s/e/pdf`。`MarkdownContent` 先调 `GET /api/qa/entries/:id/locate[?result=]` 找到 entry 实际所属论文再跳转（`/papers/<实际 id>?qa=…&result=…`），不可见/已删除时只 toast；`PaperDetail` 收到 `?qa=` 后用 `useBlockAnchor().revealQAEntry` 展开该 entry、切到指定回答 tab 并闪烁（本人列表里没有时自动切到 All 再找一次）。回答内某段文字仍用 `h/s/e` 定位。
 
 - 目标分两类且互斥：**Markdown 块**（`h`/`s`/`e`）或 **PDF 页/选区/矩形**（`pdf` + `ts/te` 或 `rx/ry/rw/rh`）。同时带 `h` 和 `pdf` 时 **`pdf` 优先**；PDF 内 **`rect` 优先于 `ts/te`**，坐标非法则退化为仅跳页。跨论文点击把这些参数带进 `router.push` 的 query，`PaperDetail.handleAnchorFromRoute` 再还原成 `{page,rect}`/`{page,ts,te}` 导航。
 - 定位基于**块的 `content_hash`**（与高亮同一指纹），不依赖问题/回答的 id 或下标——多模型多回答、重新生成、重排序都不会跑偏。

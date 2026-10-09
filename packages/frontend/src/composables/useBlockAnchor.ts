@@ -162,5 +162,36 @@ export function useBlockAnchor() {
     toast.error('Anchor is stale — the referenced answer may have been deleted.')
   }
 
-  return { locateBlock }
+  /** Key (`tmpl-<name>` / `free-<id>`) of a loaded Q&A entry, or null when it is not in the list. */
+  function entryKeyFor(entryId: number): string | null {
+    for (const [name, entry] of Object.entries(qa.qaData.template)) {
+      if (entry.entry_id === entryId) return 'tmpl-' + name
+    }
+    return qa.qaData.free.some((entry) => entry.entry_id === entryId) ? 'free-' + entryId : null
+  }
+
+  /**
+   * Reveal a Q&A entry on the current paper (a `?qa=<entry>[&result=]` link): expand it, select the
+   * requested answer tab, then scroll to and flash its header. Another user's shared entry may only
+   * be listed under the "All" scope, so the scope widens once when needed.
+   */
+  async function revealQAEntry(entryId: number, resultId?: number | null) {
+    let key = entryKeyFor(entryId)
+    if (!key && qa.paperScope === 'mine') {
+      await qa.setPaperScope('all')
+      key = entryKeyFor(entryId)
+    }
+    if (!key) {
+      toast.error('This Q&A is not visible')
+      return
+    }
+    const trigger = await waitForEl(() => visibleEl(`[data-qa-entry="${key}"]`))
+    if (!trigger) return
+    if (trigger.getAttribute('data-state') === 'closed') trigger.click()
+    if (resultId != null) requestedResultId.value = resultId
+    await nextTick()
+    flashBlock(trigger)
+  }
+
+  return { locateBlock, revealQAEntry }
 }

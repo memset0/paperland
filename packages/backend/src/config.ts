@@ -39,6 +39,12 @@ const serviceSchema = z.object({
   python_script: z.string().optional(),
   api_key: z.string().optional(),
   api_key_env: z.string().optional(),
+  // Services sharing a group share one concurrency semaphore (e.g. doc2x parse + translate
+  // share the Doc2X account-level task limit). Members should use the same max_concurrency.
+  concurrency_group: z.string().optional(),
+  // Download services (s2_pdf_service): per-request timeout (seconds) and max body size (MB).
+  download_timeout: z.number().positive().optional(),
+  max_file_size_mb: z.number().positive().optional(),
 })
 
 const modelSchema = z.object({
@@ -56,6 +62,8 @@ const modelSchema = z.object({
   reasoning_effort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']).optional(),
   working_dir: z.string().optional(),
   timeout: z.number().positive().optional(),
+  // Whether the model accepts image input (Q&A screenshot inputs require it).
+  vision: z.boolean().default(false),
 }).superRefine((model, ctx) => {
   if (model.type !== 'codex') return
 
@@ -112,6 +120,34 @@ const modelsSchema = z.object({
 const qaTemplateSchema = z.object({
   name: z.string(),
   prompt: z.string(),
+  // Optional system prompt name (a file in qa_prompt.system_prompts_dir); defaults to qa_prompt.default_system_prompt.
+  system_prompt: z.string().optional(),
+})
+
+// System prompts bundled with the repo (`prompts/system/*.md`). Used when config.yml does not set
+// qa_prompt.system_prompts_dir; a configured relative path resolves against the config file's directory.
+export const BUNDLED_SYSTEM_PROMPTS_DIR = resolve(import.meta.dir, '../../../prompts/system')
+const DEFAULT_DIRECT_ASK_QUESTION = 'Explain this in detail in an easy-to-understand way, using bullet points.'
+const QA_PROMPT_DEFAULTS = {
+  default_system_prompt: 'paper-qa',
+  direct_ask: { question: DEFAULT_DIRECT_ASK_QUESTION },
+  codex_web_search: true,
+  max_history_turns: 20,
+}
+
+const qaPromptSchema = z.object({
+  system_prompts_dir: z.string().optional(),
+  default_system_prompt: z.string().default('paper-qa'),
+  direct_ask: z.object({
+    // System prompt for asking directly from a PDF selection/screenshot; absent = default_system_prompt.
+    system_prompt: z.string().optional(),
+    // Preset question appended after the input token (`@Quote1 <question>`).
+    question: z.string().default(DEFAULT_DIRECT_ASK_QUESTION),
+  }).default({ question: DEFAULT_DIRECT_ASK_QUESTION }),
+  // Let Codex models use their native web search during Q&A (e.g. to find Semantic Scholar ids).
+  codex_web_search: z.boolean().default(true),
+  // Follow-ups send at most this many most-recent ancestor turns as <history>.
+  max_history_turns: z.number().int().positive().default(20),
 })
 
 // Default English→Chinese translation prompt. The `{TEXT}` placeholder is replaced with the
@@ -143,6 +179,11 @@ const imageHostSchema = z.object({
   max_size_mb: z.number().positive().default(18),
   allowed_types: z.array(z.string()).default(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
   public_base_url: z.string().default(''),
+})
+
+const pdfUploadSchema = z.object({
+  // Max size of a user-uploaded PDF (POST /api/papers/:id/pdf); larger bodies get 413.
+  max_file_size_mb: z.number().positive().default(100),
 })
 
 const pdfViewerSchema = z.object({
@@ -177,6 +218,53 @@ const notesSchema = z.object({
   image_width_tiers: notesImageWidthTiersSchema.default({ sm: 240, md: 480, lg: 720 }),
 })
 
+// doc2x CLI integration (precise PDF→Markdown parse + preserved-layout bilingual translation).
+// Absent block = disabled. Nested blocks use explicit literal defaults (see `.default({})` gotcha).
+const DOC2X_PARSE_DEFAULTS = { formula_mode: 'dollar' as const }
+const DOC2X_TRANSLATE_DEFAULTS = {
+  target_language: 'zh',
+  model: '85',
+  pdf_font_strategy: 'page-optimal' as const,
+  ignore_types: ['reference'],
+}
+const DOC2X_DEFAULTS = {
+  enabled: false,
+  cli_path: 'doc2x',
+  timeout: 1800,
+  output_dir: './data/doc2x',
+  auto_since: '',
+  token_file: '~/.config/doc2x/cli-oauth-tokens.json',
+  gateway_url: 'https://v2c.doc2x.noedgeai.com',
+  parse: DOC2X_PARSE_DEFAULTS,
+  translate: DOC2X_TRANSLATE_DEFAULTS,
+}
+
+const doc2xSchema = z.object({
+  enabled: z.boolean().default(false),
+  cli_path: z.string().default('doc2x'),
+  // Seconds per CLI run; the process is killed when exceeded.
+  timeout: z.number().positive().default(1800),
+  output_dir: z.string().default('./data/doc2x'),
+  // Papers created at/after this ISO timestamp are automatically translated (which also yields
+  // the doc2x Markdown); older ones need a manual request. Empty = every paper is eligible.
+  auto_since: z.string().default(''),
+  // OAuth token saved by `doc2x login` and the doc2x gateway — used only to export the Markdown
+  // of a translation run's internal parse (undocumented endpoint; CLI parse is the fallback).
+  token_file: z.string().default('~/.config/doc2x/cli-oauth-tokens.json'),
+  gateway_url: z.string().default('https://v2c.doc2x.noedgeai.com'),
+  parse: z.object({
+    formula_mode: z.enum(['normal', 'dollar']).default('dollar'),
+  }).default(DOC2X_PARSE_DEFAULTS),
+  translate: z.object({
+    target_language: z.string().default('zh'),
+    // doc2x translation model id (see `doc2x models list`).
+    model: z.coerce.string().default('85'),
+    pdf_font_strategy: z.enum(['global-consistent', 'page-optimal']).default('page-optimal'),
+    // Element types doc2x should not translate (table|code|figure|reference).
+    ignore_types: z.array(z.string()).default(['reference']),
+  }).default(DOC2X_TRANSLATE_DEFAULTS),
+})
+
 // Default for a user's per-type sharing switch when they have never set it (see user_sharing_settings).
 const sharingSchema = z.object({
   default_shared: z.boolean().default(true),
@@ -187,21 +275,25 @@ const configSchema = z.object({
   auth: authSchema,
   services: z.record(z.string(), serviceSchema).default({}),
   models: modelsSchema,
-  content_priority: z.array(z.string()).default(['user_input', 'pdf_parsed']),
-  system_prompt: z.string(),
+  content_priority: z.array(z.string()).default(['user_input', 'doc2x_parsed', 'pdf_parsed']),
   qa: z.array(qaTemplateSchema).min(1),
+  // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
+  qa_prompt: qaPromptSchema.default(QA_PROMPT_DEFAULTS),
   translation: translationSchema,
   image_host: imageHostSchema.default({}),
   // Note: `.default({})` on an object schema is returned as-is when the key is absent, so the
   // inner `screenshot_dpi` default would NOT apply for a config.yml without a `pdf_viewer` block.
   // Use an explicit literal default so the 300 fallback holds whether the key is absent or empty.
   pdf_viewer: pdfViewerSchema.default({ screenshot_dpi: 300 }),
+  // Explicit literal default (not `.default({})`) so the inner default holds when the key is absent.
+  pdf_upload: pdfUploadSchema.default({ max_file_size_mb: 100 }),
   // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
   reference_links: referenceLinksSchema.default({ fetch_timeout_ms: 8000, max_bytes: 524288, user_agent: DEFAULT_LINK_PREVIEW_UA }),
   // Explicit literal default (not `.default({})`) so inner tier defaults hold when the key is absent.
   notes: notesSchema.default({ image_width_tiers: { sm: 240, md: 480, lg: 720 } }),
   // Explicit literal default (not `.default({})`) so `default_shared: true` holds when the key is absent.
   sharing: sharingSchema.default({ default_shared: true }),
+  doc2x: doc2xSchema.default(DOC2X_DEFAULTS),
 }).superRefine((config, ctx) => {
   if (config.translation.model && !config.models.available.some((model) => model.name === config.translation.model)) {
     ctx.addIssue({
@@ -238,14 +330,47 @@ export function loadConfig(configPath?: string): AppConfig {
   }
 
   const rawConfig = yaml.load(rawContent)
+  if (rawConfig && typeof rawConfig === 'object' && 'system_prompt' in rawConfig) {
+    throw new Error('Invalid config.yml:\n  - system_prompt: the top-level system_prompt template is deprecated. ' +
+      'Put system prompts in prompts/system/<name>.md and select one with qa_prompt.default_system_prompt.')
+  }
   const result = configSchema.safeParse(rawConfig)
 
   if (!result.success) {
     throw new Error(`Invalid config.yml:\n${result.error.issues.map(i => `  - ${i.path.join('.')}: ${i.message}`).join('\n')}`)
   }
 
-  _config = result.data as AppConfig
+  const config = result.data as AppConfig
+  const promptsDir = config.qa_prompt.system_prompts_dir
+  config.qa_prompt.system_prompts_dir = promptsDir
+    ? resolve(dirname(filePath), promptsDir)
+    : BUNDLED_SYSTEM_PROMPTS_DIR
+  const missing = referencedSystemPrompts(config)
+    .filter(({ name }) => !existsSync(systemPromptPath(config.qa_prompt.system_prompts_dir!, name)))
+  if (missing.length > 0) {
+    throw new Error(`Invalid config.yml:\n${missing.map(({ path, name }) =>
+      `  - ${path}: system prompt file not found: ${systemPromptPath(config.qa_prompt.system_prompts_dir!, name)}`).join('\n')}`)
+  }
+
+  _config = config
   return _config
+}
+
+/** Absolute path of a named system prompt file. */
+export function systemPromptPath(dir: string, name: string): string {
+  return resolve(dir, `${name}.md`)
+}
+
+/** Every system prompt name the config refers to, with the config path that names it. */
+function referencedSystemPrompts(config: AppConfig): { path: string; name: string }[] {
+  const refs = [{ path: 'qa_prompt.default_system_prompt', name: config.qa_prompt.default_system_prompt }]
+  if (config.qa_prompt.direct_ask.system_prompt) {
+    refs.push({ path: 'qa_prompt.direct_ask.system_prompt', name: config.qa_prompt.direct_ask.system_prompt })
+  }
+  config.qa.forEach((template, index) => {
+    if (template.system_prompt) refs.push({ path: `qa.${index}.system_prompt`, name: template.system_prompt })
+  })
+  return refs
 }
 
 export function getConfig(): AppConfig {

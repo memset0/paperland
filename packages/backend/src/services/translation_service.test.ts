@@ -40,7 +40,6 @@ models:
       shell: "printf '固定译文'"
       timeout: 5
 content_priority: [user_input, pdf_parsed]
-system_prompt: '{PROMPT}\n{PAPER}'
 qa:
   - name: summary
     prompt: Summarize it.
@@ -105,7 +104,6 @@ models:
       api_key_env: PAPERLAND_TRANSLATION_TEST_KEY
       stream: true
 content_priority: [user_input]
-system_prompt: '{PROMPT} {PAPER}'
 qa:
   - { name: summary, prompt: Summary }
 translation:

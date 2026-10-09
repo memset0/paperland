@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { addContextualQATestSchema } from '../db/test_contextual_qa.js'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
@@ -78,6 +79,7 @@ beforeEach(async () => {
     0, 0, '2026-08-24T00:00:00Z', '2026-08-24T00:00:00Z',
   )
 
+  addContextualQATestSchema(sqlite)
   setDatabaseForTesting(drizzle(sqlite, { schema }))
   app = Fastify()
   app.addHook('onRequest', async (request) => {

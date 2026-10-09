@@ -34,10 +34,5 @@ export const useImagesStore = defineStore('images', () => {
     return result
   }
 
-  async function deleteImage(hash: string) {
-    await imagesApi.remove(hash)
-    images.value = images.value.filter((i) => i.hash !== hash)
-  }
-
-  return { images, publicBaseUrl, loading, fetchImages, upload, deleteImage, absoluteUrl }
+  return { images, publicBaseUrl, loading, fetchImages, upload, absoluteUrl }
 })

@@ -23,6 +23,7 @@ const emit = defineEmits<{
   regenerate: [modelName: string]
   deleteResult: [resultId: number]
   cancelResult: [resultId: number]
+  followup: [result: QAResult, prefill?: string]
 }>()
 
 function pinKey() { return `qa-pin-${props.paperId}-${props.entryKey}` }
@@ -95,6 +96,7 @@ watch(requestedResultId, (id) => {
         @regenerate="emit('regenerate', $event)"
         @delete-result="emit('deleteResult', $event)"
         @cancel-result="emit('cancelResult', $event)"
+        @followup="(result, prefill) => emit('followup', result, prefill)"
       />
     </TabsContent>
   </Tabs>
@@ -110,5 +112,6 @@ watch(requestedResultId, (id) => {
     @regenerate="emit('regenerate', $event)"
     @delete-result="emit('deleteResult', $event)"
     @cancel-result="emit('cancelResult', $event)"
+    @followup="(result, prefill) => emit('followup', result, prefill)"
   />
 </template>

@@ -53,7 +53,6 @@ models:
       api_key_env: PAPERLAND_TRANSLATION_ROUTE_KEY
       stream: true
 content_priority: [user_input]
-system_prompt: '{PROMPT} {PAPER}'
 qa:
   - { name: summary, prompt: Summary }
 translation:

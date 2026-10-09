@@ -7,6 +7,8 @@ import { canList, openreviewLinkCount } from '../utils/listing.js'
 export interface IngestPaperInput {
   arxiv_id?: string | null
   corpus_id?: string | null
+  /** 40-hex Semantic Scholar paperId (already normalized, see utils/s2_ids.ts). */
+  s2_paper_id?: string | null
   title?: string | null
   authors?: string[] | null
   link?: string | null
@@ -15,24 +17,68 @@ export interface IngestPaperInput {
   listed?: boolean
 }
 
+type DB = ReturnType<typeof getDatabase>
+type PaperRow = typeof schema.papers.$inferSelect
+
+export interface PaperIds {
+  arxiv_id?: string | null
+  corpus_id?: string | null
+  s2_paper_id?: string | null
+}
+
+/** In-flight dedup key for a create request: the strongest identifier wins (arxiv → corpus → s2). */
+export function paperDedupKey(ids: PaperIds): string | null {
+  if (ids.arxiv_id) return getDedupKey('arxiv', ids.arxiv_id)
+  if (ids.corpus_id) return getDedupKey('corpus', ids.corpus_id)
+  if (ids.s2_paper_id) return getDedupKey('s2', ids.s2_paper_id)
+  return null
+}
+
+/**
+ * Find an existing paper by arxiv_id, then corpus_id, then s2_paper_id. On a match,
+ * backfill any of the given identifiers the paper is missing (skipping a value another
+ * row already holds, since all three are UNIQUE). Returns the matched row or null.
+ */
+export function findExistingPaperByIds(db: DB, ids: PaperIds): PaperRow | null {
+  const keys = ['arxiv_id', 'corpus_id', 's2_paper_id'] as const
+  for (const key of keys) {
+    const value = ids[key]
+    if (!value) continue
+    const existing = db.select().from(schema.papers).where(eq(schema.papers[key], value)).get()
+    if (!existing) continue
+    const updates: Partial<PaperRow> = {}
+    for (const other of keys) {
+      const v = ids[other]
+      if (!v || existing[other]) continue
+      const holder = db.select({ id: schema.papers.id }).from(schema.papers).where(eq(schema.papers[other], v)).get()
+      if (!holder) updates[other] = v
+    }
+    if (Object.keys(updates).length > 0) {
+      db.update(schema.papers).set(updates).where(eq(schema.papers.id, existing.id)).run()
+    }
+    return existing
+  }
+  return null
+}
+
 export interface IngestPaperResult {
   /** Raw `papers` row (still JSON-encoded for `authors`/`contents`/`metadata`). */
   paper: typeof schema.papers.$inferSelect
-  /** True when a new row was inserted; false when a matching arxiv_id/corpus_id was found. */
+  /** True when a new row was inserted; false when a matching arxiv_id/corpus_id/s2_paper_id was found. */
   created: boolean
 }
 
 /**
  * Core paper-ingest pipeline shared by `POST /api/papers` and by the conference
  * one-click ingest flow. Returns the existing paper (with cross-id backfilled if
- * applicable) when an `arxiv_id`/`corpus_id` already exists; otherwise inserts a
+ * applicable) when an `arxiv_id`/`corpus_id`/`s2_paper_id` already exists; otherwise inserts a
  * new row and asynchronously triggers the service dependency graph for it.
  *
  * Tag association is intentionally NOT handled here — tags are scoped to the
  * calling user, so the API route owns that step after this helper returns.
  */
 export async function ingestPaper(input: IngestPaperInput): Promise<IngestPaperResult> {
-  const { arxiv_id, corpus_id, title, authors, link, content, listed } = input
+  const { arxiv_id, corpus_id, s2_paper_id, title, authors, link, content, listed } = input
 
   // Promote an existing metadata-only paper when a normal (listed) ingest matches it —
   // but never list an OpenReview-only paper (only conference links, no arxiv/S2 source).
@@ -45,37 +91,16 @@ export async function ingestPaper(input: IngestPaperInput): Promise<IngestPaperR
     }
   }
 
-  const dedupKey = arxiv_id
-    ? getDedupKey('arxiv', arxiv_id)
-    : corpus_id
-      ? getDedupKey('corpus', corpus_id)
-      : null
+  const dedupKey = paperDedupKey({ arxiv_id, corpus_id, s2_paper_id })
 
   const createFn = async (): Promise<IngestPaperResult> => {
     const db = getDatabase()
 
-    if (arxiv_id) {
-      const existing = db.select().from(schema.papers).where(eq(schema.papers.arxiv_id, arxiv_id)).get()
-      if (existing) {
-        if (corpus_id && !existing.corpus_id) {
-          db.update(schema.papers).set({ corpus_id }).where(eq(schema.papers.id, existing.id)).run()
-        }
-        maybePromote(existing)
-        const refetched = db.select().from(schema.papers).where(eq(schema.papers.id, existing.id)).get()!
-        return { paper: refetched, created: false }
-      }
-    }
-
-    if (corpus_id) {
-      const existing = db.select().from(schema.papers).where(eq(schema.papers.corpus_id, corpus_id)).get()
-      if (existing) {
-        if (arxiv_id && !existing.arxiv_id) {
-          db.update(schema.papers).set({ arxiv_id }).where(eq(schema.papers.id, existing.id)).run()
-        }
-        maybePromote(existing)
-        const refetched = db.select().from(schema.papers).where(eq(schema.papers.id, existing.id)).get()!
-        return { paper: refetched, created: false }
-      }
+    const existing = findExistingPaperByIds(db, { arxiv_id, corpus_id, s2_paper_id })
+    if (existing) {
+      maybePromote(existing)
+      const refetched = db.select().from(schema.papers).where(eq(schema.papers.id, existing.id)).get()!
+      return { paper: refetched, created: false }
     }
 
     const now = new Date().toISOString()
@@ -84,6 +109,7 @@ export async function ingestPaper(input: IngestPaperInput): Promise<IngestPaperR
     const paper = db.insert(schema.papers).values({
       arxiv_id: arxiv_id || null,
       corpus_id: corpus_id || null,
+      s2_paper_id: s2_paper_id || null,
       title: title || 'Untitled',
       authors: JSON.stringify(authors || []),
       contents,

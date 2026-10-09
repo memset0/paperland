@@ -23,6 +23,7 @@ const S2_FIELDS = [
   'publicationVenue',
   'fieldsOfStudy',
   'publicationDate',
+  'openAccessPdf',
 ].join(',')
 
 // Fields for the citation-graph edge endpoints (contexts = where the citation occurs).
@@ -53,6 +54,7 @@ interface S2Response {
   publicationVenue?: { name?: string } | null
   fieldsOfStudy?: string[] | null
   publicationDate?: string | null
+  openAccessPdf?: { url?: string | null; status?: string | null } | null
 }
 
 /** Resolve the S2 API key: prefer literal `api_key`, else `api_key_env` env var. */
@@ -169,6 +171,9 @@ function mapS2ToPaperFields(data: S2Response, paper: any): Record<string, any> {
   if (!paper.arxiv_id && ext.ArXiv) {
     result.arxiv_id = ext.ArXiv
   }
+  if (!paper.s2_paper_id && data.paperId) {
+    result.s2_paper_id = data.paperId.toLowerCase()
+  }
 
   if (data.title) result.title = data.title
   if (data.abstract) result.abstract = data.abstract
@@ -191,6 +196,11 @@ function mapS2ToPaperFields(data: S2Response, paper: any): Record<string, any> {
   if (ext.DOI) result.doi = ext.DOI
   if (data.fieldsOfStudy?.length) result.fields_of_study = data.fieldsOfStudy
   if (data.paperId) result.s2_url = `https://www.semanticscholar.org/paper/${data.paperId}`
+  // Open-access PDF link (consumed by s2_pdf_service for papers without an arxiv_id).
+  // The url is only stored when non-empty: closed-access records come back as url "".
+  const oa = data.openAccessPdf
+  if (oa?.url) result.open_access_pdf_url = oa.url
+  if (oa?.status) result.open_access_pdf_status = oa.status
 
   return result
 }
@@ -262,8 +272,8 @@ async function fetchAndSaveEdges(paperId: number, idExpr: string): Promise<void>
 }
 
 /**
- * Fetches Semantic Scholar data for a paper identified by EITHER arxiv_id or
- * corpus_id: resolves the missing cross-id (arxiv_id <-> corpus_id), stores citation
+ * Fetches Semantic Scholar data for a paper identified by arxiv_id, corpus_id, or
+ * s2_paper_id: resolves the missing cross-ids (arxiv_id / corpus_id / s2_paper_id), stores citation
  * metrics/references/tldr on the paper, and captures the citation graph (references +
  * citations with contexts) into the paper_citations table.
  *
@@ -279,12 +289,13 @@ export const semanticScholarService: PaperBoundServiceDef = {
   produces: ['corpus_id', 'citation_count', 'influential_citation_count', 'reference_count', 'references'],
 
   async execute(paperId: number, paper: any): Promise<Record<string, any>> {
+    // Priority: arxiv_id → corpus_id → s2_paper_id (S2 accepts the bare paperId in the path).
     const idExpr = paper.arxiv_id
       ? `ARXIV:${paper.arxiv_id}`
       : paper.corpus_id
         ? `CORPUSID:${paper.corpus_id}`
-        : null
-    // Manual papers with neither external id have nothing to resolve — no-op.
+        : paper.s2_paper_id || null
+    // Manual papers with no external id have nothing to resolve — no-op.
     if (!idExpr) return {}
 
     const data = await fetchS2(idExpr)

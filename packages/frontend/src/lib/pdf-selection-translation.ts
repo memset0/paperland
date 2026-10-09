@@ -7,13 +7,48 @@ export interface RelativeRect {
   height: number
 }
 
+export interface PdfTextSegment {
+  page: number
+  ts: number
+  te: number
+  text: string
+}
+
 export interface PdfSelectionSnapshot {
   identity: string
+  /** First page / offsets (the whole selection when it lies on one page). */
   page: number
   ts: number
   te: number
   text: string
   rect: RelativeRect
+  /** One segment per page; more than one when the selection spans pages. */
+  segments: PdfTextSegment[]
+}
+
+/** Whether a selection spans several pages (asking works; translation/copy-link stay single-page). */
+export function isMultiPageSelection(snapshot: PdfSelectionSnapshot): boolean {
+  return snapshot.segments.length > 1
+}
+
+/**
+ * Snapshot of a selection spanning several pages: segments in page order, text joined with a
+ * space. Returns null when any segment is invalid.
+ */
+export function createMultiPageSelectionSnapshot(segments: PdfTextSegment[], rect: RelativeRect): PdfSelectionSnapshot | null {
+  const valid = segments.filter((segment) => segment.text.trim() && segment.te > segment.ts)
+  if (valid.length < 2 || rect.width <= 0 || rect.height <= 0) return null
+  const text = valid.map((segment) => segment.text.trim()).join(' ')
+  const first = valid[0]
+  return {
+    identity: valid.map((segment) => `${segment.page}:${segment.ts}:${segment.te}`).join('|') + `:${text}`,
+    page: first.page,
+    ts: first.ts,
+    te: first.te,
+    text,
+    rect: { ...rect },
+    segments: valid.map((segment) => ({ ...segment, text: segment.text.trim() })),
+  }
 }
 
 export function createPdfSelectionSnapshot(input: {
@@ -36,6 +71,7 @@ export function createPdfSelectionSnapshot(input: {
     te: input.te,
     text,
     rect: { ...input.rect },
+    segments: [{ page: input.page, ts: input.ts, te: input.te, text }],
   }
 }
 

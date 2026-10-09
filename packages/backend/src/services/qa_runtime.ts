@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import type { getDatabase } from '../db/index.js'
 import * as schema from '../db/schema.js'
 
@@ -57,7 +57,7 @@ export function recomputeQAEntryState(db: Database, entryId: number): { status: 
     error: schema.qaResults.error,
     updated_at: schema.qaResults.updated_at,
   }).from(schema.qaResults)
-    .where(eq(schema.qaResults.qa_entry_id, entryId))
+    .where(and(eq(schema.qaResults.qa_entry_id, entryId), isNull(schema.qaResults.deleted_at)))
     .orderBy(desc(schema.qaResults.updated_at), desc(schema.qaResults.id))
     .all()
 

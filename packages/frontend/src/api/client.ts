@@ -45,6 +45,9 @@ export const api = {
   put: <T>(url: string, body?: unknown) =>
     request<T>(url, { method: 'PUT', body: JSON.stringify(body ?? {}) }),
   delete: <T>(url: string) => request<T>(url, { method: 'DELETE' }),
+  /** POST a raw binary body (e.g. a PDF file) with the given Content-Type. */
+  upload: <T>(url: string, body: Blob, contentType: string) =>
+    request<T>(url, { method: 'POST', body, headers: { 'Content-Type': contentType } }),
 }
 
 export const qaResultApi = {
@@ -372,9 +375,7 @@ export const imagesApi = {
   // `data` is a base64 string or a data: URL; the backend dedupes on content hash.
   upload: (data: string, filename?: string | null) =>
     api.post<{ data: ImageWithUrl }>('/api/images', { data, filename }),
-
-  remove: (hash: string) =>
-    api.delete<{ success: boolean }>(`/api/images/${hash}`),
+  // No delete: images referenced by notes and Q&A inputs must keep resolving.
 }
 
 // Config (safe subset) exposed to the frontend via /api/config/*.

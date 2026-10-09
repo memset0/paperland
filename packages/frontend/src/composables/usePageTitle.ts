@@ -15,7 +15,7 @@ export function formatTitle(name?: string | null): string {
 
 /**
  * Reactively bind `document.title` to a content source (e.g. the loaded
- * paper's title or an Idea Forge project name). The watcher is created in
+ * paper's title). The watcher is created in
  * the calling component's scope, so it stops automatically on unmount; the
  * next route's `afterEach` guard then resets the title.
  */

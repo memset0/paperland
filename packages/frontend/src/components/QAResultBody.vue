@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { QAResult } from '@paperland/shared'
-import { Check, Copy, Loader2, Pin, RefreshCw, Square, Trash2 } from '@lucide/vue'
+import { Check, Copy, FileSearch, Link2, Loader2, MessagesSquare, Pin, RefreshCw, Square, Trash2 } from '@lucide/vue'
+import { toast } from 'vue-sonner'
+import { useAuthStore } from '@/stores/auth'
+import QAModelInputDialog from './QAModelInputDialog.vue'
 import MarkdownContent from './MarkdownContent.vue'
 import QAStreamingMarkdown from './QAStreamingMarkdown.vue'
 import QAThinkingTimer from './QAThinkingTimer.vue'
@@ -23,9 +26,25 @@ const emit = defineEmits<{
   regenerate: [modelName: string]
   deleteResult: [resultId: number]
   cancelResult: [resultId: number]
+  /** Continue this answer; `prefill` comes from a suggested `#moonlight` follow-up. */
+  followup: [result: QAResult, prefill?: string]
 }>()
 
+const auth = useAuthStore()
 const copied = ref(false)
+const showModelInput = ref(false)
+
+/** Copy a `paperland://` link to this answer (`?qa=<entry>&result=<id>`, resolved by ids). */
+async function copyResultLink() {
+  const url = `paperland://paper/${props.paperId}?qa=${props.result.qa_entry_id}&result=${props.result.id}`
+  await navigator.clipboard.writeText(`[QA-${props.result.qa_entry_id} · ${props.result.model_name}](${url})`)
+  toast.success('已复制回答链接', { position: 'bottom-center' })
+}
+
+function onMoonlight(question: string) {
+  if (!auth.isAuthenticated) return
+  emit('followup', props.result, question)
+}
 
 function pinKey() { return `qa-pin-${props.paperId}-${props.entryKey}` }
 function isPinned() { return localStorage.getItem(pinKey()) === props.result.model_name }
@@ -88,7 +107,9 @@ function timeAgo(iso: string): string {
       :highlight-pathname="highlightPathname"
       :paper-id="paperId"
       :qa-result-id="result.id"
+      qa-answer
       class="text-sm"
+      @moonlight="onMoonlight"
     />
     <QAStreamingMarkdown v-else-if="result.answer" :content="result.answer" />
 
@@ -113,6 +134,34 @@ function timeAgo(iso: string): string {
           </Button>
         </TooltipTrigger>
         <TooltipContent>{{ copied ? '已复制' : '复制' }}</TooltipContent>
+      </Tooltip>
+      <Tooltip v-if="auth.isAuthenticated">
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost" size="icon-xs"
+            :disabled="result.status !== 'done'"
+            @click="emit('followup', result)"
+          >
+            <MessagesSquare />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{{ result.status === 'done' ? '追问' : '回答完成后才能追问' }}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="icon-xs" @click="copyResultLink">
+            <Link2 />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>复制回答链接</TooltipContent>
+      </Tooltip>
+      <Tooltip v-if="auth.isAuthenticated">
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="icon-xs" @click="showModelInput = true">
+            <FileSearch />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>查看模型输入</TooltipContent>
       </Tooltip>
       <Tooltip v-if="result.can_cancel">
         <TooltipTrigger as-child>
@@ -139,6 +188,7 @@ function timeAgo(iso: string): string {
         <TooltipContent>删除</TooltipContent>
       </Tooltip>
     </div>
+    <QAModelInputDialog v-if="auth.isAuthenticated" v-model:open="showModelInput" :result-id="result.id" />
   </div>
 </template>
 

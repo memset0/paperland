@@ -25,6 +25,7 @@ export const papers = sqliteTable('papers', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   arxiv_id: text('arxiv_id').unique(),
   corpus_id: text('corpus_id').unique(),
+  s2_paper_id: text('s2_paper_id').unique(), // 40-hex Semantic Scholar paperId (lowercase)
   title: text('title').notNull(),
   authors: text('authors').notNull(), // JSON array
   abstract: text('abstract'),
@@ -65,7 +66,14 @@ export const qaEntries = sqliteTable('qa_entries', {
   status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'done' | 'failed'
   error: text('error'),
   created_at: text('created_at').notNull().default(''),
-})
+  // Contextual Q&A: system prompt name (null = qa_prompt.default_system_prompt), immutable JSON
+  // inputs (text_selection | image | history), and the parent entry derived from the history input.
+  instruction: text('instruction'),
+  inputs: text('inputs'),
+  parent_entry_id: integer('parent_entry_id'),
+}, (table) => [
+  index('qa_entries_parent_entry_idx').on(table.parent_entry_id),
+])
 
 export const qaResults = sqliteTable('qa_results', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -85,7 +93,24 @@ export const qaResults = sqliteTable('qa_results', {
   first_chunk_at: text('first_chunk_at'),
   finished_at: text('finished_at'),
   updated_at: text('updated_at').notNull().default(''),
+  // Soft delete: hidden from every user-facing read, still used to build follow-up history.
+  deleted_at: text('deleted_at'),
 })
+
+// `#cite:<id>` links in finished answers whose id is not among the paper's stored references,
+// kept for later resolution (one row per answer and id).
+export const qaResultCites = sqliteTable('qa_result_cites', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  qa_result_id: integer('qa_result_id').notNull().references(() => qaResults.id),
+  paper_id: integer('paper_id').notNull().references(() => papers.id),
+  cite_id: text('cite_id').notNull(),
+  id_kind: text('id_kind').notNull(), // 's2_paper_id' | 'corpus_id'
+  link_text: text('link_text').notNull(),
+  created_at: text('created_at').notNull(),
+}, (table) => [
+  unique('qa_result_cites_result_cite_unique').on(table.qa_result_id, table.cite_id),
+  index('qa_result_cites_paper_idx').on(table.paper_id),
+])
 
 export const qaUserPreferences = sqliteTable('qa_user_preferences', {
   user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

@@ -4,6 +4,7 @@ import { getConfig } from '../config.js'
 import { Semaphore } from './semaphore.js'
 import { RateLimiter } from './rate_limiter.js'
 import type { PaperBoundServiceDef, PureServiceDef, ServiceDef } from './base_service.js'
+import type { ServiceConfig } from '@paperland/shared'
 
 export interface PureServiceExecutionContext {
   executionId: number
@@ -14,16 +15,26 @@ export interface PureServiceExecutionOptions {
   onCreated?: (context: PureServiceExecutionContext) => void
 }
 
-class ServiceRunner {
+export class ServiceRunner {
   private services = new Map<string, ServiceDef>()
   private semaphores = new Map<string, Semaphore>()
   private rateLimiters = new Map<string, RateLimiter>()
   private pureExecutionControllers = new Map<number, AbortController>()
 
-  initialize(): void {
-    const config = getConfig()
-    for (const [name, svcConfig] of Object.entries(config.services)) {
-      this.semaphores.set(name, new Semaphore(svcConfig.max_concurrency))
+  // `concurrency_group` → semaphore shared by every service in that group.
+  private groupSemaphores = new Map<string, Semaphore>()
+
+  initialize(services: Record<string, ServiceConfig> = getConfig().services): void {
+    for (const [name, svcConfig] of Object.entries(services)) {
+      const group = svcConfig.concurrency_group
+      let sem: Semaphore
+      if (group) {
+        sem = this.groupSemaphores.get(group) ?? new Semaphore(svcConfig.max_concurrency)
+        this.groupSemaphores.set(group, sem)
+      } else {
+        sem = new Semaphore(svcConfig.max_concurrency)
+      }
+      this.semaphores.set(name, sem)
       this.rateLimiters.set(
         name,
         new RateLimiter((svcConfig.rate_limit_interval || 0) * 1000)
@@ -196,6 +207,12 @@ class ServiceRunner {
           continue
         }
 
+        // Eligibility gate: skip silently (no blocked/deferred record)
+        if (svc.eligible && !svc.eligible(paper)) {
+          remaining.delete(name)
+          continue
+        }
+
         // Listed gate: defer `requires_listed` services for metadata-only (listed=0) papers
         if (svc.requires_listed && !isListed) {
           this.markDeferred(name, paper.id)
@@ -236,6 +253,7 @@ class ServiceRunner {
     const keys = new Set<string>()
     if (paper.arxiv_id) keys.add('arxiv_id')
     if (paper.corpus_id) keys.add('corpus_id')
+    if (paper.s2_paper_id) keys.add('s2_paper_id')
     if (paper.pdf_path) keys.add('pdf_path')
     if (paper.metadata) {
       try {
@@ -349,15 +367,15 @@ class ServiceRunner {
                 updates.authors = JSON.stringify(value)
               }
             }
-          } else if (key === 'arxiv_id' || key === 'corpus_id' || key === 'pdf_path' || key === 'link') {
-            // corpus_id is UNIQUE: if another paper already holds it, skip writing
-            // it (keeping the rest of the enrichment) instead of failing the run.
-            if (key === 'corpus_id') {
+          } else if (key === 'arxiv_id' || key === 'corpus_id' || key === 's2_paper_id' || key === 'pdf_path' || key === 'link') {
+            // corpus_id / s2_paper_id are UNIQUE: if another paper already holds the value,
+            // skip writing it (keeping the rest of the enrichment) instead of failing the run.
+            if (key === 'corpus_id' || key === 's2_paper_id') {
               const conflict = db.select().from(schema.papers)
-                .where(eq(schema.papers.corpus_id, String(value)))
+                .where(eq(schema.papers[key], String(value)))
                 .get()
               if (conflict && conflict.id !== paperId) {
-                console.warn(`Skipping corpus_id ${value} for paper ${paperId}: already held by paper ${conflict.id}`)
+                console.warn(`Skipping ${key} ${value} for paper ${paperId}: already held by paper ${conflict.id}`)
                 continue
               }
             }
@@ -401,6 +419,7 @@ class ServiceRunner {
         for (const depSvc of pbServices) {
           // Respect the listed gate here too (don't auto-trigger arxiv/etc. for metadata-only papers)
           if (depSvc.requires_listed && !isListed) continue
+          if (depSvc.eligible && !depSvc.eligible(updatedPaper)) continue
           // Check if this service should now run
           const depsSatisfied = depSvc.depends_on.every((k) => this.getExistingKeys(updatedPaper).has(k))
           const allProduced = depSvc.produces.every((k) => this.getExistingKeys(updatedPaper).has(k))

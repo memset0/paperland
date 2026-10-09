@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, desc } from 'drizzle-orm'
-import { existsSync, rmSync } from 'fs'
+import { desc, isNotNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { requireUser } from '../auth/guards.js'
-import { storeImage, imageAbsPath, ImageValidationError } from '../services/image_store.js'
+import { storeImage, ImageValidationError } from '../services/image_store.js'
+import { parseStoredInputs } from '../services/qa_inputs.js'
 
 /** Count non-overlapping occurrences of `needle` in `haystack`. */
 function countOccurrences(haystack: string, needle: string): number {
@@ -44,33 +44,28 @@ export async function imagesRoutes(app: FastifyInstance): Promise<void> {
   )
 
   // GET /api/images — list all images, newest first, each with a reference_count computed
-  // by scanning every note body for the image's hash (works for relative or absolute URLs).
+  // by scanning every note body for the image's hash (works for relative or absolute URLs), and a
+  // qa_reference_count of Q&A image inputs that use it.
   app.get('/api/images', { preHandler: requireUser }, async () => {
     const db = getDatabase()
     const images = db.select().from(schema.images).orderBy(desc(schema.images.created_at)).all()
     const bodies = db.select({ body: schema.notes.body }).from(schema.notes).all()
+    const qaReferences = new Map<string, number>()
+    for (const row of db.select({ inputs: schema.qaEntries.inputs }).from(schema.qaEntries)
+      .where(isNotNull(schema.qaEntries.inputs)).all()) {
+      for (const input of parseStoredInputs(row.inputs)) {
+        if (input.kind === 'image') qaReferences.set(input.image_hash, (qaReferences.get(input.image_hash) || 0) + 1)
+      }
+    }
     const data = images.map((img) => ({
       ...img,
       url: `/image/${img.path}`,
       reference_count: bodies.reduce((sum, n) => sum + countOccurrences(n.body || '', img.hash), 0),
+      qa_reference_count: qaReferences.get(img.hash) || 0,
     }))
     // public_base_url lets the client build absolute "copy link" URLs; blank ⇒ use origin.
     return { data, public_base_url: getConfig().image_host.public_base_url }
   })
-
-  // DELETE /api/images/:hash — remove the row and the file from disk. Idempotent on the
-  // file (already-gone is fine). The client is responsible for warning when referenced.
-  app.delete<{ Params: { hash: string } }>(
-    '/api/images/:hash', { preHandler: requireUser }, async (request, reply) => {
-      const { hash } = request.params
-      const db = getDatabase()
-      const img = db.select().from(schema.images).where(eq(schema.images.hash, hash)).get()
-      if (!img) return reply.code(404).send({ error: { message: 'Image not found' } })
-
-      const abs = imageAbsPath(img.path)
-      if (existsSync(abs)) rmSync(abs)
-      db.delete(schema.images).where(eq(schema.images.hash, hash)).run()
-      return { success: true }
-    },
-  )
+  // Images are intentionally not deletable: notes and Q&A inputs (screenshots that follow-ups and
+  // regenerations still send to models) must keep resolving.
 }

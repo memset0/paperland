@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { addContextualQATestSchema } from '../db/test_contextual_qa.js'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
@@ -46,9 +47,6 @@ models:
       shell: "printf 'local answer'"
       timeout: 5
 content_priority: [user_input, pdf_parsed]
-system_prompt: |
-  Question: {PROMPT}
-  Paper: {PAPER}
 qa:
   - name: summary
     prompt: Latest preset wording
@@ -67,7 +65,7 @@ translation:
       PRIMARY KEY (user_id, data_type)
     );
     CREATE TABLE papers (
-      id INTEGER PRIMARY KEY, arxiv_id TEXT, corpus_id TEXT, title TEXT NOT NULL, authors TEXT NOT NULL,
+      id INTEGER PRIMARY KEY, arxiv_id TEXT, corpus_id TEXT, s2_paper_id TEXT, title TEXT NOT NULL, authors TEXT NOT NULL,
       abstract TEXT, contents TEXT, pdf_path TEXT, metadata TEXT, link TEXT, tags_json TEXT,
       listed INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
@@ -89,10 +87,11 @@ translation:
       finished_at TEXT, result TEXT, error TEXT
     );
     INSERT INTO users (id, username, role) VALUES (1,'alice','user');
-    INSERT INTO papers VALUES (42,NULL,NULL,'Paper','[]',NULL,'{"user_input":"Paper body"}',NULL,NULL,NULL,NULL,1,'now','now');
+    INSERT INTO papers VALUES (42,NULL,NULL,NULL,'Paper','[]',NULL,'{"user_input":"Paper body"}',NULL,NULL,NULL,NULL,1,'now','now');
     INSERT INTO qa_entries (paper_id,user_id,type,template_name,prompt,status,error,created_at)
       VALUES (42,NULL,'template','summary','Old preset wording','done',NULL,'2026-08-26T00:00:00Z');
   `)
+  addContextualQATestSchema(sqlite)
   setDatabaseForTesting(drizzle(sqlite, { schema }))
   app = Fastify()
   app.addHook('onRequest', async (request) => {

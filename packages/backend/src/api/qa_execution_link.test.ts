@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { addContextualQATestSchema } from '../db/test_contextual_qa.js'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { runQA } from './qa.js'
@@ -43,6 +44,7 @@ describe('QA result execution identity', () => {
       );
       INSERT INTO qa_entries VALUES (7,42,1,'free',NULL,'question','pending',NULL,'2026-08-25T00:00:00Z');
     `)
+    addContextualQATestSchema(sqlite)
     setDatabaseForTesting(drizzle(sqlite, { schema }))
 
     const ask = async (_paperId: number, _prompt: string, modelName: string) => {

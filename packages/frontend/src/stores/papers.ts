@@ -39,7 +39,7 @@ export const usePapersStore = defineStore('papers', () => {
     }
   }
 
-  async function createPaper(data: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; content?: string }) {
+  async function createPaper(data: { arxiv_id?: string; corpus_id?: string; s2_paper_id?: string; title?: string; authors?: string[]; content?: string }) {
     return await api.post<Paper & { created: boolean }>('/api/papers', data)
   }
 
@@ -69,5 +69,20 @@ export const usePapersStore = defineStore('papers', () => {
     return updated
   }
 
-  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, listedMode, fetchPapers, fetchPaper, createPaper, updatePaper, deletePaper, promote }
+  // Re-fetch the open paper without toggling `loading` (used while polling PDF status).
+  async function refreshCurrentPaper() {
+    const id = currentPaper.value?.id
+    if (id == null) return
+    const fresh = await api.get<Paper & { tags: string[] }>(`/api/papers/${id}`)
+    if (currentPaper.value?.id === id) currentPaper.value = fresh
+  }
+
+  // Upload a PDF for a paper that has none (closed access / failed download).
+  async function uploadPdf(id: number, file: File) {
+    const updated = await api.upload<Paper & { tags: string[] }>(`/api/papers/${id}/pdf`, file, 'application/pdf')
+    if (currentPaper.value?.id === id) currentPaper.value = updated
+    return updated
+  }
+
+  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, listedMode, fetchPapers, fetchPaper, refreshCurrentPaper, uploadPdf, createPaper, updatePaper, deletePaper, promote }
 })

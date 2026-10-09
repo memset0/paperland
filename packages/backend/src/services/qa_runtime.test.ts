@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { addContextualQATestSchema } from '../db/test_contextual_qa.js'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { setDatabaseForTesting } from '../db/index.js'
@@ -30,6 +31,7 @@ beforeEach(() => {
     INSERT INTO qa_entries VALUES (1,42,1,'free',NULL,'question','pending',NULL,'2026-08-26T00:00:00Z');
   `)
   db = drizzle(sqlite, { schema })
+  addContextualQATestSchema(sqlite)
   setDatabaseForTesting(db)
 })
 

@@ -32,7 +32,7 @@ export function normalizeSource(text: string): string {
   return text.trim()
 }
 
-/** SHA-256 hex of the normalized source text (mirrors image_store.ts / idea-forge/utils.ts). */
+/** SHA-256 hex of the normalized source text (mirrors image_store.ts). */
 export function hashSource(text: string): string {
   return createHash('sha256').update(text).digest('hex')
 }

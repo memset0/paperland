@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { addContextualQATestSchema } from '../db/test_contextual_qa.js'
 import Fastify from 'fastify'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
@@ -68,6 +69,7 @@ describe('QA prompt persistence reads', () => {
         (42, 1, 'free', 'Why did the first attempt fail?', 'failed', 'model unavailable', '2026-08-24T00:00:00Z');
     `)
 
+    addContextualQATestSchema(sqlite)
     setDatabaseForTesting(drizzle(sqlite, { schema }))
 
     const app = Fastify()
@@ -92,6 +94,10 @@ describe('QA prompt persistence reads', () => {
       highlight_count: 0,
       note_anchor_count: 0,
       results: [],
+      instruction: null,
+      inputs: [],
+      parent_entry_id: null,
+      followup_count: 0,
     }])
 
     await app.close()

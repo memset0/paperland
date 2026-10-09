@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
-import type { QAEntryBackgroundColor } from '@paperland/shared'
+import type { QAEntryBackgroundColor, QAInput, QAResult } from '@paperland/shared'
+import { toast } from 'vue-sonner'
+import { useQAComposer } from '@/composables/useQAComposer'
+import { useBlockAnchor } from '@/composables/useBlockAnchor'
+import QAInputSummary from './QAInputSummary.vue'
+import { usePapersStore } from '@/stores/papers'
+import { NO_QA_CONTENT_HINT, paperHasQAContent } from '@/lib/qa-content'
 import { useQAStore } from '@/stores/qa'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/api/client'
@@ -23,6 +29,14 @@ const props = defineProps<{ paperId: number }>()
 const store = useQAStore()
 const auth = useAuthStore()
 const availableModels = ref<Array<{ name: string }>>([])
+const composer = useQAComposer()
+const papers = usePapersStore()
+/** Asking needs the paper's full text; the backend rejects asks without it (409). */
+const noContent = computed(() => {
+  const paper = papers.currentPaper
+  return !!paper && paper.id === props.paperId && !paperHasQAContent(paper)
+})
+const { revealQAEntry } = useBlockAnchor()
 
 onMounted(async () => {
   if (!auth.isAuthenticated) return // models endpoint requires login; anon only views template QA
@@ -51,6 +65,8 @@ interface QAEntry {
   backgroundColor: QAEntryBackgroundColor | null
   highlightCount: number
   noteAnchorCount: number
+  inputs: QAInput[]
+  parentEntryId: number | null
 }
 
 const templateEntries = computed(() => {
@@ -73,6 +89,8 @@ const templateEntries = computed(() => {
       backgroundColor: data?.background_color ?? null,
       highlightCount: data?.highlight_count ?? 0,
       noteAnchorCount: data?.note_anchor_count ?? 0,
+      inputs: data?.inputs ?? [],
+      parentEntryId: data?.parent_entry_id ?? null,
     })
   }
   return entries
@@ -96,6 +114,8 @@ const freeEntries = computed(() => {
       backgroundColor: entry.background_color,
       highlightCount: entry.highlight_count,
       noteAnchorCount: entry.note_anchor_count,
+      inputs: entry.inputs ?? [],
+      parentEntryId: entry.parent_entry_id ?? null,
     })
   }
   return entries
@@ -207,6 +227,31 @@ function isPrivate(entry: QAEntry): boolean {
   return entry.type === 'free' && !entry.shared
 }
 
+/** `QA-<id>`: copy a link to the entry (`?qa=<id>`, resolved by entry id; paper id kept for readability). */
+async function copyEntryLink(entry: QAEntry) {
+  const url = `paperland://paper/${props.paperId}?qa=${entry.entryId}`
+  await navigator.clipboard.writeText(`[QA-${entry.entryId}](${url})`)
+  toast.success(`已复制 QA-${entry.entryId} 链接`, { position: 'bottom-center' })
+}
+
+/** Continue a specific completed answer in the question box (also from `#moonlight` suggestions). */
+function startFollowup(entry: QAEntry, result: QAResult, prefill?: string) {
+  if (result.status !== 'done') return
+  void composer.startFollowup({
+    result_id: result.id, entry_id: entry.entryId, title: entry.title, model_name: result.model_name,
+  }, prefill)
+}
+
+/** Jump to the entry a follow-up continues; unshared or deleted parents only show a notice. */
+async function openParent(entry: QAEntry) {
+  if (entry.parentEntryId == null) return
+  const history = entry.inputs.find((input) => input.kind === 'history')
+  const located = await store.locateEntry(entry.parentEntryId, history?.kind === 'history' ? history.result_id : null)
+  if (located.state === 'hidden') { toast.info('当前不可见'); return }
+  if (located.state === 'deleted') { toast.info('已删除'); return }
+  if (located.paper_id === props.paperId) revealQAEntry(entry.parentEntryId, located.result_id ?? null)
+}
+
 function setPaperScope(scope: 'mine' | 'all') {
   store.setPaperScope(scope)
 }
@@ -231,7 +276,11 @@ function setPaperScope(scope: 'mine' | 'all') {
         <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllOpen(templateEntries, false)">
           <ChevronsDownUp />
         </Button>
-        <Button v-if="hasUngenerated" size="sm" :disabled="store.submitting" @click="store.triggerAllTemplates(props.paperId)">
+        <Button
+          v-if="hasUngenerated" size="sm" :disabled="store.submitting || noContent"
+          :title="noContent ? NO_QA_CONTENT_HINT : undefined"
+          @click="store.triggerAllTemplates(props.paperId)"
+        >
           <Play /> 一键生成
         </Button>
       </div>
@@ -256,6 +305,13 @@ function setPaperScope(scope: 'mine' | 'all') {
             <div class="flex-1 min-w-0">
               <span class="text-sm font-semibold line-clamp-1">{{ entry.title }}</span>
             </div>
+            <QAInputSummary :inputs="entry.inputs" />
+            <button
+              v-if="entry.entryId > 0" type="button"
+              class="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
+              title="复制 QA 链接"
+              @click.stop="copyEntryLink(entry)"
+            >QA-{{ entry.entryId }}</button>
             <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
             <QAEntryBackgroundPicker
               v-if="auth.isAuthenticated && entry.entryId > 0"
@@ -275,6 +331,7 @@ function setPaperScope(scope: 'mine' | 'all') {
               @regenerate="(model: string) => onResultRegenerate(entry, model)"
               @delete-result="onDeleteResult"
               @cancel-result="store.cancelResult"
+              @followup="(result: QAResult, prefill?: string) => startFollowup(entry, result, prefill)"
             />
           </CollapsibleContent>
         </Collapsible>
@@ -305,6 +362,8 @@ function setPaperScope(scope: 'mine' | 'all') {
             v-else
             variant="link" size="xs"
             class="shrink-0"
+            :disabled="noContent"
+            :title="noContent ? NO_QA_CONTENT_HINT : undefined"
             @click.stop="generateTemplate(entry.templateName!)"
           >
             生成
@@ -371,6 +430,13 @@ function setPaperScope(scope: 'mine' | 'all') {
                 class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
               ><User class="h-2.5 w-2.5" />{{ entry.ownerName }}<template v-if="isPrivate(entry)"> · <Lock class="h-2.5 w-2.5" />Private</template></span>
             </div>
+            <QAInputSummary :inputs="entry.inputs" />
+            <button
+              v-if="entry.entryId > 0" type="button"
+              class="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
+              title="复制 QA 链接"
+              @click.stop="copyEntryLink(entry)"
+            >QA-{{ entry.entryId }}</button>
             <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
             <QAEntryBackgroundPicker
               :entry-id="entry.entryId" :color="entry.backgroundColor"
@@ -381,6 +447,11 @@ function setPaperScope(scope: 'mine' | 'all') {
             </Badge>
           </CollapsibleTrigger>
           <CollapsibleContent class="px-5 pb-4 pt-1">
+            <button
+              v-if="entry.parentEntryId != null" type="button"
+              class="mb-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              @click="openParent(entry)"
+            >接续 QA-{{ entry.parentEntryId }} 的回答</button>
             <QAResultView
               :results="entry.results"
               :entry-key="entry.key"
@@ -389,6 +460,7 @@ function setPaperScope(scope: 'mine' | 'all') {
               @regenerate="(model: string) => onResultRegenerate(entry, model)"
               @delete-result="onDeleteResult"
               @cancel-result="store.cancelResult"
+              @followup="(result: QAResult, prefill?: string) => startFollowup(entry, result, prefill)"
             />
           </CollapsibleContent>
         </Collapsible>

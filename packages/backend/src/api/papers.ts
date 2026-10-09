@@ -1,13 +1,26 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, like, or, desc, asc, inArray, sql, and } from 'drizzle-orm'
+import { eq, like, or, desc, asc, inArray, sql, and, isNull } from 'drizzle-orm'
+import { createHash } from 'crypto'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
+import { resolve } from 'path'
+import { matchLibraryPapers } from '../services/qa_formatter.js'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { ingestPaper } from '../services/ingest_paper.js'
 import { serviceRunner } from '../services/service_runner.js'
+import { removeDoc2xArtifacts } from '../services/doc2x_cli.js'
 import { requireUser } from '../auth/guards.js'
 import { verifyOpenToken } from '../auth/open_token.js'
 import { normalizeArxivId } from '../utils/arxiv_id.js'
 import { userTagsByPapers, userTagsForPaper, findOrCreateUserTag, findUserTagByName, clearUserPaperTags } from '../utils/user-tags.js'
 import { canList, openreviewLinkCount, openreviewLinkCountsByPapers } from '../utils/listing.js'
+import { normalizeS2Ids, S2IdError } from '../utils/s2_ids.js'
+import { derivePdfStatus } from '../utils/pdf_status.js'
+import { getConfig } from '../config.js'
+
+/** `pdf_upload.max_file_size_mb`; falls back to the schema default when config isn't loaded (route-only unit tests). */
+function pdfUploadMaxMb(): number {
+  try { return getConfig().pdf_upload.max_file_size_mb } catch { return 100 }
+}
 
 export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // List papers with pagination and search
@@ -116,13 +129,69 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       .all()
       .filter(r => !!r.link)
 
+    // PDF availability for the viewer (available / fetching / upload_required + reason).
+    const executions = db.select({
+      id: schema.serviceExecutions.id,
+      service_name: schema.serviceExecutions.service_name,
+      status: schema.serviceExecutions.status,
+      created_at: schema.serviceExecutions.created_at,
+    }).from(schema.serviceExecutions).where(eq(schema.serviceExecutions.paper_id, id)).all()
+
     return {
       ...parsePaper(paper),
       tags,
       openreview_links,
       // OpenReview-only papers (links present, no arxiv/S2 source) are not promotable to listed=true.
       listable: canList(paper, openreview_links.length),
+      ...derivePdfStatus(paper, executions),
     }
+  })
+
+  // POST /api/papers/:id/pdf — user upload for papers without an obtainable PDF (closed
+  // access / failed download). Raw `application/pdf` body; the parser is scoped to this
+  // route so the rest of the API keeps JSON-only parsing and the default body limit.
+  const maxPdfBytes = pdfUploadMaxMb() * 1024 * 1024
+  await app.register(async (scoped) => {
+    scoped.addContentTypeParser('application/pdf', { parseAs: 'buffer', bodyLimit: maxPdfBytes }, (_req, body, done) => done(null, body))
+    scoped.post<{ Params: { id: string }; Body: Buffer }>(
+      '/api/papers/:id/pdf',
+      { preHandler: requireUser, bodyLimit: maxPdfBytes },
+      async (request, reply) => {
+        const db = getDatabase()
+        const id = parseInt(request.params.id, 10)
+        const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
+        if (!paper) return reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${id} not found` } })
+        if (paper.pdf_path) return reply.code(409).send({ error: { code: 'PDF_EXISTS', message: '该论文已有 PDF' } })
+
+        const body = request.body
+        if (!Buffer.isBuffer(body) || body.length < 4 || body.subarray(0, 4).toString('latin1') !== '%PDF') {
+          return reply.code(422).send({ error: { code: 'INVALID_PDF', message: '上传的文件不是 PDF' } })
+        }
+
+        // Content-hashed name: /api/files is cached for 24h, so a name is never reused for new bytes.
+        const hash = createHash('sha256').update(body).digest('hex').slice(0, 8)
+        const filename = `upload_${id}_${hash}.pdf`
+        const pdfDir = resolve(process.cwd(), 'data/pdfs')
+        mkdirSync(pdfDir, { recursive: true })
+        const absPath = resolve(pdfDir, filename)
+        writeFileSync(absPath, body)
+
+        // Conditional write guards against a concurrent upload / service download.
+        const changed = db.update(schema.papers).set({ pdf_path: `data/pdfs/${filename}` })
+          .where(and(eq(schema.papers.id, id), isNull(schema.papers.pdf_path))).run().changes
+        if (changed === 0) {
+          rmSync(absPath, { force: true })
+          return reply.code(409).send({ error: { code: 'PDF_EXISTS', message: '该论文已有 PDF' } })
+        }
+
+        // pdf_path now exists → pdf_parse / doc2x get scheduled; PDF download services are skipped.
+        serviceRunner.triggerForPaper(id).catch((err) => {
+          console.error(`Failed to trigger services after PDF upload for paper ${id}:`, err)
+        })
+        const updated = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()!
+        return { ...parsePaper(updated), tags: userTagsForPaper(db, id, request.user!.id), ...derivePdfStatus(updated, []) }
+      },
+    )
   })
 
   // Semantic Scholar citation graph: references (this paper cites) + citations (cite this paper)
@@ -141,7 +210,8 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         intents: r.intents ? JSON.parse(r.intents) : [],
         is_influential: !!r.is_influential,
       })
-      const all = rows.map(parse)
+      const library = matchLibraryPapers(db, rows)
+      const all = rows.map((row) => ({ ...parse(row), library_paper_id: library.get(row.id) ?? null }))
       return {
         references: all.filter((r) => r.direction === 'reference'),
         citations: all.filter((r) => r.direction === 'citation'),
@@ -238,6 +308,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
           db.update(schema.highlights).set({ qa_result_id: null })
             .where(inArray(schema.highlights.qa_result_id, resultIds)).run()
         }
+        db.delete(schema.qaResultCites).where(eq(schema.qaResultCites.paper_id, id)).run()
         db.delete(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, entryIds)).run()
       }
       // 2. Delete qa_entries
@@ -258,24 +329,38 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       db.delete(schema.papers).where(eq(schema.papers.id, id)).run()
     })
     tx()
+    removeDoc2xArtifacts(id)
 
     return { success: true, deleted_id: id }
   })
 
   // Create paper
-  app.post<{ Body: { arxiv_id?: string; corpus_id?: string; title?: string; authors?: string[]; content?: string; link?: string; tags?: string[] } }>(
+  app.post<{ Body: { arxiv_id?: string; corpus_id?: string; s2_paper_id?: string; title?: string; authors?: string[]; content?: string; link?: string; tags?: string[] } }>(
     '/api/papers',
     { preHandler: requireUser },
     async (request, reply) => {
-      const { arxiv_id, corpus_id, title, authors, content, link, tags: tagNames } = request.body || {}
+      const { arxiv_id, title, authors, content, link, tags: tagNames } = request.body || {}
       const userId = request.user!.id
 
-      if (!title && !arxiv_id && !corpus_id) {
-        reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Must provide arxiv_id, corpus_id, or title' } })
+      // corpus_id / s2_paper_id accept ids, `CorpusId:<n>`, or semanticscholar.org URLs.
+      let s2Ids
+      try {
+        s2Ids = normalizeS2Ids(request.body || {})
+      } catch (e) {
+        if (e instanceof S2IdError) {
+          reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: e.message } })
+          return
+        }
+        throw e
+      }
+      const { corpus_id, s2_paper_id } = s2Ids
+
+      if (!title && !arxiv_id && !corpus_id && !s2_paper_id) {
+        reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Must provide arxiv_id, corpus_id, s2_paper_id, or title' } })
         return
       }
 
-      const { paper, created } = await ingestPaper({ arxiv_id, corpus_id, title, authors, link, content })
+      const { paper, created } = await ingestPaper({ arxiv_id, corpus_id, s2_paper_id, title, authors, link, content })
 
       // Attach per-user tags only when this call actually created the paper —
       // matching the pre-refactor behavior, which only ran tag insertion in the

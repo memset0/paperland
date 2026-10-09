@@ -2,7 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { api, qaResultApi } from '@/api/client'
 import type {
+  Doc2xStatus,
   QAEntryBackgroundColor,
+  QAInput,
+  QAInputRequest,
+  QAModelInputView,
   QAFeedEntry,
   PaginatedResponse,
   QAResult,
@@ -34,6 +38,10 @@ export interface TemplateEntry {
   highlight_count: number
   note_anchor_count: number
   results: QAResult[]
+  instruction: string | null
+  inputs: QAInput[]
+  parent_entry_id: number | null
+  followup_count: number
 }
 
 export interface FreeEntry {
@@ -52,6 +60,27 @@ export interface FreeEntry {
   highlight_count: number
   note_anchor_count: number
   results: QAResult[]
+  instruction: string | null
+  inputs: QAInput[]
+  parent_entry_id: number | null
+  followup_count: number
+}
+
+export interface FreeQuestionResponse {
+  entry_id: number
+  models: string[]
+  runs: Array<{ result_id: number; execution_id: number; model_name: string }>
+  inputs: QAInput[]
+  question: string
+}
+
+export interface QALocateResponse {
+  state: 'visible' | 'hidden' | 'deleted'
+  entry_id?: number
+  result_id?: number | null
+  paper_id?: number
+  type?: 'template' | 'free'
+  template_name?: string | null
 }
 
 export interface QAData {
@@ -108,7 +137,30 @@ export const useQAStore = defineStore('qa', () => {
     if (currentPaperId.value != null) await fetchQA(currentPaperId.value, true)
   }
 
+  // doc2x gate: while only the mechanically extracted text is available (doc2x precise parse
+  // not done), confirm before asking. Concurrent calls for one paper (e.g. a template regenerated
+  // for several models in a loop) share a single in-flight confirmation.
+  const doc2xConfirmations = new Map<number, Promise<boolean>>()
+  function confirmDoc2xIfNeeded(paperId: number): Promise<boolean> {
+    const inflight = doc2xConfirmations.get(paperId)
+    if (inflight) return inflight
+    const pending = (async () => {
+      try {
+        const status = await api.get<Doc2xStatus>(`/api/papers/${paperId}/doc2x`)
+        if (!status.qa_needs_confirm) return true
+        return window.confirm('doc2x 精确解析尚未完成，本次回答将基于机械解析出的文本（公式、表格可能不准确）。\n\n仍要现在提问吗？')
+      } catch {
+        return true // status unavailable — don't block asking
+      } finally {
+        setTimeout(() => doc2xConfirmations.delete(paperId), 0)
+      }
+    })()
+    doc2xConfirmations.set(paperId, pending)
+    return pending
+  }
+
   async function triggerAllTemplates(paperId: number) {
+    if (!(await confirmDoc2xIfNeeded(paperId))) return
     submitting.value = true
     try {
       const res = await api.post<{ triggered: string[] }>(`/api/papers/${paperId}/qa/template`)
@@ -124,6 +176,10 @@ export const useQAStore = defineStore('qa', () => {
             highlight_count: 0,
             note_anchor_count: 0,
             results: [],
+            instruction: null,
+            inputs: [],
+            parent_entry_id: null,
+            followup_count: 0,
           }
         }
       }
@@ -135,6 +191,7 @@ export const useQAStore = defineStore('qa', () => {
   }
 
   async function regenerateTemplate(paperId: number, templateName: string, model?: string) {
+    if (!(await confirmDoc2xIfNeeded(paperId))) return
     // Immediately show running state
     if (currentPaperId.value === paperId && qaData.value.template[templateName]) {
       qaData.value.template[templateName].status = 'running'
@@ -145,17 +202,29 @@ export const useQAStore = defineStore('qa', () => {
     startPolling(paperId)
   }
 
-  async function submitFreeQuestion(paperId: number, question: string, models: string[]) {
+  async function submitFreeQuestion(
+    paperId: number,
+    question: string,
+    models: string[],
+    extra: { inputs?: QAInputRequest[]; instruction?: string | null; directAsk?: boolean } = {},
+  ) {
+    // Cancelled → undefined (caller keeps the typed question)
+    if (!(await confirmDoc2xIfNeeded(paperId))) return undefined
     submitting.value = true
     try {
-      const res = await api.post<{ entry_id: number }>(`/api/papers/${paperId}/qa/free`, { question, models })
+      const res = await api.post<FreeQuestionResponse>(`/api/papers/${paperId}/qa/free`, {
+        question, models,
+        ...(extra.inputs?.length ? { inputs: extra.inputs } : {}),
+        ...(extra.instruction ? { instruction: extra.instruction } : {}),
+        ...(extra.directAsk ? { direct_ask: true } : {}),
+      })
       // Immediately add placeholder so UI shows spinning state
       if (currentPaperId.value === paperId) {
         qaData.value.free.unshift({
           entry_id: res.entry_id,
           status: 'running',
           error: null,
-          prompt: question,
+          prompt: res.question ?? question,
           user_id: null,
           username: null,
           display_name: null,
@@ -165,6 +234,10 @@ export const useQAStore = defineStore('qa', () => {
           highlight_count: 0,
           note_anchor_count: 0,
           results: [],
+          instruction: extra.instruction ?? null,
+          inputs: res.inputs ?? [],
+          parent_entry_id: null,
+          followup_count: 0,
         })
       }
       await fetchQA(paperId)
@@ -175,7 +248,28 @@ export const useQAStore = defineStore('qa', () => {
     }
   }
 
+  /**
+   * Ask straight from a PDF passage or screenshot: the backend fills in the configured preset
+   * question (`@Quote1 …`) and the default model. Same doc2x confirmation as other asks.
+   */
+  function askDirect(paperId: number, input: QAInputRequest) {
+    return submitFreeQuestion(paperId, '', [], { inputs: [input], directAsk: true })
+  }
+
+  /** Rebuild (server-side, never stored) what the model receives for an answer. */
+  async function fetchModelInput(resultId: number): Promise<QAModelInputView> {
+    const res = await api.get<{ data: QAModelInputView }>(`/api/qa/results/${resultId}/model-input`)
+    return res.data
+  }
+
+  /** Resolve a `?qa=<entry>[&result=]` link target by entry id alone. */
+  async function locateEntry(entryId: number, resultId?: number | null): Promise<QALocateResponse> {
+    const query = resultId != null ? `?result=${resultId}` : ''
+    return api.get<QALocateResponse>(`/api/qa/entries/${entryId}/locate${query}`)
+  }
+
   async function regenerateEntry(entryId: number, paperId: number, models?: string[]) {
+    if (!(await confirmDoc2xIfNeeded(paperId))) return
     // Immediately show running state
     if (currentPaperId.value === paperId) {
       const freeEntry = qaData.value.free.find(e => e.entry_id === entryId)
@@ -459,7 +553,7 @@ export const useQAStore = defineStore('qa', () => {
   return {
     qaData, templates, loading, submitting, polling, selectedModels, currentPaperId, paperScope,
     fetchTemplates, fetchQA, switchPaper, triggerAllTemplates, regenerateTemplate,
-    submitFreeQuestion, regenerateEntry, deleteResult, cancelResult, setPaperScope, setEntryBackground, adjustHighlightCount,
+    submitFreeQuestion, askDirect, fetchModelInput, locateEntry, confirmDoc2xIfNeeded, regenerateEntry, deleteResult, cancelResult, setPaperScope, setEntryBackground, adjustHighlightCount,
     startPolling, stopPolling, hasInProgress,
     feedEntries, feedLoading, feedPagination, feedScope, fetchFeed, startFeedPolling, stopFeedPolling, feedHasInProgress,
     availableModels, fetchModels,

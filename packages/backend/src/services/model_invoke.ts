@@ -1,7 +1,8 @@
 import { getConfig } from '../config.js'
 import { codexProvider } from './model_providers/codex_provider.js'
 import { openAIProvider } from './model_providers/openai_provider.js'
-import type { ModelCapabilities, ModelInvokeOptions, ModelProvider } from './model_providers/types.js'
+import type { ModelCapabilities, ModelInput, ModelInvokeOptions, ModelProvider } from './model_providers/types.js'
+import { toModelInput } from './model_providers/types.js'
 
 const providers: Partial<Record<string, ModelProvider>> = {
   openai_api: openAIProvider,
@@ -27,12 +28,17 @@ export function getModelCapabilities(modelName: string): ModelCapabilities {
 
 /** Resolve a configured model to its first-class provider and return authoritative final text. */
 export async function callModel(
-  prompt: string,
+  input: string | ModelInput,
   modelName: string,
   options: ModelInvokeOptions = {},
 ): Promise<string> {
   const { modelConfig, provider } = resolveModel(modelName)
-  return provider.invoke(prompt, modelConfig, options)
+  return provider.invoke(toModelInput(input), modelConfig, options)
 }
 
-export type { ModelCapabilities, ModelInvokeOptions } from './model_providers/types.js'
+/** Whether a configured model accepts image input (`vision: true`). */
+export function modelSupportsVision(modelName: string): boolean {
+  return resolveModel(modelName).modelConfig.vision === true
+}
+
+export type { ModelCapabilities, ModelInput, ModelInputPart, ModelInvokeOptions } from './model_providers/types.js'

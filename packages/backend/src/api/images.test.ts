@@ -130,15 +130,32 @@ describe('image routes', () => {
     expect(body).toHaveProperty('public_base_url')
   })
 
-  it('DELETE /api/images/:hash removes the row and the file', async () => {
+  it('images cannot be deleted', async () => {
     currentUser = makeUser(db, 'alice')
     const up = await app.inject({ method: 'POST', url: '/api/images', payload: { data: PNG_1x1 } })
     const { hash, path } = up.json().data
-    expect(existsSync(imageAbsPath(path))).toBe(true)
 
     const res = await app.inject({ method: 'DELETE', url: `/api/images/${hash}` })
-    expect(res.statusCode).toBe(200)
-    expect(db.select().from(schema.images).all().length).toBe(0)
-    expect(existsSync(imageAbsPath(path))).toBe(false)
+    expect(res.statusCode).toBe(404)
+    expect(db.select().from(schema.images).all().length).toBe(1)
+    expect(existsSync(imageAbsPath(path))).toBe(true)
+  })
+
+  it('GET /api/images counts Q&A image inputs separately from notes', async () => {
+    currentUser = makeUser(db, 'alice')
+    const up = await app.inject({ method: 'POST', url: '/api/images', payload: { data: PNG_1x1 } })
+    const { hash, url } = up.json().data
+    const paperId = makePaper(db)
+    const image = { kind: 'image', label: 'Image1', image_hash: hash, url, pdf: null }
+    for (const inputs of [[image], [image, { ...image, label: 'Image2' }], []]) {
+      db.insert(schema.qaEntries).values({
+        paper_id: paperId, user_id: currentUser.id, type: 'free', status: 'done', created_at: 'now',
+        inputs: inputs.length ? JSON.stringify(inputs) : null,
+      }).run()
+    }
+
+    const img = (await app.inject({ method: 'GET', url: '/api/images' })).json().data.find((i: any) => i.hash === hash)
+    expect(img.qa_reference_count).toBe(3)
+    expect(img.reference_count).toBe(0)
   })
 })

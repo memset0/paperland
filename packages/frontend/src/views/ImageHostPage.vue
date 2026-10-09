@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
-import { Upload, Copy, Trash2, Link2 } from '@lucide/vue'
+import { Upload, Copy, Link2 } from '@lucide/vue'
 import { useImagesStore } from '@/stores/images'
 import { imageFromClipboard } from '@/utils/uploadImage'
 import AppPage from '@/components/AppPage.vue'
@@ -77,19 +77,6 @@ async function copyMarkdown(img: ImageWithUrl) {
   }
 }
 
-async function remove(img: ImageWithUrl) {
-  const warn = img.reference_count && img.reference_count > 0
-    ? `This image is referenced by ${img.reference_count} note${img.reference_count > 1 ? 's' : ''}. Deleting it will break those references. Continue?`
-    : 'Delete this image?'
-  if (!confirm(warn)) return
-  try {
-    await store.deleteImage(img.hash)
-    toast.success('Image deleted')
-  } catch {
-    toast.error('Delete failed')
-  }
-}
-
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -148,12 +135,21 @@ function formatDate(iso: string): string {
           </div>
           <div class="text-muted-foreground flex items-center justify-between">
             <span>{{ formatDate(img.created_at) }}</span>
-            <span
-              class="px-1.5 py-0.5 rounded"
-              :class="img.reference_count ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'"
-              :title="`Referenced by ${img.reference_count ?? 0} note(s)`"
-            >
-              {{ img.reference_count ?? 0 }} ref
+            <span class="flex items-center gap-1">
+              <span
+                class="px-1.5 py-0.5 rounded"
+                :class="img.reference_count ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'"
+                :title="`Referenced by ${img.reference_count ?? 0} note(s)`"
+              >
+                {{ img.reference_count ?? 0 }} ref
+              </span>
+              <span
+                class="px-1.5 py-0.5 rounded"
+                :class="img.qa_reference_count ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'"
+                :title="`Used by ${img.qa_reference_count ?? 0} Q&A input(s)`"
+              >
+                {{ img.qa_reference_count ?? 0 }} QA
+              </span>
             </span>
           </div>
           <div class="flex items-center gap-1 mt-1">
@@ -162,9 +158,6 @@ function formatDate(iso: string): string {
             </button>
             <button class="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 border rounded hover:bg-muted" title="Copy Markdown" @click="copyMarkdown(img)">
               <Copy class="h-3.5 w-3.5" /> MD
-            </button>
-            <button class="p-1 border rounded text-destructive hover:bg-muted" title="Delete" @click="remove(img)">
-              <Trash2 class="h-3.5 w-3.5" />
             </button>
           </div>
         </div>

@@ -16,7 +16,7 @@ import { useRoute } from 'vue-router'
  *            remaining height. When false (default) the page flows normally and
  *            scrolls with the app's <main> outlet.
  *
- * Detail pages (paper detail, idea workspace) do NOT use this component.
+ * Detail pages (e.g. paper detail) do NOT use this component.
  */
 const props = defineProps<{
   title?: string

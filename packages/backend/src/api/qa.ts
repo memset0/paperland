@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { once } from 'events'
-import { eq, and, desc, inArray, or, sql } from 'drizzle-orm'
+import { eq, and, desc, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { loadTemplates, loadTemplate } from '../services/template_loader.js'
@@ -21,6 +21,20 @@ import {
   serializeQAResult,
 } from '../services/qa_runtime.js'
 import { qaResultStreamBroker } from '../services/qa_result_stream.js'
+import { modelSupportsVision } from '../services/model_invoke.js'
+import { buildQAInput, chainContentInputs, loadAncestorChain, QANoContentError, resolvePaperContent } from '../services/qa_formatter.js'
+import { assignLabels, contentInputs, parseStoredInputs, qaInputRequestSchema, type QAInputRequestParsed } from '../services/qa_inputs.js'
+import { recordUnknownCites } from '../services/qa_cites.js'
+import { existsSync } from 'fs'
+import { systemPromptPath } from '../config.js'
+import type { QAInput } from '@paperland/shared'
+
+/** Soft-deleted Results are hidden from every user-facing read. */
+const resultNotDeleted = isNull(schema.qaResults.deleted_at)
+
+function noContentReply(reply: any) {
+  reply.code(409).send({ error: { code: 'NO_CONTENT', message: 'No content available for this paper' } })
+}
 
 function uniqueNumbers(values: Array<number | null>): number[] {
   return [...new Set(values.filter((value): value is number => value != null))]
@@ -45,7 +59,7 @@ function loadResultsByEntry(db: ReturnType<typeof getDatabase>, entryIds: number
   if (entryIds.length === 0) return new Map()
   const map = new Map<number, any[]>()
   for (const result of db.select().from(schema.qaResults)
-    .where(inArray(schema.qaResults.qa_entry_id, entryIds))
+    .where(and(inArray(schema.qaResults.qa_entry_id, entryIds), resultNotDeleted))
     .orderBy(desc(schema.qaResults.created_at), desc(schema.qaResults.id))
     .all()) {
     const rows = map.get(result.qa_entry_id) || []
@@ -128,6 +142,81 @@ function loadBackgroundPreferences(
       .all()
       .map((row) => [row.entry_id, row.color]),
   )
+}
+
+/** Number of follow-ups of each entry that the viewer can see. */
+function loadFollowupCounts(
+  db: ReturnType<typeof getDatabase>,
+  user: { id: number; role: string } | null | undefined,
+  entryIds: number[],
+): Map<number, number> {
+  if (entryIds.length === 0 || !user) return new Map()
+  return new Map(
+    db.select({ parent: schema.qaEntries.parent_entry_id, count: sql<number>`count(*)` })
+      .from(schema.qaEntries)
+      .where(and(
+        inArray(schema.qaEntries.parent_entry_id, entryIds),
+        ownerVisibilityFilter(user, 'qa', schema.qaEntries.user_id, 'all'),
+      ))
+      .groupBy(schema.qaEntries.parent_entry_id)
+      .all()
+      .map((row) => [row.parent!, Number(row.count)]),
+  )
+}
+
+/** Contextual fields every serialized entry carries. */
+function entryContextFields(entry: typeof schema.qaEntries.$inferSelect, followups: Map<number, number>) {
+  return {
+    instruction: entry.instruction ?? null,
+    inputs: parseStoredInputs(entry.inputs),
+    parent_entry_id: entry.parent_entry_id ?? null,
+    followup_count: followups.get(entry.id) || 0,
+  }
+}
+
+/** Serialize free entries in the `/api/qa/free` feed shape (paper title, owner, results, context). */
+function serializeFeedEntries(
+  db: ReturnType<typeof getDatabase>,
+  user: { id: number; role: string } | null | undefined,
+  entries: Array<typeof schema.qaEntries.$inferSelect>,
+) {
+  const userId = user?.id ?? null
+  const entryIds = entries.map((entry) => entry.id)
+  const usernameById = loadUsernames(db, entries.map((entry) => entry.user_id))
+  const sharedByOwner = sharedFlagsFor('qa', entries.map((entry) => entry.user_id))
+  const resultsByEntry = loadResultsByEntry(db, entryIds)
+  const preferenceByEntry = loadBackgroundPreferences(db, userId, entryIds)
+  const indicators = loadQAReadingIndicators(db, userId, entries, resultsByEntry)
+  const followups = loadFollowupCounts(db, user, entryIds)
+  const paperIds = uniqueNumbers(entries.map((entry) => entry.paper_id))
+  const paperTitleById = new Map(
+    (paperIds.length === 0 ? [] : db.select({ id: schema.papers.id, title: schema.papers.title })
+      .from(schema.papers).where(inArray(schema.papers.id, paperIds)).all())
+      .map((paper) => [paper.id, paper.title]),
+  )
+
+  return entries.map((entry) => {
+    const results = serializeResultsForEntry(resultsByEntry.get(entry.id) || [], entry, user)
+    return {
+      entry_id: entry.id,
+      paper_id: entry.paper_id,
+      paper_title: paperTitleById.get(entry.paper_id) || 'Unknown',
+      status: entry.status,
+      error: entry.error,
+      prompt: entry.prompt || results[0]?.prompt || null,
+      created_at: entry.created_at,
+      user_id: entry.user_id ?? null,
+      username: entry.user_id != null ? (usernameById.get(entry.user_id)?.username ?? null) : null,
+      display_name: entry.user_id != null ? (usernameById.get(entry.user_id)?.display_name ?? null) : null,
+      shared: entry.user_id != null ? (sharedByOwner.get(entry.user_id) ?? false) : false,
+      can_manage: canManageEntry(entry, user),
+      background_color: preferenceByEntry.get(entry.id) ?? null,
+      highlight_count: indicators.highlightByEntry.get(entry.id) || 0,
+      note_anchor_count: indicators.noteByEntry.get(entry.id) || 0,
+      results,
+      ...entryContextFields(entry, followups),
+    }
+  })
 }
 
 type AskQuestionFn = typeof askQuestion
@@ -280,7 +369,7 @@ export async function runQA(
 
     const writer = createPartialAnswerWriter({ db, entryId, resultId: result.id, batchMs })
     try {
-      const res = await askFn(paperId, prompt, modelName, { onChunk: writer.onChunk, signal })
+      const res = await askFn(paperId, prompt, modelName, { onChunk: writer.onChunk, signal, entryId })
       writer.flushNow()
       const finishedAt = new Date().toISOString()
       const completed = updateResultIfActive(db, result.id, {
@@ -293,7 +382,14 @@ export async function runQA(
         finished_at: finishedAt,
         updated_at: finishedAt,
       })
-      if (completed) qaResultStreamBroker.publish(result.id, { event: 'done', result: completed })
+      if (completed) {
+        qaResultStreamBroker.publish(result.id, { event: 'done', result: completed })
+        try {
+          recordUnknownCites(db, paperId, result.id, res.answer)
+        } catch (error) {
+          console.error(`Failed to record #cite links (result ${result.id}):`, error)
+        }
+      }
       recomputeQAEntryState(db, entryId)
     } catch (reason: unknown) {
       writer.flushNow()
@@ -338,6 +434,21 @@ export async function runQA(
     execution_id: scheduled.executionId,
     model_name: modelName,
   }
+}
+
+/**
+ * Start one run per model, creating Results in reverse list order so the first-listed (usually
+ * strongest) model's Result is the most recently created — the default "latest" answer.
+ * Runs are returned in the original list order.
+ */
+async function runModelsLatestFirst(
+  entryId: number, paperId: number, prompt: string, modelNames: string[], userId: number,
+): Promise<ScheduledQARun[]> {
+  const runs: ScheduledQARun[] = []
+  for (const modelName of [...modelNames].reverse()) {
+    runs.unshift(await runQA(entryId, paperId, prompt, modelName, { requestedByUserId: userId }))
+  }
+  return runs
 }
 
 export async function qaRoutes(app: FastifyInstance): Promise<void> {
@@ -389,42 +500,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       .offset((page - 1) * pageSize)
       .all()
 
-    const usernameById = loadUsernames(db, pageEntries.map((entry) => entry.user_id))
-    const sharedByOwner = sharedFlagsFor('qa', pageEntries.map((entry) => entry.user_id))
-    const resultsByEntry = loadResultsByEntry(db, pageEntries.map((entry) => entry.id))
-    const preferenceByEntry = loadBackgroundPreferences(db, userId, pageEntries.map((entry) => entry.id))
-    const indicators = loadQAReadingIndicators(db, userId, pageEntries, resultsByEntry)
-    const paperIds = uniqueNumbers(pageEntries.map((entry) => entry.paper_id))
-    const paperTitleById = new Map(
-      (paperIds.length === 0 ? [] : db.select({ id: schema.papers.id, title: schema.papers.title })
-        .from(schema.papers).where(inArray(schema.papers.id, paperIds)).all())
-        .map((paper) => [paper.id, paper.title]),
-    )
-
-    const data = []
-    for (const entry of pageEntries) {
-      const rawResults = resultsByEntry.get(entry.id) || []
-      const results = serializeResultsForEntry(rawResults, entry, request.user)
-
-      data.push({
-        entry_id: entry.id,
-        paper_id: entry.paper_id,
-        paper_title: paperTitleById.get(entry.paper_id) || 'Unknown',
-        status: entry.status,
-        error: entry.error,
-        prompt: entry.prompt || results[0]?.prompt || null,
-        created_at: entry.created_at,
-        user_id: entry.user_id ?? null,
-        username: entry.user_id != null ? (usernameById.get(entry.user_id)?.username ?? null) : null,
-        display_name: entry.user_id != null ? (usernameById.get(entry.user_id)?.display_name ?? null) : null,
-        shared: entry.user_id != null ? (sharedByOwner.get(entry.user_id) ?? false) : false,
-        can_manage: canManageEntry(entry, request.user),
-        background_color: preferenceByEntry.get(entry.id) ?? null,
-        highlight_count: indicators.highlightByEntry.get(entry.id) || 0,
-        note_anchor_count: indicators.noteByEntry.get(entry.id) || 0,
-        results,
-      })
-    }
+    const data = serializeFeedEntries(db, request.user, pageEntries)
 
     return {
       data,
@@ -467,6 +543,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     const sharedByOwner = sharedFlagsFor('qa', entries.map((entry) => entry.user_id))
     const preferenceByEntry = loadBackgroundPreferences(db, userId, entries.map((entry) => entry.id))
     const indicators = loadQAReadingIndicators(db, userId, entries, resultsByEntry)
+    const followups = loadFollowupCounts(db, request.user, entries.map((entry) => entry.id))
 
     const templateEntries: Record<string, any> = {}
     const freeEntries: any[] = []
@@ -484,6 +561,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
           highlight_count: indicators.highlightByEntry.get(entry.id) || 0,
           note_anchor_count: indicators.noteByEntry.get(entry.id) || 0,
           results,
+          ...entryContextFields(entry, followups),
         }
       } else if (entry.type === 'free') {
         freeEntries.push({
@@ -500,6 +578,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
           highlight_count: indicators.highlightByEntry.get(entry.id) || 0,
           note_anchor_count: indicators.noteByEntry.get(entry.id) || 0,
           results,
+          ...entryContextFields(entry, followups),
         })
       }
     }
@@ -561,7 +640,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
 
     const content = resolveContent(paper)
     if (!content) {
-      reply.code(422).send({ error: { code: 'NO_CONTENT', message: 'No content available for this paper' } })
+      noContentReply(reply)
       return
     }
 
@@ -578,7 +657,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
         // Skip if already has results or is currently running/pending
         if (existing.status === 'pending' || existing.status === 'running') continue
         const completed = db.select({ id: schema.qaResults.id }).from(schema.qaResults)
-          .where(and(eq(schema.qaResults.qa_entry_id, existing.id), eq(schema.qaResults.status, 'done')))
+          .where(and(eq(schema.qaResults.qa_entry_id, existing.id), eq(schema.qaResults.status, 'done'), resultNotDeleted))
           .get()
         if (completed) continue
       }
@@ -620,6 +699,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
 
     const tmpl = loadTemplate(templateName)
     if (!tmpl) { reply.code(404).send({ error: { code: 'TEMPLATE_NOT_FOUND', message: `Template ${templateName} not found` } }); return }
+    if (!resolvePaperContent(paper)) { noContentReply(reply); return }
 
     let entry = db.select().from(schema.qaEntries)
       .where(and(eq(schema.qaEntries.paper_id, paperId), eq(schema.qaEntries.type, 'template'), eq(schema.qaEntries.template_name, templateName)))
@@ -639,33 +719,118 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     return { runs: [run], message: `Regenerating ${templateName}` }
   })
 
-  // Submit free question
-  app.post<{ Params: { id: string }; Body: { question: string; models: string[] } }>('/api/papers/:id/qa/free', { preHandler: requireUser }, async (request, reply) => {
+  // Submit a free question. Optional `instruction` (system prompt name) and `inputs` (passages,
+  // image-host screenshots, and at most one `history` reference to the answer a follow-up continues)
+  // make it a contextual question; a body with only question/models behaves as before.
+  // `direct_ask: true` (asking straight from a PDF passage/screenshot) takes exactly one passage or
+  // image input; the question becomes `@<label> <qa_prompt.direct_ask.question>`, answered by
+  // models.default with qa_prompt.direct_ask.system_prompt.
+  app.post<{ Params: { id: string }; Body: { question?: string; models?: string[]; instruction?: string | null; inputs?: unknown[]; direct_ask?: boolean } }>(
+    '/api/papers/:id/qa/free', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const paperId = parseInt(request.params.id, 10)
-    const { question, models } = request.body || {}
+    const { models: requestedModels, direct_ask: directAsk } = request.body || {}
+    const fail = (code: number, errorCode: string, message: string) => {
+      reply.code(code).send({ error: { code: errorCode, message } })
+    }
+    const config = getConfig()
+    const rawQuestion = directAsk ? config.qa_prompt.direct_ask.question : request.body?.question
+    const requestedInstruction = directAsk ? config.qa_prompt.direct_ask.system_prompt : request.body?.instruction
+    const models = directAsk ? [config.models.default] : requestedModels
 
-    if (!question) { reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Question is required' } }); return }
+    if (!rawQuestion) { fail(422, 'VALIDATION_ERROR', 'Question is required'); return }
 
     const paper = db.select().from(schema.papers).where(eq(schema.papers.id, paperId)).get()
-    if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
+    if (!paper) { fail(404, 'PAPER_NOT_FOUND', 'Paper not found'); return }
+    if (!resolvePaperContent(paper)) { noContentReply(reply); return }
 
-    const config = getConfig()
     const modelNames = models && models.length > 0 ? models : [config.models.default]
+    const unknownModel = modelNames.find((name) => !config.models.available.some((model) => model.name === name))
+    if (unknownModel) { fail(400, 'UNKNOWN_MODEL', `Unknown model: ${unknownModel}`); return }
+
+    const parsedInputs: QAInputRequestParsed[] = []
+    for (const raw of request.body?.inputs ?? []) {
+      const parsed = qaInputRequestSchema.safeParse(raw)
+      if (!parsed.success) { fail(400, 'INVALID_INPUT', parsed.error.issues.map((issue) => issue.message).join('; ')); return }
+      parsedInputs.push(parsed.data)
+    }
+    const histories = parsedInputs.filter((input) => input.kind === 'history')
+    if (directAsk && (parsedInputs.length !== 1 || histories.length > 0)) {
+      fail(400, 'INVALID_INPUT', 'A direct ask takes exactly one passage or image input'); return
+    }
+    if (histories.length > 1) { fail(400, 'INVALID_INPUT', 'At most one history input is allowed'); return }
+
+    // A follow-up continues one specific, finished, visible answer of the same paper.
+    let parentEntry: typeof schema.qaEntries.$inferSelect | null = null
+    if (histories[0]) {
+      const parentResult = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, histories[0].result_id)).get()
+      parentEntry = parentResult
+        ? db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, parentResult.qa_entry_id)).get() ?? null
+        : null
+      if (!parentResult || !parentEntry || parentResult.deleted_at || !canViewEntry(parentEntry, request.user)) {
+        fail(404, 'PARENT_NOT_FOUND', 'The answer to follow up on was not found'); return
+      }
+      if (parentEntry.paper_id !== paperId) { fail(400, 'INVALID_INPUT', 'A follow-up must belong to the same paper'); return }
+      if (parentResult.status !== 'done') { fail(409, 'PARENT_NOT_DONE', 'Only a completed answer can be followed up'); return }
+    }
+
+    const instruction = requestedInstruction || parentEntry?.instruction || null
+    if (instruction && !existsSync(systemPromptPath(config.qa_prompt.system_prompts_dir!, instruction))) {
+      fail(400, 'UNKNOWN_INSTRUCTION', `Unknown system prompt: ${instruction}`); return
+    }
+
+    // Images must already live in the built-in image host; the stored URL comes from its record.
+    const imageRows = new Map<string, typeof schema.images.$inferSelect>()
+    for (const input of parsedInputs) {
+      if (input.kind !== 'image') continue
+      const image = db.select().from(schema.images).where(eq(schema.images.hash, input.image_hash)).get()
+      if (!image) { fail(400, 'IMAGE_NOT_IN_HOST', `Image ${input.image_hash} is not in the image host`); return }
+      imageRows.set(input.image_hash, image)
+    }
+
+    const chain = parentEntry ? [...loadAncestorChain(db, parentEntry), { entry: parentEntry }] : []
+    const ancestorInputs = chain.flatMap((turn) => contentInputs(parseStoredInputs(turn.entry.inputs)))
+    const labelled = assignLabels(ancestorInputs, parsedInputs.filter((input) => input.kind !== 'history') as any[])
+    const ancestorLabels = new Set(ancestorInputs.map((input) => input.label))
+    let question = rawQuestion
+    const inputs: QAInput[] = []
+    if (histories[0]) inputs.push({ kind: 'history', result_id: histories[0].result_id })
+    labelled.forEach((input: any, index) => {
+      const original = (parsedInputs.filter((item) => item.kind !== 'history')[index] as any).label?.replace(/^@/, '')
+      // Retarget the question's tokens to a relabelled input, unless the old label names an
+      // ancestor input (then the tokens already mean that earlier input).
+      if (original && original !== input.label && !ancestorLabels.has(original)) {
+        question = question.replace(new RegExp(`@${original}\\b`, 'g'), `@${input.label}`)
+      }
+      if (input.kind === 'image') {
+        inputs.push({ kind: 'image', label: input.label, image_hash: input.image_hash, url: `/image/${imageRows.get(input.image_hash)!.path}`, pdf: input.pdf ?? null })
+      } else {
+        inputs.push({ kind: 'text_selection', label: input.label, text: input.text, pdf: input.pdf })
+      }
+    })
+
+    if (directAsk) {
+      const label = (inputs.find((input) => input.kind !== 'history') as { label: string }).label
+      question = `@${label} ${rawQuestion}`
+    }
+
+    // Every chain image is sent to the model, so all selected models must accept images.
+    const hasImage = [...ancestorInputs, ...inputs].some((input) => input.kind === 'image')
+    const nonVision = hasImage ? modelNames.find((name) => !modelSupportsVision(name)) : undefined
+    if (nonVision) { fail(400, 'MODEL_NOT_VISION', `Model ${nonVision} does not accept image input`); return }
 
     const entry = db.insert(schema.qaEntries).values({
       paper_id: paperId, type: 'free', user_id: request.user!.id, prompt: question,
       status: 'pending', created_at: new Date().toISOString(),
+      instruction,
+      inputs: inputs.length > 0 ? JSON.stringify(inputs) : null,
+      parent_entry_id: parentEntry?.id ?? null,
     }).returning().get()
 
     touchPaperUpdatedAt(db, paperId)
 
-    const runs: ScheduledQARun[] = []
-    for (const modelName of modelNames) runs.push(await runQA(entry.id, paperId, question, modelName, {
-      requestedByUserId: request.user!.id,
-    }))
-
-    return { entry_id: entry.id, models: modelNames, runs, message: 'Question submitted' }
+    const runs = await runModelsLatestFirst(entry.id, paperId, question, modelNames, request.user!.id)
+    return { entry_id: entry.id, models: modelNames, runs, inputs, question, message: 'Question submitted' }
   })
 
   // Regenerate an existing QA entry
@@ -683,6 +848,17 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
 
     const config = getConfig()
     const modelNames = models && models.length > 0 ? models : [config.models.default]
+    const paper = db.select().from(schema.papers).where(eq(schema.papers.id, entry.paper_id)).get()
+    if (!paper || !resolvePaperContent(paper)) { noContentReply(reply); return }
+    const chainHasImage = chainContentInputs(loadAncestorChain(db, entry), parseStoredInputs(entry.inputs))
+      .some((input) => input.kind === 'image')
+    const nonVision = chainHasImage ? modelNames.find((name) => {
+      try { return !modelSupportsVision(name) } catch { return true }
+    }) : undefined
+    if (nonVision) {
+      reply.code(400).send({ error: { code: 'MODEL_NOT_VISION', message: `Model ${nonVision} does not accept image input` } })
+      return
+    }
 
     let prompt: string
     if (entry.type === 'template' && entry.template_name) {
@@ -698,7 +874,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       if (!entry.prompt) {
         const lastResult = db.select().from(schema.qaResults)
           .where(eq(schema.qaResults.qa_entry_id, entryId))
-          .orderBy(desc(schema.qaResults.completed_at))
+          .orderBy(desc(schema.qaResults.created_at), desc(schema.qaResults.id))
           .get()
         legacyResultPrompt = lastResult?.prompt ?? null
       }
@@ -716,10 +892,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
 
     touchPaperUpdatedAt(db, entry.paper_id)
 
-    const runs: ScheduledQARun[] = []
-    for (const modelName of modelNames) runs.push(await runQA(entryId, entry.paper_id, prompt, modelName, {
-      requestedByUserId: request.user!.id,
-    }))
+    const runs = await runModelsLatestFirst(entryId, entry.paper_id, prompt, modelNames, request.user!.id)
 
     return { runs, message: `Regenerating with ${modelNames.length} model(s)` }
   })
@@ -733,7 +906,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       if (!request.user) return
       const db = getDatabase()
       const resultId = parseInt(request.params.resultId, 10)
-      const initial = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, resultId)).get()
+      const initial = db.select().from(schema.qaResults)
+        .where(and(eq(schema.qaResults.id, resultId), resultNotDeleted)).get()
       if (!initial) {
         reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } })
         return
@@ -859,7 +1033,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     '/api/qa/results/:resultId/cancel', { preHandler: requireUser }, async (request, reply) => {
       const db = getDatabase()
       const resultId = parseInt(request.params.resultId, 10)
-      const result = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, resultId)).get()
+      const result = db.select().from(schema.qaResults)
+        .where(and(eq(schema.qaResults.id, resultId), resultNotDeleted)).get()
       if (!result) {
         reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } })
         return
@@ -895,12 +1070,102 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  // The whole follow-up tree containing an entry, from its root. Nodes the viewer cannot see, or
+  // whose answers were all deleted, are placeholders without content.
+  app.get<{ Params: { entryId: string } }>('/api/qa/entries/:entryId/tree', { preHandler: requireUser }, async (request, reply) => {
+    const db = getDatabase()
+    const start = db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, parseInt(request.params.entryId, 10))).get()
+    if (!start || !canViewEntry(start, request.user)) {
+      reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA entry not found' } }); return
+    }
+    let root = start
+    const seen = new Set([root.id])
+    while (root.parent_entry_id != null) {
+      const parent = db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, root.parent_entry_id)).get()
+      if (!parent || seen.has(parent.id)) break
+      seen.add(parent.id)
+      root = parent
+    }
+
+    const all = [root]
+    const collected = new Set([root.id])
+    let frontier = [root.id]
+    while (frontier.length > 0) {
+      const children = db.select().from(schema.qaEntries)
+        .where(inArray(schema.qaEntries.parent_entry_id, frontier))
+        .orderBy(schema.qaEntries.created_at, schema.qaEntries.id).all()
+        .filter((child) => !collected.has(child.id))
+      children.forEach((child) => collected.add(child.id))
+      all.push(...children)
+      frontier = children.map((child) => child.id)
+    }
+
+    const visible = all.filter((entry) => canViewEntry(entry, request.user))
+    const serialized = new Map(serializeFeedEntries(db, request.user, visible).map((entry) => [entry.entry_id, entry]))
+    const allResultsDeleted = new Set(
+      db.select({ entry_id: schema.qaResults.qa_entry_id, live: sql<number>`sum(case when ${schema.qaResults.deleted_at} is null then 1 else 0 end)` })
+        .from(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, all.map((entry) => entry.id)))
+        .groupBy(schema.qaResults.qa_entry_id).all()
+        .filter((row) => Number(row.live) === 0).map((row) => row.entry_id),
+    )
+    const build = (entry: typeof schema.qaEntries.$inferSelect): any => {
+      const state = !canViewEntry(entry, request.user) ? 'hidden' : allResultsDeleted.has(entry.id) ? 'deleted' : 'visible'
+      const history = parseStoredInputs(entry.inputs).find((input) => input.kind === 'history')
+      return {
+        entry_id: entry.id,
+        parent_result_id: history && history.kind === 'history' ? history.result_id : null,
+        state,
+        entry: state === 'visible' ? serialized.get(entry.id) ?? null : null,
+        children: all.filter((child) => child.parent_entry_id === entry.id && child.id !== root.id).map(build),
+      }
+    }
+    return { data: build(root) }
+  })
+
+  // Resolve a `paperland://paper/<pid>?qa=<entryId>[&result=<resultId>]` link by the entry alone.
+  app.get<{ Params: { entryId: string }; Querystring: { result?: string } }>('/api/qa/entries/:entryId/locate', async (request) => {
+    const db = getDatabase()
+    const entry = db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, parseInt(request.params.entryId, 10))).get()
+    if (!entry) return { state: 'deleted' }
+    if (!canViewEntry(entry, request.user)) return { state: 'hidden' }
+    const resultId = request.query.result ? parseInt(request.query.result, 10) : null
+    if (resultId != null) {
+      const result = db.select({ id: schema.qaResults.id, deleted_at: schema.qaResults.deleted_at })
+        .from(schema.qaResults)
+        .where(and(eq(schema.qaResults.id, resultId), eq(schema.qaResults.qa_entry_id, entry.id))).get()
+      if (!result || result.deleted_at) return { state: 'deleted', entry_id: entry.id, paper_id: entry.paper_id, type: entry.type, template_name: entry.template_name }
+    }
+    return { state: 'visible', entry_id: entry.id, result_id: resultId, paper_id: entry.paper_id, type: entry.type, template_name: entry.template_name }
+  })
+
+  // Rebuild (never stored) what a model would receive for this answer with the current system
+  // prompt, paper content, references, inputs, and history. The paper text is only summarized.
+  app.get<{ Params: { resultId: string } }>('/api/qa/results/:resultId/model-input', { preHandler: requireUser }, async (request, reply) => {
+    const db = getDatabase()
+    const result = db.select().from(schema.qaResults)
+      .where(and(eq(schema.qaResults.id, parseInt(request.params.resultId, 10)), resultNotDeleted)).get()
+    const entry = result ? db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, result.qa_entry_id)).get() : null
+    if (!result || !entry || !canViewEntry(entry, request.user)) {
+      reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } }); return
+    }
+    const question = entry.type === 'template' && entry.template_name
+      ? (loadTemplate(entry.template_name)?.prompt ?? entry.prompt ?? result.prompt)
+      : (entry.prompt || result.prompt)
+    try {
+      return { data: buildQAInput(db, entry, question).view }
+    } catch (error) {
+      if (error instanceof QANoContentError) { noContentReply(reply); return }
+      throw error
+    }
+  })
+
   // Delete a specific QA result
   app.delete<{ Params: { resultId: string } }>('/api/qa/results/:resultId', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const resultId = parseInt(request.params.resultId, 10)
 
-    const result = db.select().from(schema.qaResults).where(eq(schema.qaResults.id, resultId)).get()
+    const result = db.select().from(schema.qaResults)
+      .where(and(eq(schema.qaResults.id, resultId), resultNotDeleted)).get()
     if (!result) { reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } }); return }
     if (isActiveQAResultStatus(result.status)) {
       reply.code(409).send({ error: { code: 'RESULT_ACTIVE', message: 'Cancel the active result before deleting it' } })
@@ -913,9 +1178,13 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } }); return
     }
 
+    // Soft delete: the row stays so follow-ups keep their history; every user-facing read skips it.
+    const now = new Date().toISOString()
     db.update(schema.highlights).set({ qa_result_id: null })
       .where(eq(schema.highlights.qa_result_id, resultId)).run()
-    db.delete(schema.qaResults).where(eq(schema.qaResults.id, resultId)).run()
+    db.update(schema.qaResults).set({ deleted_at: now, updated_at: now })
+      .where(eq(schema.qaResults.id, resultId)).run()
+    recomputeQAEntryState(db, result.qa_entry_id)
     return { message: 'Result deleted' }
   })
 }

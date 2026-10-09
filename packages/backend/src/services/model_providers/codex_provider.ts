@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { ModelConfig } from '@paperland/shared'
-import type { ModelInvokeOptions, ModelProvider } from './types.js'
-import { createAbortError, throwIfAborted } from './types.js'
+import type { ModelInput, ModelInvokeOptions, ModelProvider } from './types.js'
+import { createAbortError, throwIfAborted, toModelInput, userText } from './types.js'
 
 const DEFAULT_TIMEOUT_SECONDS = 120
 const STDERR_TAIL_LIMIT = 4000
@@ -14,21 +14,47 @@ function codexEnv(config: ModelConfig): Record<string, string | undefined> {
     : process.env
 }
 
-function withEphemeralAndStdin(shell: string): string {
-  const ephemeral = /(^|\s)--ephemeral(?:\s|$)/.test(shell) ? '' : ' --ephemeral'
-  return `${shell}${ephemeral} -`
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-async function invokeExec(prompt: string, config: ModelConfig, options: ModelInvokeOptions): Promise<string> {
+/**
+ * Exec arguments for a structured input: the system prompt as `-c developer_instructions=<TOML string>`
+ * (a JSON string literal is a valid TOML basic string), web search via `-c web_search="live"`, and each
+ * image as `--image <path>`. The user text stays on stdin (`-`), since `--image` takes multiple values.
+ */
+export function execArgs(input: ModelInput): string {
+  const args: string[] = []
+  if (input.system) args.push('-c', shellQuote(`developer_instructions=${JSON.stringify(input.system)}`))
+  if (input.web_search) args.push('-c', shellQuote('web_search="live"'))
+  for (const part of input.user) {
+    if (part.type === 'image') args.push('--image', shellQuote(part.path))
+  }
+  return args.length > 0 ? ` ${args.join(' ')}` : ''
+}
+
+function withEphemeralAndStdin(shell: string, extraArgs = ''): string {
+  const ephemeral = /(^|\s)--ephemeral(?:\s|$)/.test(shell) ? '' : ' --ephemeral'
+  return `${shell}${extraArgs}${ephemeral} -`
+}
+
+/** app-server `turn/start` input items: text parts and local image files, in order. */
+export function appServerInput(input: ModelInput): unknown[] {
+  return input.user.map((part) => part.type === 'text'
+    ? { type: 'text', text: part.text, text_elements: [] }
+    : { type: 'localImage', path: part.path })
+}
+
+async function invokeExec(input: ModelInput, config: ModelConfig, options: ModelInvokeOptions): Promise<string> {
   throwIfAborted(options.signal)
   if (!config.shell) {
     throw new Error('Codex stream:false model missing "shell" config')
   }
 
-  const proc = Bun.spawn(['bash', '-c', withEphemeralAndStdin(config.shell)], {
+  const proc = Bun.spawn(['bash', '-c', withEphemeralAndStdin(config.shell, execArgs(input))], {
     stdout: 'pipe',
     stderr: 'pipe',
-    stdin: new TextEncoder().encode(prompt),
+    stdin: new TextEncoder().encode(userText(input)),
     env: codexEnv(config),
   })
 
@@ -115,7 +141,7 @@ async function* readJsonLines(stream: ReadableStream<Uint8Array>): AsyncGenerato
   }
 }
 
-async function invokeAppServer(prompt: string, config: ModelConfig, options: ModelInvokeOptions): Promise<string> {
+async function invokeAppServer(input: ModelInput, config: ModelConfig, options: ModelInvokeOptions): Promise<string> {
   throwIfAborted(options.signal)
   if (!config.cli_path || !config.codex_home || !config.model_id) {
     throw new Error('Codex stream:true model requires cli_path, codex_home, and model_id')
@@ -131,10 +157,10 @@ async function invokeAppServer(prompt: string, config: ModelConfig, options: Mod
     env: codexEnv(config),
   })
 
-  const input = proc.stdin as any
+  const stdin = proc.stdin as any
   const send = (message: unknown) => {
-    input.write(`${JSON.stringify(message)}\n`)
-    input.flush?.()
+    stdin.write(`${JSON.stringify(message)}\n`)
+    stdin.flush?.()
   }
 
   let stderrTail = ''
@@ -176,6 +202,8 @@ async function invokeAppServer(prompt: string, config: ModelConfig, options: Mod
             approvalPolicy: 'never',
             sandbox: 'read-only',
             ephemeral: true,
+            ...(input.system ? { developerInstructions: input.system } : {}),
+            ...(input.web_search ? { config: { web_search: 'live' } } : {}),
           },
         })
         continue
@@ -193,7 +221,7 @@ async function invokeAppServer(prompt: string, config: ModelConfig, options: Mod
           id: 2,
           params: {
             threadId,
-            input: [{ type: 'text', text: prompt }],
+            input: appServerInput(input),
             model: config.model_id,
             ...(config.reasoning_effort ? { effort: config.reasoning_effort } : {}),
           },
@@ -278,7 +306,7 @@ async function invokeAppServer(prompt: string, config: ModelConfig, options: Mod
   } finally {
     if (timeout) clearTimeout(timeout)
     if (abortHandler) options.signal?.removeEventListener('abort', abortHandler)
-    try { input.end?.() } catch {}
+    try { stdin.end?.() } catch {}
     if (options.signal?.aborted && threadId && turnId) {
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
@@ -294,9 +322,10 @@ export const codexProvider: ModelProvider = {
     return { streaming: config.stream === true }
   },
 
-  invoke(prompt, config, options = {}) {
+  invoke(input, config, options = {}) {
+    const structured = toModelInput(input)
     return config.stream === true
-      ? invokeAppServer(prompt, config, options)
-      : invokeExec(prompt, config, options)
+      ? invokeAppServer(structured, config, options)
+      : invokeExec(structured, config, options)
   },
 }

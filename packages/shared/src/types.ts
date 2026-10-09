@@ -3,6 +3,8 @@ export interface Paper {
   id: number
   arxiv_id: string | null
   corpus_id: string | null
+  /** 40-hex Semantic Scholar paperId (lowercase). */
+  s2_paper_id: string | null
   title: string
   authors: string[]
   abstract: string | null
@@ -14,6 +16,10 @@ export interface Paper {
   listed: boolean
   /** Derived (not stored): false for OpenReview-only papers that cannot be promoted to listed=true. */
   listable?: boolean
+  /** Derived (detail only): whether a PDF is available, being fetched, or must be uploaded. */
+  pdf_status?: 'available' | 'fetching' | 'upload_required'
+  /** Derived (detail only): why no PDF could be obtained automatically. */
+  pdf_unavailable_reason?: 'closed_access' | 'download_failed' | 'not_found' | null
   created_at: string
   updated_at: string
 }
@@ -65,6 +71,53 @@ export type QAEntryBackgroundColor =
   | 'pink'
   | 'red'
 
+// Contextual Q&A inputs. Stored immutably on qa_entries.inputs; labels (`Quote1`, `Image1`) are
+// assigned by the backend and unique across a whole follow-up chain.
+export interface QAPdfTextSegment {
+  page: number
+  ts: number
+  te: number
+}
+
+export interface QAPdfRegion {
+  page: number
+  rx: number
+  ry: number
+  rw: number
+  rh: number
+}
+
+export interface QATextSelectionInput {
+  kind: 'text_selection'
+  label: string
+  text: string
+  /** One segment per page (a cross-page passage has several). */
+  pdf: QAPdfTextSegment[]
+}
+
+export interface QAImageInput {
+  kind: 'image'
+  label: string
+  /** Image-host hash (images.hash); images must live in the built-in image host. */
+  image_hash: string
+  url: string
+  pdf: QAPdfRegion | null
+}
+
+export interface QAHistoryInput {
+  kind: 'history'
+  /** The parent answer this entry continues from. */
+  result_id: number
+}
+
+export type QAInput = QATextSelectionInput | QAImageInput | QAHistoryInput
+
+/** Inputs as submitted by a client: labels are optional and re-assigned by the backend. */
+export type QAInputRequest =
+  | (Omit<QATextSelectionInput, 'label'> & { label?: string })
+  | (Omit<QAImageInput, 'label' | 'url'> & { label?: string; url?: string })
+  | QAHistoryInput
+
 export interface QAEntry {
   id: number
   paper_id: number
@@ -74,6 +127,11 @@ export interface QAEntry {
   status: QAEntryStatus
   error: string | null
   created_at: string
+  /** System prompt name; null = qa_prompt.default_system_prompt. */
+  instruction: string | null
+  inputs: QAInput[]
+  parent_entry_id: number | null
+  followup_count: number
 }
 
 export interface QAFeedEntry {
@@ -95,6 +153,35 @@ export interface QAFeedEntry {
   highlight_count: number
   note_anchor_count: number
   results: QAResult[]
+  instruction: string | null
+  inputs: QAInput[]
+  parent_entry_id: number | null
+  followup_count: number
+}
+
+/** A node of a follow-up tree; hidden/deleted nodes carry no content. */
+export interface QATreeNode {
+  entry_id: number
+  /** The parent answer this entry continues from (null for the root). */
+  parent_result_id: number | null
+  state: 'visible' | 'hidden' | 'deleted'
+  entry: QAFeedEntry | null
+  children: QATreeNode[]
+}
+
+/** A rebuilt (not stored) view of what a model receives for an answer. */
+export interface QAModelInputView {
+  system_prompt_name: string
+  system_prompt: string
+  paper: { source: string; length: number }
+  references: string | null
+  /** Passages and screenshots of the whole follow-up chain, as sent. */
+  inputs: Array<QATextSelectionInput | QAImageInput>
+  /** Text of the <inputs> section (image parts shown via `inputs`). */
+  inputs_text: string | null
+  history: string | null
+  question: string
+  rebuilt_with_current_config: true
 }
 
 export interface QAResult {
@@ -213,6 +300,52 @@ export interface ServiceConfig {
   python_script?: string
   api_key?: string
   api_key_env?: string
+  /** Services sharing a group share one concurrency semaphore. */
+  concurrency_group?: string
+}
+
+export interface Doc2xConfig {
+  enabled: boolean
+  cli_path: string
+  /** Seconds per CLI run. */
+  timeout: number
+  output_dir: string
+  /** ISO timestamp; papers created at/after it are auto-translated (+ parsed). Empty = all papers. */
+  auto_since: string
+  /** OAuth token file written by `doc2x login`. */
+  token_file: string
+  /** doc2x gateway base URL (Markdown export of a translation run's parse). */
+  gateway_url: string
+  parse: { formula_mode: 'normal' | 'dollar' }
+  translate: {
+    target_language: string
+    model: string
+    pdf_font_strategy: 'global-consistent' | 'page-optimal'
+    ignore_types: string[]
+  }
+}
+
+export type Doc2xParseStatus = 'none' | 'pending' | 'running' | 'done' | 'failed'
+export type Doc2xTranslateStatus = 'idle' | 'queued' | 'pending' | 'running' | 'done' | 'failed'
+
+/** GET /api/papers/:id/doc2x */
+export interface Doc2xStatus {
+  enabled: boolean
+  has_pdf: boolean
+  parse: { status: Doc2xParseStatus; error: string | null; finished_at: string | null }
+  translate: {
+    status: Doc2xTranslateStatus
+    error: string | null
+    requested_at: string | null
+    bilingual_pdf_path: string | null
+    translated_pdf_path: string | null
+  }
+  /** Which full-text versions exist (drives the "copy full text" buttons). */
+  text_sources: { pdf_parsed: boolean; doc2x_parsed: boolean }
+  /** First non-empty content source per content_priority (null = no content). */
+  qa_source: string | null
+  /** True when Q&A would rely on mechanical text while doc2x parse is not done. */
+  qa_needs_confirm: boolean
 }
 
 export interface ModelConfig {
@@ -229,6 +362,8 @@ export interface ModelConfig {
   reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
   working_dir?: string
   timeout?: number
+  /** Whether the model accepts image input. */
+  vision?: boolean
 }
 
 export interface ModelsConfig {
@@ -239,6 +374,8 @@ export interface ModelsConfig {
 export interface QATemplate {
   name: string
   prompt: string
+  /** Optional system prompt name; defaults to qa_prompt.default_system_prompt. */
+  system_prompt?: string
 }
 
 export interface ImageHostConfig {
@@ -264,12 +401,29 @@ export interface AppConfig {
   services: Record<string, ServiceConfig>
   models: ModelsConfig
   content_priority: string[]
-  system_prompt: string
   qa: QATemplate[]
+  qa_prompt: QAPromptConfig
   translation: TranslationConfig
   image_host: ImageHostConfig
   pdf_viewer: PdfViewerConfig
   sharing: SharingConfig
+  doc2x: Doc2xConfig
+}
+
+export interface QAPromptConfig {
+  /** Absolute directory of `<name>.md` system prompt files (resolved at config load). */
+  system_prompts_dir?: string
+  /** System prompt used when an entry/preset does not name one. */
+  default_system_prompt: string
+  direct_ask: {
+    system_prompt?: string
+    /** Preset question appended after the input token for a direct ask. */
+    question: string
+  }
+  /** Allow Codex models to use native web search during Q&A. */
+  codex_web_search: boolean
+  /** Follow-ups send at most this many most-recent ancestor turns as history. */
+  max_history_turns: number
 }
 
 export interface SharingConfig {
@@ -354,6 +508,8 @@ export interface Image {
 export interface ImageWithUrl extends Image {
   url: string
   reference_count?: number
+  /** Number of Q&A image inputs using this image (list only). */
+  qa_reference_count?: number
 }
 
 // Highlight
@@ -553,69 +709,6 @@ export interface ConferenceIngestSummary {
   ingested: number
   skipped: number
   errors: Array<{ candidate_id: number; message: string }>
-}
-
-// Idea Forge
-export type IdeaCategory = 'unreviewed' | 'under-review' | 'validating' | 'archived'
-
-export interface IdeaFrontmatter {
-  name: string
-  author: string
-  tags: string[]
-  create_time: string
-  update_time: string
-  my_score: number
-  llm_score: number
-  my_comment: string
-  summary: string
-  [key: string]: unknown // preserve unknown fields
-}
-
-export interface Idea {
-  dir_name: string
-  category: IdeaCategory
-  name: string
-  author: string
-  tags: string[]
-  create_time: string
-  update_time: string
-  my_score: number
-  llm_score: number
-  my_comment: string
-  summary: string
-  parse_error?: boolean
-}
-
-export interface IdeaDetail {
-  frontmatter: IdeaFrontmatter
-  body: string
-  content_hash: string
-  category: IdeaCategory
-  dir_name: string
-}
-
-export interface ProjectConfig {
-  paper_filter?: {
-    tag_names: string[]
-  }
-}
-
-export interface IdeaForgeProject {
-  name: string
-  idea_count: number
-  paper_count: number
-  created_at: string
-  config: ProjectConfig
-}
-
-export interface DumpPapersRequest {
-  tag_ids?: number[]
-  paper_ids?: number[]
-}
-
-export interface DumpPapersResponse {
-  dumped_count: number
-  project_name: string
 }
 
 // API response types
