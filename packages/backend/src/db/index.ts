@@ -73,6 +73,14 @@ export function initDatabase(): ReturnType<typeof drizzle> {
     const password_hash = Bun.password.hashSync(password)
     _sqlite.query('INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)')
       .run('admin', password_hash, 'admin', new Date().toISOString())
+    // Starter paper for the bootstrap admin when it already exists (an empty DB is seeded at
+    // startup instead — see seedStarterPaper).
+    const starter = config.library.starter_arxiv_id.trim()
+    if (starter) {
+      const now = new Date().toISOString()
+      _sqlite.query(`INSERT OR IGNORE INTO user_papers (user_id, paper_id, in_library, created_at, updated_at)
+        SELECT u.id, p.id, 1, ?, ? FROM users u, papers p WHERE u.username = 'admin' AND p.arxiv_id = ?`).run(now, now, starter)
+    }
     const line = '='.repeat(68)
     console.log(`\n${line}`)
     console.log('  Paperland — created initial admin user (shown only once)')
@@ -105,6 +113,8 @@ export function getDatabase(): ReturnType<typeof drizzle> {
 /** Test-only seam: inject a prepared drizzle DB so handlers using getDatabase() hit it. */
 export function setDatabaseForTesting(db: ReturnType<typeof drizzle>): void {
   _db = db
+  // Also expose the underlying connection so raw-sqlite handlers (e.g. paper delete) work in tests.
+  _sqlite = (db as unknown as { $client?: Database }).$client ?? _sqlite
 }
 
 export function getSqliteDatabase(): Database {

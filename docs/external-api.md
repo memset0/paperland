@@ -10,6 +10,8 @@ External API 是独立于前端 Internal API 的第三方接口，主要用于 Z
 
 浏览器插件的「快捷打开」同样属于网站登录态的 Internal API，**不在** `/external-api/v1` 下、不接受 Bearer API Token：`GET /api/auth/open-token`（获取当前用户的快捷打开 CSRF token，首次请求时生成）、`POST /api/auth/open-token/regenerate`（重新生成，旧 token 立即失效）、`POST /api/papers/open-arxiv { arxiv_id, token }`（需会话 + token 匹配，否则 401 / 403 `INVALID_OPEN_TOKEN`；id 不可解析为 422；成功返回 `{ paper_id, arxiv_id, created }`）。arxiv id 会去掉 `arXiv:` 前缀与版本号后再查找/存储。该 token 与 External API Token 相互独立，不能用于调用 External API。插件下载 `GET /api/extension/download?base_url=<http(s) 绝对 URL>` 同样是 Internal API：需登录（401），`base_url` 非法时返回 422，成功时返回 `application/zip`（`paperland-extension-<version>.zip`），其中内置 `src/preset.json`（`base_url` + 当前用户的 token）。详见 `browser-extension.md`。
 
+S2 论文元数据缓存的解析接口 `POST /api/s2/papers/resolve` 同样属于 Internal API，**不在** `/external-api/v1` 下、不接受 Bearer API Token；新增的 `s2_papers` 缓存表不改变任何 External API 请求或响应契约。
+
 ---
 
 ## 认证
@@ -47,6 +49,8 @@ Base URL: `/external-api/v1`
 #### POST /papers
 
 创建论文条目。如果论文已存在（依次按 arxiv_id → corpus_id → s2_paper_id 匹配），则绑定到已有记录并补充缺失的 ID。
+
+若 Token 绑定了用户，论文（新建或已有）会加入该用户的个人论文列表（网站的 Mine 视图）。External API 的论文查询（`GET /papers` 等）仍返回全站论文，不按个人列表过滤。
 
 **Request Body:**
 

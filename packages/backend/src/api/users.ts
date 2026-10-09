@@ -4,6 +4,7 @@ import { getDatabase, schema } from '../db/index.js'
 import { requireAdmin } from '../auth/guards.js'
 import { normalizeNickname } from '../auth/nickname.js'
 import { resetDevAdminCache } from '../auth/session_auth.js'
+import { addStarterPaper } from '../services/user_library.js'
 import type { UserRole } from '@paperland/shared'
 
 function publicUser(u: { id: number; username: string; nickname: string | null; role: string; created_at: string }) {
@@ -40,6 +41,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         role: role === 'admin' ? 'admin' : 'user',
         created_at: new Date().toISOString(),
       }).returning().get()
+      addStarterPaper(created.id)
       return reply.code(201).send({ data: publicUser(created) })
     }
   )

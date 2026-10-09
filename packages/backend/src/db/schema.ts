@@ -305,3 +305,18 @@ export const translations = sqliteTable('translations', {
   uniqueIndex('translations_hash_lang_idx').on(table.source_hash, table.target_lang),
   index('translations_hash_idx').on(table.source_hash),
 ])
+
+// Per-(user, paper) relationship state. Papers are shared site-wide; this row is the user's
+// private view of one paper. `in_library` = shown in the user's own (Mine) paper list; removing
+// only clears the flag so the row can carry further per-user paper state. Tag assignments stay
+// in `paper_tags` (many tags per paper; owned via tags.user_id).
+export const userPapers = sqliteTable('user_papers', {
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  paper_id: integer('paper_id').notNull().references(() => papers.id, { onDelete: 'cascade' }),
+  in_library: integer('in_library').notNull().default(1),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.user_id, table.paper_id] }),
+  index('user_papers_paper_idx').on(table.paper_id),
+])

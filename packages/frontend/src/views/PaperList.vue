@@ -14,6 +14,7 @@ import CountCell from '@/components/CountCell.vue'
 import TagBadge from '@/components/TagBadge.vue'
 import TagSelector from '@/components/TagSelector.vue'
 import AppPage from '@/components/AppPage.vue'
+import ScopeToggle from '@/components/ScopeToggle.vue'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -95,6 +96,8 @@ async function promote(paper: any) {
   promotingId.value = paper.id
   try {
     await store.promote(paper.id)
+    // Fetching a metadata-only paper is an add: put it in the user's own list too.
+    if (auth.user) await store.setInLibrary(paper.id, true)
     fetchWithFilters(store.pagination.page)
   } catch {
     // Backend rejected (e.g. 422 LISTING_NOT_ALLOWED) — the error toast is already shown
@@ -102,6 +105,17 @@ async function promote(paper: any) {
   } finally {
     promotingId.value = null
   }
+}
+
+function setScope(value: 'mine' | 'all') {
+  if (store.scope === value) return
+  store.setScope(value)
+  fetchWithFilters(1)
+}
+const libraryBusyId = ref<number | null>(null)
+async function addToMyList(paper: any) {
+  libraryBusyId.value = paper.id
+  try { await store.setInLibrary(paper.id, true) } finally { libraryBusyId.value = null }
 }
 
 function toggleTagFilter(tagId: number) {
@@ -175,6 +189,8 @@ async function addPaper() {
     </template>
     <div class="space-y-4">
     <div class="flex flex-wrap gap-2">
+      <!-- Scope: my personal paper list vs the site-wide list (logged-in users only) -->
+      <ScopeToggle v-if="auth.user" class="self-center" size="sm" :model-value="store.scope" @update:model-value="setScope" />
       <div class="relative w-full md:w-auto md:flex-1">
         <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
         <Input v-model="search" @keyup.enter="onSearch" placeholder="搜索论文标题、摘要..." class="pl-9" />
@@ -273,6 +289,16 @@ async function addPaper() {
                 >
                   {{ promotingId === paper.id ? '抓取中…' : '抓取' }}
                 </Button>
+                <template v-if="auth.user && store.scope === 'all'">
+                  <Badge v-if="paper.in_library" variant="secondary" class="shrink-0">In my list</Badge>
+                  <Button
+                    v-else
+                    size="xs" variant="outline" class="shrink-0"
+                    :disabled="libraryBusyId === paper.id"
+                    title="Add to my paper list"
+                    @click.stop="addToMyList(paper)"
+                  ><Plus />My list</Button>
+                </template>
               </div>
               <div v-if="(paper as any).tags?.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false).length" class="flex flex-wrap gap-1 mt-1">
                 <TagBadge v-for="t in (paper as any).tags.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false)" :key="t.id" :tag-id="t.id" :tag-name="t.name" />
@@ -289,7 +315,7 @@ async function addPaper() {
               <CountCell :value="(paper as any).metadata?.citation_count" title="Number of papers that cite this paper" />
             </TableCell>
             <TableCell class="hidden md:table-cell">
-              <CountCell :value="(paper as any).metadata?.reference_count ?? (paper as any).metadata?.references?.length" title="Number of papers this paper cites" />
+              <CountCell :value="(paper as any).metadata?.reference_count" title="Number of papers this paper cites" />
             </TableCell>
             <TableCell class="text-muted-foreground text-xs hidden md:table-cell">{{ new Date(paper.created_at).toLocaleDateString() }}</TableCell>
             <TableCell class="text-muted-foreground text-xs hidden md:table-cell">{{ new Date(paper.updated_at).toLocaleDateString() }}</TableCell>
@@ -299,6 +325,11 @@ async function addPaper() {
       <div v-if="store.papers.length === 0 && !store.loading" class="flex flex-col items-center justify-center py-16 text-muted-foreground">
         <FileText class="h-10 w-10 mb-3 stroke-1" />
         <p class="text-sm">暂无论文</p>
+        <p v-if="auth.user && store.scope === 'mine'" class="text-xs mt-1">
+          Your list is empty — add a paper, or
+          <button class="underline hover:text-foreground" @click="setScope('all')">browse All</button>
+          and add papers to your list.
+        </p>
       </div>
       <div v-if="store.loading" class="flex items-center justify-center py-12">
         <Loader2 class="h-5 w-5 animate-spin text-primary" />

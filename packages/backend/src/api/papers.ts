@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, like, or, desc, asc, inArray, sql, and, isNull } from 'drizzle-orm'
+import { eq, like, or, desc, asc, inArray, sql, and, isNull, getTableColumns } from 'drizzle-orm'
 import { createHash } from 'crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import { matchLibraryPapers } from '../services/qa_formatter.js'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { ingestPaper } from '../services/ingest_paper.js'
+import { addToLibrary, removeFromLibrary, libraryIds } from '../services/user_library.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { removeDoc2xArtifacts } from '../services/doc2x_cli.js'
 import { requireUser } from '../auth/guards.js'
@@ -24,7 +25,7 @@ function pdfUploadMaxMb(): number {
 
 export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // List papers with pagination and search
-  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string; tag_ids?: string; listed?: string } }>(
+  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string; tag_ids?: string; listed?: string; scope?: string } }>(
     '/api/papers',
     async (request) => {
       const db = getDatabase()
@@ -73,24 +74,41 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       if (listedMode === 'listed') conditions.push(eq(schema.papers.listed, 1))
       else if (listedMode === 'unlisted') conditions.push(eq(schema.papers.listed, 0))
 
-      let query = db.select().from(schema.papers)
-      if (conditions.length > 0) {
-        query = query.where(conditions.length === 1 ? conditions[0] : and(...conditions)) as typeof query
+      // Scope: 'mine' (default for logged-in users) = the caller's personal library; 'all' = site-wide.
+      // Anonymous callers have no library and always get 'all'.
+      const userId = request.user?.id ?? null
+      if (userId != null && request.query.scope !== 'all') {
+        conditions.push(inArray(
+          schema.papers.id,
+          db.select({ id: schema.userPapers.paper_id }).from(schema.userPapers)
+            .where(and(eq(schema.userPapers.user_id, userId), eq(schema.userPapers.in_library, 1))),
+        ))
       }
 
-      const sortColumn = schema.papers[sortBy]
-      const allResults = query.orderBy(sortOrder === 'desc' ? desc(sortColumn) : asc(sortColumn)).all()
-      const total = allResults.length
-      const data = allResults.slice((page - 1) * pageSize, page * pageSize)
+      // Paginate in SQL and never read the full text (`contents`): the list doesn't render it,
+      // and it is ~165 KB per paper.
+      const where = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : and(...conditions)
+      const total = db.select({ n: sql<number>`count(*)` }).from(schema.papers).where(where).get()?.n ?? 0
+      const { contents: _contents, ...listColumns } = getTableColumns(schema.papers)
+      const order = sortOrder === 'desc' ? desc : asc
+      const data = db.select(listColumns).from(schema.papers).where(where)
+        .orderBy(order(schema.papers[sortBy]), order(schema.papers.id))
+        .limit(pageSize).offset((page - 1) * pageSize)
+        .all()
 
       // Parse JSON fields + attach the current user's tags (none for anonymous)
       const tagsByPaper = userTagsByPapers(db, data.map(p => p.id), request.user?.id ?? null)
       // Batch-derive listability: OpenReview-only papers (only conference links, no arxiv/S2) cannot be listed.
       const orCounts = openreviewLinkCountsByPapers(db, data.map(p => p.id))
+      const inLibrary = libraryIds(userId, data.map(p => p.id))
       const parsed = data.map(p => ({
-        ...parsePaper(p),
+        ...p,
+        authors: JSON.parse(p.authors),
+        metadata: slimListMetadata(p.metadata),
+        listed: !!p.listed,
         tags: tagsByPaper.get(p.id) ?? [],
         listable: canList(p, orCounts.get(p.id) ?? 0),
+        in_library: inLibrary.has(p.id),
       }))
 
       return {
@@ -143,9 +161,25 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       openreview_links,
       // OpenReview-only papers (links present, no arxiv/S2 source) are not promotable to listed=true.
       listable: canList(paper, openreview_links.length),
+      in_library: libraryIds(request.user?.id ?? null, [id]).has(id),
       ...derivePdfStatus(paper, executions),
     }
   })
+
+  // PUT / DELETE /api/papers/:id/library — add the paper to / remove it from the caller's
+  // personal library. Idempotent; removing keeps the paper and all the user's data on it.
+  for (const method of ['put', 'delete'] as const) {
+    app[method]<{ Params: { id: string } }>('/api/papers/:id/library', { preHandler: requireUser }, async (request, reply) => {
+      const id = parseInt(request.params.id, 10)
+      const paper = getDatabase().select({ id: schema.papers.id }).from(schema.papers).where(eq(schema.papers.id, id)).get()
+      if (!paper) {
+        return reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: `Paper ${request.params.id} not found` } })
+      }
+      if (method === 'put') addToLibrary(request.user!.id, id)
+      else removeFromLibrary(request.user!.id, id)
+      return { paper_id: id, in_library: method === 'put' }
+    })
+  }
 
   // POST /api/papers/:id/pdf — user upload for papers without an obtainable PDF (closed
   // access / failed download). Raw `application/pdf` body; the parser is scoped to this
@@ -319,6 +353,8 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       db.delete(schema.paperCitations).where(eq(schema.paperCitations.paper_id, id)).run()
       // 4. Delete paper_tags
       db.delete(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).run()
+      // 4a. Delete per-user library rows
+      db.delete(schema.userPapers).where(eq(schema.userPapers.paper_id, id)).run()
       // 4b. Delete per-user reference links
       db.delete(schema.paperReferenceLinks).where(eq(schema.paperReferenceLinks.paper_id, id)).run()
       // 5. Delete highlights by pdf_path pattern
@@ -361,6 +397,8 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const { paper, created } = await ingestPaper({ arxiv_id, corpus_id, s2_paper_id, title, authors, link, content })
+      // Adding a paper (new or already in the site-wide list) puts it in the caller's library.
+      addToLibrary(userId, paper.id)
 
       // Attach per-user tags only when this call actually created the paper —
       // matching the pre-refactor behavior, which only ran tag insertion in the
@@ -373,7 +411,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      return { ...parsePaper(paper), tags: userTagsForPaper(db, paper.id, userId), created }
+      return { ...parsePaper(paper), tags: userTagsForPaper(db, paper.id, userId), created, in_library: true }
     }
   )
 
@@ -393,6 +431,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: `Invalid arxiv id: ${rawId ?? ''}` } })
       }
       const { paper, created } = await ingestPaper({ arxiv_id })
+      addToLibrary(request.user!.id, paper.id)
       return { paper_id: paper.id, arxiv_id, created }
     }
   )
@@ -466,6 +505,20 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       return userTagsForPaper(db, id, userId)
     }
   )
+}
+
+/** The list only renders these metadata values; the full metadata (reference lists etc.) stays on the detail. */
+function slimListMetadata(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null
+  let m: any
+  try { m = JSON.parse(raw) } catch { return null }
+  if (!m || typeof m !== 'object') return null
+  const slim: Record<string, unknown> = {}
+  if (m.citation_count != null) slim.citation_count = m.citation_count
+  const refCount = m.reference_count ?? (Array.isArray(m.references) ? m.references.length : undefined)
+  if (refCount != null) slim.reference_count = refCount
+  if (m.s2_url != null) slim.s2_url = m.s2_url
+  return slim
 }
 
 function parsePaper(raw: any) {

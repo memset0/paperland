@@ -3,6 +3,7 @@ import { eq, and, desc, like, inArray, isNull } from 'drizzle-orm'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { withDedup } from '../services/paper_dedup.js'
 import { findExistingPaperByIds, paperDedupKey } from '../services/ingest_paper.js'
+import { addToLibrary } from '../services/user_library.js'
 import { normalizeS2Ids, S2IdError, type S2Ids } from '../utils/s2_ids.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { removeDoc2xArtifacts } from '../services/doc2x_cli.js'
@@ -113,7 +114,10 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
         return { ...parsePaper(paper), tags: tagNames || [], created: true }
       }
 
-      return dedupKey ? await withDedup(dedupKey, createFn) : await createFn()
+      const result = dedupKey ? await withDedup(dedupKey, createFn) : await createFn()
+      // A user-bound token adds the paper (new or existing) to that user's personal library.
+      if (request.user) addToLibrary(request.user.id, result.id)
+      return result
     }
   )
 

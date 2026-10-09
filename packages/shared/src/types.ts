@@ -8,7 +8,8 @@ export interface Paper {
   title: string
   authors: string[]
   abstract: string | null
-  contents: Record<string, string | null> | null
+  /** Full text by source. Detail only — omitted from list (`GET /api/papers`) items. */
+  contents?: Record<string, string | null> | null
   pdf_path: string | null
   metadata: Record<string, unknown> | null
   link: string | null
@@ -16,6 +17,8 @@ export interface Paper {
   listed: boolean
   /** Derived (not stored): false for OpenReview-only papers that cannot be promoted to listed=true. */
   listable?: boolean
+  /** Derived per caller: the paper is in the caller's personal library (Mine list). False for anonymous. */
+  in_library?: boolean
   /** Derived (detail only): whether a PDF is available, being fetched, or must be uploaded. */
   pdf_status?: 'available' | 'fetching' | 'upload_required'
   /** Derived (detail only): why no PDF could be obtained automatically. */
@@ -432,7 +435,7 @@ export interface SharingConfig {
 }
 
 // Multi-user sharing: optionally-shared data types, one switch per user per type.
-export type SharingDataType = 'highlights' | 'notes' | 'qa' | 'reference_links'
+export type SharingDataType = 'highlights' | 'notes' | 'qa' | 'reference_links' | 'research'
 export type SharingPreferences = Record<SharingDataType, boolean>
 /** Read scope for optionally-shared lists. */
 export type VisibilityScope = 'mine' | 'all'
@@ -709,6 +712,122 @@ export interface ConferenceIngestSummary {
   ingested: number
   skipped: number
   errors: Array<{ candidate_id: number; message: string }>
+}
+
+// Semantic Scholar metadata cache (POST /api/s2/papers/resolve)
+export interface S2PaperMeta {
+  s2_paper_id: string | null
+  corpus_id: string | null
+  arxiv_id: string | null
+  doi: string | null
+  title: string | null
+  authors: string[]
+  year: number | null
+  venue: string | null
+  abstract: string | null
+  tldr: string | null
+  citation_count: number | null
+  influential_citation_count: number | null
+  url: string | null
+  open_access_pdf_url: string | null
+  fetched_at: string
+}
+
+export type S2ResolveStatus = 'resolved' | 'not_found' | 'unavailable' | 'invalid'
+export type S2ResolveSource = 'library' | 'cache' | 's2' | 'stale_cache'
+
+export interface S2ResolveResult {
+  /** The id exactly as requested. */
+  id: string
+  status: S2ResolveStatus
+  source: S2ResolveSource | null
+  paper: S2PaperMeta | null
+  library_paper_id: number | null
+}
+
+// Deep Research (/research): linear steps (agent rounds + owner title edits), each producing a list version.
+export type ResearchStepKind = 'agent' | 'title_edit'
+export type ResearchStepStatus = 'queued' | 'awaiting_output' | 'streaming' | 'done' | 'failed' | 'cancelled'
+
+/** BibTeX @misc-style citation the agent writes for a non-paper link (blog post, docs, talk…). */
+export interface ResearchCitation {
+  title: string
+  author?: string[]
+  year?: number
+  month?: string
+  howpublished?: string
+  note?: string
+}
+
+/** A paper (metadata resolved from S2 by id) or a non-paper link. */
+export type ResearchListItem =
+  | { kind: 'paper'; s2_id: string; comment?: string; verification: 'verified' | 'unverified' }
+  | { kind: 'link'; url: string; citation: ResearchCitation; comment?: string }
+
+export interface ResearchListSection {
+  title: string
+  description?: string
+  items: ResearchListItem[]
+}
+
+/** One list version. */
+export interface ResearchPaperList {
+  title: string
+  sections: ResearchListSection[]
+}
+
+/** Snapshot of the QA answer a session started from (copied at creation; never updated). */
+export interface ResearchSeed {
+  qa_result_id: number
+  qa_entry_id: number
+  paper_id: number
+  paper_title: string
+  question: string
+  answer: string
+  model_name: string
+}
+
+export interface ResearchStep {
+  id: number
+  session_id: number
+  step_index: number
+  kind: ResearchStepKind
+  user_text: string | null
+  model_name: string | null
+  status: ResearchStepStatus
+  answer: string
+  explanation: string | null
+  paper_list: ResearchPaperList | null
+  parse_error: string | null
+  error: string | null
+  created_at: string
+  started_at: string | null
+  first_chunk_at: string | null
+  finished_at: string | null
+  updated_at: string
+}
+
+export interface ResearchSessionSummary {
+  id: number
+  user_id: number
+  owner_name: string
+  topic: string
+  /** Title of the current list version, else a truncated topic. */
+  title: string
+  step_count: number
+  version_count: number
+  latest_status: ResearchStepStatus | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ResearchSessionDetail extends ResearchSessionSummary {
+  seed: ResearchSeed | null
+  steps: ResearchStep[]
+  /** Viewer may submit/retry/cancel/edit/truncate (owner only). */
+  can_edit: boolean
+  /** Viewer may delete (owner or admin). */
+  can_delete: boolean
 }
 
 // API response types

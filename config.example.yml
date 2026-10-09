@@ -57,6 +57,9 @@ services:
     rate_limit_interval: 5
   qa:
     max_concurrency: 2
+  # Deep Research rounds (Codex models only). Each round is one long agent run with web search.
+  research:
+    max_concurrency: 1
   # Translation service (English→Chinese). Concurrency + rate limit for its AI calls.
   translation_service:
     max_concurrency: 2
@@ -148,7 +151,7 @@ qa:
 # Translation (English→Chinese). `{TEXT}` is replaced with the source text. `model` is optional
 # and falls back to models.default. Edit `prompt` to tune wording without touching code.
 translation:
-  # model: codex-gpt-5.3-codex-spark-xhigh  # must match models.available[].name
+  # model: codex-gpt-6-luna-low  # must match models.available[].name
   prompt: |
     You are a professional, authentic machine translation engine.
 
@@ -190,3 +193,22 @@ notes:
 # data regardless; published notes are always listed.
 sharing:
   default_shared: true
+
+# Personal paper library. Each user has their own paper list (Mine); the site-wide list (All)
+# still holds every paper once. The starter paper is put in every new user's list, and is
+# ingested at startup when the database has no papers. Empty string disables it.
+library:
+  starter_arxiv_id: "1706.03762"
+
+# Semantic Scholar metadata cache for referenced papers that are not (necessarily) in the library,
+# e.g. `#cite:` links in Q&A answers. Resolved via POST /api/s2/papers/resolve; S2 requests share
+# services.semantic_scholar_service's API key and rate limit.
+s2_cache:
+  ttl_days: 30              # a cached record is refetched after this many days (stale data is kept on failure)
+  not_found_ttl_days: 7     # ids S2 has no record for are not re-requested within this window
+  max_ids_per_request: 200  # upper bound on ids in one resolve request
+
+# Deep Research (/research): iterative paper-list research with Codex agents.
+research:
+  system_prompt: research       # prompts/system/research.md (same directory as qa_prompt system prompts)
+  history_char_budget: 20000    # characters of earlier steps replayed to the agent each round

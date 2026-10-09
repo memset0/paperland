@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, like, sql } from 'drizzle-orm'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { requireUser } from '../auth/guards.js'
 import { ingestPaper } from '../services/ingest_paper.js'
+import { addToLibrary } from '../services/user_library.js'
 import { matchPaperByTitle } from '../services/semantic_scholar_service.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { canList, openreviewLinkCount } from '../utils/listing.js'
@@ -465,7 +466,15 @@ export async function conferenceRoutes(app: FastifyInstance): Promise<void> {
   // Internal: add a candidate to the library, keeping a STABLE paper id.
   //  - already resolved/linked → promote that same paper (no new id, no duplicate)
   //  - otherwise → resolve ids (cached S2 match → source → live S2 title match) and ingest
-  async function ingestOne(row: typeof schema.conferencePapers.$inferSelect): Promise<number> {
+  async function ingestOne(row: typeof schema.conferencePapers.$inferSelect, userId: number): Promise<number> {
+    const paperId = await ingestOneUnbound(row)
+    // The ingesting user gets the paper in their library — unless it stayed metadata-only.
+    const listed = getDatabase().select({ listed: schema.papers.listed }).from(schema.papers).where(eq(schema.papers.id, paperId)).get()?.listed
+    if (listed === 1) addToLibrary(userId, paperId)
+    return paperId
+  }
+
+  async function ingestOneUnbound(row: typeof schema.conferencePapers.$inferSelect): Promise<number> {
     const db = getDatabase()
 
     // Already linked (e.g. via resolve): promote the SAME paper rather than create a duplicate.
@@ -532,7 +541,7 @@ export async function conferenceRoutes(app: FastifyInstance): Promise<void> {
       const errors: Array<{ candidate_id: number; message: string }> = []
       for (const row of rows) {
         try {
-          await ingestOne(row)
+          await ingestOne(row, request.user!.id)
           ingested++
         } catch (e: any) {
           errors.push({ candidate_id: row.id, message: e?.message || 'ingest failed' })
@@ -563,7 +572,7 @@ export async function conferenceRoutes(app: FastifyInstance): Promise<void> {
         return parseConferencePaper(row)
       }
       try {
-        await ingestOne(row)
+        await ingestOne(row, request.user!.id)
       } catch (e: any) {
         reply.code(500).send({ error: { code: 'INGEST_FAILED', message: e?.message || 'ingest failed' } })
         return

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ScopeToggle from '@/components/ScopeToggle.vue'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { notesApi } from '@/api/client'
@@ -66,18 +67,7 @@ function snippet(body: string): string {
     <div class="space-y-4">
       <div class="flex flex-wrap items-center gap-3">
         <!-- Scope: my notes vs everyone's -->
-        <div class="flex items-center rounded border overflow-hidden text-sm shrink-0">
-          <button
-            class="px-3 py-1"
-            :class="scope === 'mine' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'"
-            @click="scope = 'mine'"
-          >Mine</button>
-          <button
-            class="px-3 py-1"
-            :class="scope === 'all' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'"
-            @click="scope = 'all'"
-          >All</button>
-        </div>
+        <ScopeToggle v-model="scope" />
         <Input v-model="query" placeholder="Search notes…" class="flex-1 min-w-[12rem]" />
       </div>
 

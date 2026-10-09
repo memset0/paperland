@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ScopeToggle from './ScopeToggle.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { Link2, Plus, Pencil, Trash2, ExternalLink, Loader2, User, Lock } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -183,18 +184,7 @@ watch(scope, load)
   <div class="space-y-2">
     <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
       <Link2 class="h-3 w-3" /> 参考链接
-      <div v-if="auth.isAuthenticated" class="ml-auto flex items-center rounded border overflow-hidden normal-case tracking-normal">
-        <button
-          class="px-1.5 py-0.5"
-          :class="scope === 'mine' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'"
-          @click="setScope('mine')"
-        >Mine</button>
-        <button
-          class="px-1.5 py-0.5"
-          :class="scope === 'all' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'"
-          @click="setScope('all')"
-        >All</button>
-      </div>
+      <ScopeToggle v-if="auth.isAuthenticated" class="ml-auto" size="sm" :model-value="scope" @update:model-value="setScope" />
       <Button v-if="auth.isAuthenticated && !showForm" variant="ghost" size="icon-xs" @click="startAdd">
         <Plus />
       </Button>

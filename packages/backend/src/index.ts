@@ -29,6 +29,7 @@ import { startBackupScheduler } from './db/backup.js'
 import { getDatabase, schema } from './db/index.js'
 import { inArray } from 'drizzle-orm'
 import { serviceRunner } from './services/service_runner.js'
+import { seedStarterPaper } from './services/user_library.js'
 import { recoverInterruptedQAResults } from './services/qa_runtime.js'
 import { arxivMetadataService, arxivPdfService } from './services/arxiv_service.js'
 import { s2PdfService } from './services/s2_pdf_service.js'
@@ -78,6 +79,11 @@ async function main() {
   serviceRunner.register(doc2xParseService)
   serviceRunner.register(doc2xTranslateService)
   serviceRunner.register({ name: 'qa', type: 'pure', execute: async () => {} })
+
+  // Empty database → ingest the starter paper into every user's library (personal paper library).
+  seedStarterPaper()
+    .then((id) => { if (id != null) console.log(`Seeded starter paper ${id}`) })
+    .catch((err) => console.error('Failed to seed starter paper:', err))
 
   // Create Fastify instance
   const app = Fastify({ logger: true })

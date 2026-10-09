@@ -9,7 +9,7 @@ import { usePdfNavigation } from '@/composables/usePdfNavigation'
 import { usePublicNoteOpen } from '@/composables/usePublicNoteOpen'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from 'vue-sonner'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot } from '@lucide/vue'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot, BookmarkPlus, BookmarkCheck } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
@@ -419,12 +419,22 @@ async function confirmDelete() {
   }
 }
 
+const libraryBusy = ref(false)
+async function toggleInLibrary() {
+  const paper = store.currentPaper
+  if (!paper || !auth.user) return
+  libraryBusy.value = true
+  try { await store.setInLibrary(paper.id, !paper.in_library) } finally { libraryBusy.value = false }
+}
+
 const promoting = ref(false)
 async function promote() {
   if (!store.currentPaper || store.currentPaper.listable === false) return
   promoting.value = true
   try {
     await store.promote(store.currentPaper.id)
+    // Fetching a metadata-only paper is an add: put it in the user's own list too.
+    if (auth.user) await store.setInLibrary(store.currentPaper.id, true)
   } catch {
     // Backend rejected (e.g. 422 LISTING_NOT_ALLOWED) — the API client already showed the
     // error toast and the paper stays unlisted.
@@ -541,6 +551,17 @@ async function promote() {
                     @click="promote"
                   >
                     {{ promoting ? '加入中…' : '加入列表' }}
+                  </Button>
+                  <Button
+                    v-if="auth.user"
+                    variant="ghost" size="icon-sm"
+                    :disabled="libraryBusy"
+                    :title="store.currentPaper.in_library ? 'In my list — click to remove from my list' : 'Add to my list'"
+                    :class="store.currentPaper.in_library ? 'text-primary' : ''"
+                    @click="toggleInLibrary"
+                  >
+                    <BookmarkCheck v-if="store.currentPaper.in_library" />
+                    <BookmarkPlus v-else />
                   </Button>
                   <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">
                     <Pencil />

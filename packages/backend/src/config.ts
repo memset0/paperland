@@ -265,9 +265,31 @@ const doc2xSchema = z.object({
   }).default(DOC2X_TRANSLATE_DEFAULTS),
 })
 
+// Personal paper library: the starter paper every new user gets (and that seeds an empty DB).
+// Empty string disables it.
+const librarySchema = z.object({
+  starter_arxiv_id: z.string().default('1706.03762'),
+})
+
 // Default for a user's per-type sharing switch when they have never set it (see user_sharing_settings).
 const sharingSchema = z.object({
   default_shared: z.boolean().default(true),
+})
+
+// Semantic Scholar metadata cache (s2_papers) used to resolve `#cite:` ids without re-fetching.
+const S2_CACHE_DEFAULTS = { ttl_days: 30, not_found_ttl_days: 7, max_ids_per_request: 200 }
+const s2CacheSchema = z.object({
+  ttl_days: z.number().positive().default(S2_CACHE_DEFAULTS.ttl_days),
+  not_found_ttl_days: z.number().positive().default(S2_CACHE_DEFAULTS.not_found_ttl_days),
+  max_ids_per_request: z.number().int().positive().default(S2_CACHE_DEFAULTS.max_ids_per_request),
+})
+
+// Deep Research: system prompt name (a file in qa_prompt.system_prompts_dir) and how many characters of
+// earlier steps (user texts + agent explanations) are replayed to the agent each round.
+const RESEARCH_DEFAULTS = { system_prompt: 'research', history_char_budget: 20000 }
+const researchSchema = z.object({
+  system_prompt: z.string().default(RESEARCH_DEFAULTS.system_prompt),
+  history_char_budget: z.number().int().positive().default(RESEARCH_DEFAULTS.history_char_budget),
 })
 
 const configSchema = z.object({
@@ -293,7 +315,12 @@ const configSchema = z.object({
   notes: notesSchema.default({ image_width_tiers: { sm: 240, md: 480, lg: 720 } }),
   // Explicit literal default (not `.default({})`) so `default_shared: true` holds when the key is absent.
   sharing: sharingSchema.default({ default_shared: true }),
+  library: librarySchema.default({ starter_arxiv_id: '1706.03762' }),
   doc2x: doc2xSchema.default(DOC2X_DEFAULTS),
+  // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
+  s2_cache: s2CacheSchema.default(S2_CACHE_DEFAULTS),
+  // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
+  research: researchSchema.default(RESEARCH_DEFAULTS),
 }).superRefine((config, ctx) => {
   if (config.translation.model && !config.models.available.some((model) => model.name === config.translation.model)) {
     ctx.addIssue({

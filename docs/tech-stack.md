@@ -44,8 +44,9 @@ paperland/
 │   │   │   │   ├── QAPage.vue
 │   │   │   │   ├── ServiceDashboard.vue
 │   │   │   │   └── Settings.vue
-│   │   │   ├── components/         # 通用组件（含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板）
-│   │   │   ├── composables/        # Vue composables
+│   │   │   ├── components/         # 通用组件（含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板；PaperRefList.vue：可复用论文列表，QA 引用列表 / Deep Research 共用）
+│   │   │   ├── composables/        # Vue composables（含 useS2Papers.ts：S2 id 批量解析与会话缓存）
+│   │   │   ├── lib/                # 纯函数工具（含 cite-links.ts：`#cite:` 提取与 id 规范化）
 │   │   │   ├── router/
 │   │   │   ├── stores/             # Pinia stores
 │   │   │   ├── api/                # API 请求封装
@@ -60,6 +61,7 @@ paperland/
 │   │   │   ├── api/                # Internal API routes
 │   │   │   │   ├── papers.ts
 │   │   │   │   ├── qa.ts
+│   │   │   │   ├── s2.ts             # POST /api/s2/papers/resolve（S2 id → 缓存元数据）
 │   │   │   │   ├── services.ts
 │   │   │   │   └── settings.ts
 │   │   │   ├── external-api/       # External API routes (/external-api/v1/...)
@@ -70,6 +72,8 @@ paperland/
 │   │   │   │   ├── arxiv_service.test.ts
 │   │   │   │   ├── semantic_scholar_service.ts
 │   │   │   │   ├── semantic_scholar_service.test.ts
+│   │   │   │   ├── s2_paper_cache.ts        # S2 元数据缓存：论文库 → 缓存 → batch 抓取，负缓存，回答完成后预热
+│   │   │   │   ├── s2_paper_cache.test.ts
 │   │   │   │   ├── s2_pdf_service.ts        # 无 arxiv_id 时经 S2 openAccessPdf 下载 PDF
 │   │   │   │   ├── s2_pdf_service.test.ts
 │   │   │   │   ├── pdf_parse_service.ts
@@ -152,7 +156,7 @@ papers
   title           text      not null
   authors         text      not null          // JSON array
   abstract        text      nullable
-  contents        text      nullable          // JSON: { user_input, pdf_parsed, doc2x_parsed, ... }
+  contents        text      nullable          // JSON: { user_input, pdf_parsed, doc2x_parsed, ... }。论文列表 GET /api/papers 不读也不返回此列（只在详情返回）；metadata 在列表中瘦身为 citation_count/reference_count/s2_url
   pdf_path        text      nullable
   metadata        text      nullable          // JSON
   listed          integer   not null default 1 // 全局可见性: 1=列表显示+完整管线, 0=仅元数据/隐藏
@@ -224,6 +228,17 @@ qa_result_cites                               // 回答里不在本论文参考�
   created_at      text      not null
   unique (qa_result_id, cite_id)
 
+s2_papers                                     // S2 论文元数据缓存（与论文库无关；#cite 等引用到的论文），迁移 0032
+  id              integer   primary key autoincrement
+  s2_paper_id     text      unique, nullable  // 40 位小写 paperId
+  corpus_id       text      unique, nullable  // 至少有其一
+  arxiv_id / doi / title / venue / abstract / tldr / publication_date / url / open_access_pdf_url   text nullable
+  authors         text      nullable          // JSON 作者名数组
+  year / citation_count / influential_citation_count / reference_count   integer nullable
+  status          text      not null          // ok | not_found（负缓存，只存被请求的那种 id）
+  fetched_at      text      not null          // 新鲜度判断依据
+  created_at      text      not null
+
 qa_user_preferences
   user_id         integer   → users.id
   qa_entry_id     integer   → qa_entries.id
@@ -231,6 +246,14 @@ qa_user_preferences
   created_at      text      not null
   updated_at      text      not null
   primary key (user_id, qa_entry_id)
+
+user_papers                                    // 用户×论文关系（迁移 0031）：个人论文列表（Mine）。论文全站共享，此表是每个用户的私有视图；回填 = Attention(1706.03762) + 该用户打过标签/写过笔记/free Q&A/触发过 Q&A/高亮/参考链接的论文
+  user_id         integer   → users.id ON DELETE CASCADE
+  paper_id        integer   → papers.id ON DELETE CASCADE（删除论文时也显式清理）
+  in_library      integer   not null default 1 // 1 = 在该用户的 Mine 列表；移出只置 0，保留行
+  created_at      text      not null
+  updated_at      text      not null
+  primary key (user_id, paper_id)
 
 user_sharing_settings                          // 可选共享数据的每用户每类型共享开关（迁移 0027）；稀疏：无行 = config sharing.default_shared
   user_id         integer   → users.id ON DELETE CASCADE
@@ -400,13 +423,13 @@ models:
       endpoint: "https://api.openai.com/v1"
       api_key_env: "OPENAI_API_KEY"
       stream: false                # 缺省/false=JSON；true=Chat Completions SSE
-    - name: "codex-gpt-5.3-codex-spark-xhigh"
+    - name: "codex-gpt-6-luna-low"
       type: codex                  # 与 openai_api 独立的一等 provider
       stream: true                 # false=codex exec --ephemeral；true=app-server delta
       cli_path: "/root/.local/bin/codex"
       codex_home: "/root/.codex"  # 读取既有登录状态，不复制/输出 auth.json
-      model_id: "gpt-5.3-codex-spark"
-      reasoning_effort: xhigh
+      model_id: "gpt-6-luna"
+      reasoning_effort: low
       timeout: 1800
       vision: true                 # 能接收图片输入（截图提问）；缺省 false
 
@@ -435,6 +458,12 @@ qa_prompt:
 qa:                                         # 只放 preset QA；可选 system_prompt: <name>
   - name: research-question
     prompt: "这篇论文试图解决什么问题？"
+
+# S2 论文元数据缓存（s2_papers）。整块或单项缺省时使用下列默认值。
+s2_cache:
+  ttl_days: 30                      # 成功条目过期天数，过期后重抓；重抓失败时返回旧数据（stale_cache）
+  not_found_ttl_days: 7             # S2 查无此文的负缓存天数，期间不再请求
+  max_ids_per_request: 200          # POST /api/s2/papers/resolve 单次 id 上限，超出 400
 
 # doc2x CLI（精确解析 + 保留排版对照翻译）。整块缺省 = 关闭。
 # 前置（以运行后端的同一 OS 用户，一次性）：npm i -g @noedgeai-org/doc2x-cli@latest（Node >= 22）+ doc2x login
@@ -499,6 +528,8 @@ notes:
 **QA ↔ Service execution**：QA 保持 ServiceRunner pure service。`executePureService` 把刚创建的 `executionId` 作为 typed callback context 传入，QA 成功后直接写入该 id；同 paper 并发或同 model 重跑不会再通过“最新 execution”误关联。历史错连缺少确定性映射信息，原样保留。Services 页面继续负责统一监控，不提供 QA 专属重试。
 
 **上下文提问（contextual QA）**：QA = system prompt（`prompts/system/*.md`）+ 有序 inputs（PDF 选段、图床截图、对话历史引用）+ 问题。`services/qa_formatter.ts` 按 `<paper>`（无全文时所有提问 409）→ `<references>`（`paper_citations` 中本论文引用的文献，S2 paperId + 论文库链接）→ `<inputs>`（整条追问链的截图在前、选段在后，各一次）→ `<history>`（祖先问题 + 被选中的回答，只用标号引用输入）→ `<question>` 组装，运行和「查看模型输入」（`GET /api/qa/results/:id/model-input`，按当前配置重建、不存储、全文只给来源和长度）共用。追问只接续 done 的回答（否则 409），可接续他人共享的回答，归属追问者；后端沿 `history.result_id` 回溯时不过滤可见性和软删除。删除回答改为软删除（`deleted_at`）；图床不再提供删除接口，`GET /api/images` 额外返回 `qa_reference_count`。新增 `GET /api/qa/entries/:id/tree`、`GET /api/qa/entries/:id/locate`；`POST /api/papers/:id/qa/free` 接受 `instruction`、`inputs`、`direct_ask`。迁移 `0030_contextual_qa`（加列 + `qa_result_cites`）。
+
+**S2 论文元数据缓存**：`services/s2_paper_cache.ts` 的 `resolveS2Ids(ids, { allowFetch })` 把 S2 id（paperId、CorpusId、`CorpusId:<n>`、S2 URL，经 `utils/s2_ids.ts` 规范化）解析为元数据，每个 id 依次查：论文库 `papers`（`source: library`，不出网）→ `s2_papers` 新鲜条目（`cache`）→ 剩余 id 合并为一次 S2 `POST /paper/batch`（每块 ≤500，`semantic_scholar_service.ts` 的 `s2PostBatch`，与其他 S2 调用共用 API key、限流和退避）。S2 返回 null 记为 `not_found` 负缓存；抓取失败时有旧数据返回 `stale_cache`，否则 `unavailable`。同一 id 的并发抓取共享一个 in-flight 请求。QA 回答完成后 `api/qa.ts` 异步调用 `warmCites(answer)` 预热回答里所有 `#cite:` id，失败只记日志。
 
 **QA durable streaming runtime**：每次调用通过 pure-service `onCreated` 在排队前插入一个 exact Result；execution context 带 `AbortSignal`，semaphore/rate-limit/provider 都可精确取消。provider delta 以约 200ms 合并，先 append 到 `qa_results.answer` 再发布 SSE；终态 flush 后由权威 final 覆盖并生成 hash。Internal `GET /api/qa/results/:resultId/stream` 使用 `start → delta* → done|error`，断开只取消订阅；`POST /api/qa/results/:resultId/cancel` 才取消运行。`thinking_duration_ms` 由 started/first_chunk/finished 时间戳派生，不写入数据库。启动时 stale active Result 保留局部内容后标为 failed，并重算 Entry 汇总状态。
 

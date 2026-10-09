@@ -17,10 +17,10 @@ import {
 import QAResultView from './QAResultView.vue'
 import QAEntryBackgroundPicker from './QAEntryBackgroundPicker.vue'
 import HighlightScopeToggle from './HighlightScopeToggle.vue'
+import ScopeToggle from './ScopeToggle.vue'
 import QAReadingIndicators from './QAReadingIndicators.vue'
 import { qaEntryBackgroundClass } from './qa-entry-style'
 import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -269,7 +269,7 @@ function setPaperScope(scope: 'mine' | 'all') {
       </div>
       <div class="flex items-center gap-1.5">
         <!-- Page-wide highlight overlay scope (applies to every answer on this paper) -->
-        <HighlightScopeToggle class="mr-1" />
+        <HighlightScopeToggle class="mr-1" size="sm" />
         <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllOpen(templateEntries, true)">
           <ChevronsUpDown />
         </Button>
@@ -306,21 +306,17 @@ function setPaperScope(scope: 'mine' | 'all') {
               <span class="text-sm font-semibold line-clamp-1">{{ entry.title }}</span>
             </div>
             <QAInputSummary :inputs="entry.inputs" />
+            <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
+            <QAEntryBackgroundPicker
+              v-if="auth.isAuthenticated && entry.entryId > 0"
+              :entry-id="entry.entryId" :color="entry.backgroundColor"
+            />
             <button
               v-if="entry.entryId > 0" type="button"
               class="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
               title="复制 QA 链接"
               @click.stop="copyEntryLink(entry)"
             >QA-{{ entry.entryId }}</button>
-            <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
-            <QAEntryBackgroundPicker
-              v-if="auth.isAuthenticated && entry.entryId > 0"
-              :entry-id="entry.entryId" :color="entry.backgroundColor"
-            />
-            <Badge variant="secondary">
-              <template v-if="entry.results.length > 1">{{ entry.results.length }} 个回答</template>
-              <template v-else>{{ entry.results[0].model_name }}</template>
-            </Badge>
           </CollapsibleTrigger>
           <CollapsibleContent class="px-5 pb-4 pt-1">
             <QAResultView
@@ -384,20 +380,16 @@ function setPaperScope(scope: 'mine' | 'all') {
         </span>
       </div>
       <div class="flex items-center gap-1.5">
-        <div class="inline-flex rounded-md ring-1 ring-foreground/10 overflow-hidden mr-1">
-          <Button
-            variant="ghost" size="sm" class="rounded-none h-7 px-2 text-[11px]"
-            :class="store.paperScope === 'mine' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'"
-            :disabled="store.loading"
-            @click="setPaperScope('mine')"
-          >Mine</Button>
-          <Button
-            variant="ghost" size="sm" class="rounded-none h-7 px-2 text-[11px]"
-            :class="store.paperScope === 'all' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'"
-            :disabled="store.loading"
-            @click="setPaperScope('all')"
-          >All</Button>
-        </div>
+        <!-- Same page-wide highlight scope as the Preset Q&A header (one store value, so both stay in sync);
+             others' shared User Q&A can be highlighted too. -->
+        <HighlightScopeToggle class="mr-1" size="sm" />
+        <ScopeToggle
+          class="mr-1" size="sm"
+          title="User Q&A: show only mine, or also others' shared questions"
+          :model-value="store.paperScope"
+          :disabled="store.loading"
+          @update:model-value="setPaperScope"
+        />
         <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllOpen(freeEntries, true)">
           <ChevronsUpDown />
         </Button>
@@ -431,20 +423,16 @@ function setPaperScope(scope: 'mine' | 'all') {
               ><User class="h-2.5 w-2.5" />{{ entry.ownerName }}<template v-if="isPrivate(entry)"> · <Lock class="h-2.5 w-2.5" />Private</template></span>
             </div>
             <QAInputSummary :inputs="entry.inputs" />
+            <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
+            <QAEntryBackgroundPicker
+              :entry-id="entry.entryId" :color="entry.backgroundColor"
+            />
             <button
               v-if="entry.entryId > 0" type="button"
               class="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
               title="复制 QA 链接"
               @click.stop="copyEntryLink(entry)"
             >QA-{{ entry.entryId }}</button>
-            <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
-            <QAEntryBackgroundPicker
-              :entry-id="entry.entryId" :color="entry.backgroundColor"
-            />
-            <Badge variant="secondary">
-              <template v-if="entry.results.length > 1">{{ entry.results.length }} 个回答</template>
-              <template v-else>{{ entry.results[0].model_name }}</template>
-            </Badge>
           </CollapsibleTrigger>
           <CollapsibleContent class="px-5 pb-4 pt-1">
             <button
@@ -500,7 +488,7 @@ function setPaperScope(scope: 'mine' | 'all') {
 
       </template>
       <div v-if="freeEntries.length === 0" class="px-5 py-6 text-center text-xs text-muted-foreground">
-        {{ store.paperScope === 'mine' ? '暂无自己的 User Q&A' : '暂无 User Q&A' }}
+        {{ store.paperScope === 'mine' ? 'No Q&A of yours yet.' : 'No User Q&A yet.' }}
       </div>
     </div>
   </Card>

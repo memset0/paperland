@@ -12,6 +12,16 @@ export const usePapersStore = defineStore('papers', () => {
   const sortOrder = ref<'asc' | 'desc'>((localStorage.getItem('paperland_sort_order') as 'asc' | 'desc') || 'desc')
   // Visibility mode: 'listed' (default) | 'unlisted' (metadata-only) | 'all'
   const listedMode = ref<'listed' | 'unlisted' | 'all'>('listed')
+  // Library scope: 'mine' = the user's personal paper list (default), 'all' = site-wide. Remembered per browser.
+  const scope = ref<'mine' | 'all'>(readScope())
+
+  function readScope(): 'mine' | 'all' {
+    try { return localStorage.getItem('paperland_paper_scope') === 'all' ? 'all' : 'mine' } catch { return 'mine' }
+  }
+  function setScope(value: 'mine' | 'all') {
+    scope.value = value
+    try { localStorage.setItem('paperland_paper_scope', value) } catch {}
+  }
 
   async function fetchPapers(page = 1, search = '', tagIds?: number[]) {
     loading.value = true
@@ -22,6 +32,7 @@ export const usePapersStore = defineStore('papers', () => {
       params.set('sort_by', sortBy.value)
       params.set('sort_order', sortOrder.value)
       params.set('listed', listedMode.value)
+      params.set('scope', scope.value)
       const res = await api.get<PaginatedResponse<Paper>>(`/api/papers?${params}`)
       papers.value = res.data
       pagination.value = res.pagination
@@ -69,6 +80,17 @@ export const usePapersStore = defineStore('papers', () => {
     return updated
   }
 
+  /** Add a paper to / remove it from the current user's personal library (Mine list). */
+  async function setInLibrary(id: number, inLibrary: boolean) {
+    const res = inLibrary
+      ? await api.put<{ paper_id: number; in_library: boolean }>(`/api/papers/${id}/library`)
+      : await api.delete<{ paper_id: number; in_library: boolean }>(`/api/papers/${id}/library`)
+    const row = papers.value.find(p => p.id === id)
+    if (row) row.in_library = res.in_library
+    if (currentPaper.value && currentPaper.value.id === id) currentPaper.value.in_library = res.in_library
+    return res
+  }
+
   // Re-fetch the open paper without toggling `loading` (used while polling PDF status).
   async function refreshCurrentPaper() {
     const id = currentPaper.value?.id
@@ -84,5 +106,5 @@ export const usePapersStore = defineStore('papers', () => {
     return updated
   }
 
-  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, listedMode, fetchPapers, fetchPaper, refreshCurrentPaper, uploadPdf, createPaper, updatePaper, deletePaper, promote }
+  return { papers, currentPaper, pagination, loading, sortBy, sortOrder, listedMode, scope, setScope, fetchPapers, fetchPaper, refreshCurrentPaper, uploadPdf, createPaper, updatePaper, deletePaper, promote, setInLibrary }
 })

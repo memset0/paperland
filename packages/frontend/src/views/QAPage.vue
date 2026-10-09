@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import HighlightScopeToggle from '@/components/HighlightScopeToggle.vue'
+import ScopeToggle from '@/components/ScopeToggle.vue'
 
 const qaStore = useQAStore()
 const scrollEl = ref<HTMLElement | null>(null)
@@ -50,29 +51,14 @@ async function onScopeChange(scope: 'mine' | 'all') {
 <template>
   <AppPage fill>
     <template #actions>
-      <HighlightScopeToggle class="mr-1 h-8" />
-      <div class="inline-flex rounded-md ring-1 ring-foreground/10 overflow-hidden mr-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          class="rounded-none h-8 px-2.5 text-xs"
-          :class="qaStore.feedScope === 'mine' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'"
-          :disabled="qaStore.feedLoading"
-          @click="onScopeChange('mine')"
-        >
-          My Q&A
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="rounded-none h-8 px-2.5 text-xs"
-          :class="qaStore.feedScope === 'all' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'"
-          :disabled="qaStore.feedLoading"
-          @click="onScopeChange('all')"
-        >
-          All Q&A
-        </Button>
-      </div>
+      <HighlightScopeToggle class="mr-1" />
+      <ScopeToggle
+        class="mr-1"
+        :model-value="qaStore.feedScope"
+        :disabled="qaStore.feedLoading"
+        title="Q&A: only mine, or everyone's shared Q&A"
+        @update:model-value="onScopeChange"
+      />
       <Tooltip>
         <TooltipTrigger as-child>
           <Button variant="ghost" size="icon-sm" :disabled="qaStore.feedLoading" @click="onRefresh">
