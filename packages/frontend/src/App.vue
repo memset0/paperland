@@ -189,7 +189,7 @@ async function doLogout() {
             </DropdownMenuTrigger>
             <DropdownMenuContent side="right" align="end" class="w-44">
               <DropdownMenuLabel>
-                {{ auth.user?.username }}
+                {{ auth.user?.nickname || auth.user?.username }}
                 <span v-if="auth.isAdmin" class="text-xs text-muted-foreground">(Admin)</span>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -260,7 +260,7 @@ async function doLogout() {
               </Button>
               <template v-else>
                 <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; accountOpen = true">
-                  <CircleUser /> {{ auth.user?.username }}
+                  <CircleUser /> {{ auth.user?.nickname || auth.user?.username }}
                 </Button>
                 <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; doLogout()">
                   <LogIn class="rotate-180" /> Logout

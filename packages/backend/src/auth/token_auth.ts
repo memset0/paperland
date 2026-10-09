@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
-import type { UserRole } from '@paperland/shared'
+import { toSessionUser } from './session_auth.js'
 
 export async function tokenAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization
@@ -33,6 +33,6 @@ export async function tokenAuth(request: FastifyRequest, reply: FastifyReply): P
   // pre-existing tokens are migrated to the admin user).
   if (found.user_id != null) {
     const user = db.select().from(schema.users).where(eq(schema.users.id, found.user_id)).get()
-    if (user) request.user = { id: user.id, username: user.username, role: user.role as UserRole }
+    if (user) request.user = toSessionUser(user)
   }
 }

@@ -86,6 +86,8 @@ export interface QAFeedEntry {
   created_at: string
   user_id: number | null
   username: string | null
+  /** Owner's nickname, falling back to username — what the UI shows. */
+  display_name: string | null
   /** Whether the owner shares Q&A (false only ever reaches admins viewing others' entries). */
   shared: boolean
   can_manage: boolean
@@ -166,6 +168,8 @@ export type UserRole = 'admin' | 'user'
 export interface User {
   id: number
   username: string
+  /** Optional, non-unique public display name; owner attribution falls back to username. */
+  nickname: string | null
   role: UserRole
   created_at: string
 }
@@ -174,6 +178,7 @@ export interface User {
 export interface SessionUser {
   id: number
   username: string
+  nickname: string | null
   role: UserRole
 }
 
@@ -367,6 +372,8 @@ export interface Highlight {
   /** Owner attribution — present on every read (`scope=mine|all`). */
   user_id?: number
   username?: string | null
+  /** Owner's nickname, falling back to username — what the UI shows. */
+  display_name?: string | null
   /** Whether the owner shares highlights (false only reaches admins for others' rows). */
   shared?: boolean
 }
@@ -398,6 +405,8 @@ export interface NoteWithPaper extends Note {
 // aggregate (`GET /api/notes?scope=all`).
 export interface NoteWithAuthor extends NoteWithPaper {
   username: string
+  /** Author's nickname, falling back to username — what the UI shows. */
+  display_name: string
   /** Visible to other non-admin users: published OR the owner shares notes. */
   shared: boolean
 }
@@ -409,6 +418,8 @@ export interface PublicNoteSummary {
   id: number
   user_id: number
   username: string
+  /** Author's nickname, falling back to username — what the UI shows. */
+  display_name: string
   is_public: boolean
   /** Visible to other non-admin users: published OR the owner shares notes. */
   shared: boolean
@@ -468,6 +479,8 @@ export interface PaperReferenceLink {
   updated_at: string
   /** Owner attribution — present on reads. */
   username?: string | null
+  /** Owner's nickname, falling back to username — what the UI shows. */
+  display_name?: string | null
   /** Whether the owner shares reference links (false only reaches admins for others' rows). */
   shared?: boolean
 }

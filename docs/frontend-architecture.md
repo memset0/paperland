@@ -884,7 +884,7 @@ models:
 
 网站 `/api/*` 改用**应用内会话登录**，支持"未登录只读 + 登录后操作 + 在线改密 / 用户名 + 角色区分"。
 
-- **用户存储**：用户账户存于数据库 `users` 表（`id`、`username` 唯一、`password_hash`、`role`、`created_at`），不再使用 `config.yml` 的 `auth.users`（该字段已弃用）。密码用 `Bun.password`（argon2id）哈希。
+- **用户存储**：用户账户存于数据库 `users` 表（`id`、`username` 唯一、`nickname` 可空且可重复、`password_hash`、`role`、`created_at`），不再使用 `config.yml` 的 `auth.users`（该字段已弃用）。密码用 `Bun.password`（argon2id）哈希。
 - **首启 seeding**：数据库无用户时，自动创建 `admin`（随机强密码），并在**服务器日志打印明文密码一次**。仅支持登录、不支持注册——新用户由管理员添加。
 - **会话**：登录成功后写 `sessions` 表（随机不透明 token + 30 天过期）并下发 httpOnly cookie `paperland_session`（`SameSite=Lax; Path=/`）。前端 `fetch` 同源自动携带；401 时自动弹出登录框。
 - **角色**：`admin` 与 `user` 两种。管理员可管理用户（增 / 改角色 / 重置密码，**不支持删除**，且不能降级最后一个 admin）。
@@ -897,8 +897,8 @@ models:
 | POST | `/api/auth/login` | 公开。校验后建会话、下发 cookie |
 | POST | `/api/auth/logout` | 删会话、清 cookie |
 | GET | `/api/auth/me` | 公开。返回 `{ user }`（未登录为 `null`，不 401） |
-| PATCH | `/api/auth/me` | 改本人用户名 / 密码（改密需校验 `current_password`） |
-| GET/POST/PATCH | `/api/users` `/api/users/:id` | **仅 admin**。列表 / 新建 / 改角色 / 重置密码 |
+| PATCH | `/api/auth/me` | 改本人用户名 / 昵称 / 密码（改密需校验 `current_password`；`nickname` 去首尾空格，空串清除，>32 字符 400） |
+| GET/POST/PATCH | `/api/users` `/api/users/:id` | **仅 admin**。列表 / 新建 / 改角色 / 改昵称 / 重置密码 |
 
 ### 5.2 访问分层（三级矩阵）
 
@@ -912,7 +912,7 @@ models:
 | **仅管理员** | 服务管理 Dashboard（`/api/services*`）、设置页 Token 管理（`/api/settings/tokens*`）、用户管理（`/api/users*`） |
 
 - 前端路由守卫：受限路由未登录弹登录框、非管理员访问管理员页提示无权限。
-- 侧边栏：未登录仍展示全部按钮（保持美观），点击受限项弹"需要登录"提示；登录后显示账户菜单（用户名、改名改密、登出）。
+- 侧边栏：未登录仍展示全部按钮（保持美观），点击受限项弹"需要登录"提示；登录后显示账户菜单（昵称 / 用户名、改名改昵称改密、登出）。
 
 ### 5.3 数据归属与多用户可见性
 
@@ -925,8 +925,8 @@ models:
 | **用户可选共享** | 高亮、笔记、Free Q&A（含未来划线/截图提问）、参考链接 | 由属主每类一个开关决定 |
 
 - **共享开关**：每用户每类型一个全局开关（表 `user_sharing_settings`，稀疏存储；无行 = `config.yml` 的 `sharing.default_shared`，默认 `true`，因此存量数据迁移后即为共享）。开关作用于该类型全部已有与新建数据，无单条覆盖。账户对话框（`AccountDialog.vue`）的 **Sharing** 区块四个复选框，`GET/PUT /api/auth/me/sharing`（`sharingApi`，后端 `api/sharing.ts`）。
-- **统一 mine/all 语义**（后端 `auth/visibility.ts` 的 `ownerVisibilityFilter` 在 SQL 层过滤，分页 total 正确）：`mine` = 自己的；`all`（普通用户）= 自己的 + 开启该类型共享的其他用户的；`all`（admin）= 所有用户的，不论开关；匿名 = 仅始终共享数据 + 已发布笔记。每行返回 `user_id` / `username` / `shared`。
-- **前端展示**：`/notes`、`/qa`、论文详情 User Q&A、参考链接区、高亮（`HighlightScopeToggle`）都有 Mine / All 切换；不属于自己的条目显示属主用户名；`shared: false` 的条目（admin 看到的别人未共享数据，或自己未共享的数据）显示 **Private** 标记。
+- **统一 mine/all 语义**（后端 `auth/visibility.ts` 的 `ownerVisibilityFilter` 在 SQL 层过滤，分页 total 正确）：`mine` = 自己的；`all`（普通用户）= 自己的 + 开启该类型共享的其他用户的；`all`（admin）= 所有用户的，不论开关；匿名 = 仅始终共享数据 + 已发布笔记。每行返回 `user_id` / `username` / `display_name` / `shared`。
+- **前端展示**：`/notes`、`/qa`、论文详情 User Q&A、参考链接区、高亮（`HighlightScopeToggle`）都有 Mine / All 切换；不属于自己的条目显示属主 **display name**（`display_name` = 昵称，未设置时为用户名；昵称在账户对话框设置，admin 可在 Settings 用户表修改，可重复）；`shared: false` 的条目（admin 看到的别人未共享数据，或自己未共享的数据）显示 **Private** 标记。
 - **只读**：可见不代表可写。别人的高亮/笔记/QA/参考链接对普通用户不显示编辑删除入口，后端也只允许 owner（QA 另允许 admin）修改。
 - **笔记发布是特例**：`is_public` 是单篇的 “Published” 状态，提供免登录访问的链接；已发布笔记无论属主笔记开关如何都出现在 All 列表。
 

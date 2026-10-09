@@ -219,7 +219,7 @@ watch(scope, load)
           </a>
           <p v-if="link.title && link.description" class="text-xs text-muted-foreground leading-snug">{{ link.description }}</p>
           <p v-if="!isOwn(link)" class="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-            <User class="h-2.5 w-2.5" />{{ link.username }}
+            <User class="h-2.5 w-2.5" />{{ link.display_name ?? link.username }}
             <template v-if="link.shared === false"> · <Lock class="h-2.5 w-2.5" />Private</template>
           </p>
         </div>

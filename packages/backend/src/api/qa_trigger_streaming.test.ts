@@ -61,7 +61,7 @@ translation:
 
   sqlite = new Database(':memory:')
   sqlite.exec(`
-    CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL);
+    CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL, nickname TEXT);
     CREATE TABLE user_sharing_settings (
       user_id INTEGER NOT NULL, data_type TEXT NOT NULL, shared INTEGER NOT NULL, updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, data_type)
@@ -88,7 +88,7 @@ translation:
       status TEXT NOT NULL, progress INTEGER NOT NULL, created_at TEXT NOT NULL,
       finished_at TEXT, result TEXT, error TEXT
     );
-    INSERT INTO users VALUES (1,'alice','user');
+    INSERT INTO users (id, username, role) VALUES (1,'alice','user');
     INSERT INTO papers VALUES (42,NULL,NULL,'Paper','[]',NULL,'{"user_input":"Paper body"}',NULL,NULL,NULL,NULL,1,'now','now');
     INSERT INTO qa_entries (paper_id,user_id,type,template_name,prompt,status,error,created_at)
       VALUES (42,NULL,'template','summary','Old preset wording','done',NULL,'2026-08-26T00:00:00Z');

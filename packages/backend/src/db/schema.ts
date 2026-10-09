@@ -4,6 +4,8 @@ import { sqliteTable, text, integer, primaryKey, index, unique, uniqueIndex } fr
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   username: text('username').notNull().unique(),
+  // Public display name shown to others in owner attribution; not unique, null → fall back to username.
+  nickname: text('nickname'),
   password_hash: text('password_hash').notNull(),
   role: text('role').notNull().default('user'), // 'admin' | 'user'
   // Per-user CSRF token for the arxiv quick-open link (browser extension); lazily generated.

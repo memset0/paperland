@@ -14,6 +14,7 @@ const open = defineModel<boolean>('open', { default: false })
 const auth = useAuthStore()
 
 const username = ref('')
+const nickname = ref('')
 const currentPassword = ref('')
 const newPassword = ref('')
 const error = ref('')
@@ -71,6 +72,7 @@ async function copy(text: string) {
 watch(open, (o) => {
   if (o) {
     username.value = auth.user?.username ?? ''
+    nickname.value = auth.user?.nickname ?? ''
     currentPassword.value = ''
     newPassword.value = ''
     error.value = ''
@@ -80,8 +82,9 @@ watch(open, (o) => {
 })
 
 async function submit() {
-  const payload: { username?: string; current_password?: string; password?: string } = {}
+  const payload: { username?: string; nickname?: string; current_password?: string; password?: string } = {}
   if (username.value && username.value !== auth.user?.username) payload.username = username.value
+  if (nickname.value.trim() !== (auth.user?.nickname ?? '')) payload.nickname = nickname.value
   if (newPassword.value) {
     if (!currentPassword.value) { error.value = '修改密码需要输入当前密码'; return }
     payload.current_password = currentPassword.value
@@ -108,12 +111,17 @@ async function submit() {
     <DialogContent class="sm:max-w-sm">
       <DialogHeader>
         <DialogTitle>账户设置</DialogTitle>
-        <DialogDescription>修改你的用户名或密码。修改密码需要输入当前密码。</DialogDescription>
+        <DialogDescription>修改你的用户名、昵称或密码。修改密码需要输入当前密码。</DialogDescription>
       </DialogHeader>
       <form class="space-y-4" @submit.prevent="submit">
         <div class="space-y-2">
           <Label for="acct-username">用户名</Label>
           <Input id="acct-username" v-model="username" autocomplete="username" />
+        </div>
+        <div class="space-y-2">
+          <Label for="acct-nickname">昵称</Label>
+          <Input id="acct-nickname" v-model="nickname" maxlength="32" autocomplete="nickname" placeholder="留空则显示用户名" />
+          <p class="text-xs text-muted-foreground">其他用户在列表中看到的是你的昵称，可以与他人重复。</p>
         </div>
         <div class="space-y-2">
           <Label for="acct-current">当前密码</Label>

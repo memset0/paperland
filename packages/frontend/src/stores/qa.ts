@@ -43,6 +43,8 @@ export interface FreeEntry {
   prompt: string | null
   user_id: number | null
   username: string | null
+  /** Owner's nickname, falling back to username — shown in the UI. */
+  display_name: string | null
   /** Owner shares Q&A; false only reaches admins viewing others' entries. */
   shared: boolean
   can_manage: boolean
@@ -156,6 +158,7 @@ export const useQAStore = defineStore('qa', () => {
           prompt: question,
           user_id: null,
           username: null,
+          display_name: null,
           shared: true,
           can_manage: true,
           background_color: null,

@@ -44,7 +44,8 @@ interface QAEntry {
   results: any[]
   templateName?: string
   userId: number | null
-  username: string | null
+  /** Owner display name (nickname → username). */
+  ownerName: string | null
   shared: boolean
   canManage: boolean
   backgroundColor: QAEntryBackgroundColor | null
@@ -66,7 +67,7 @@ const templateEntries = computed(() => {
       results: data?.results || [],
       templateName: tmpl.name,
       userId: null,
-      username: null,
+      ownerName: null,
       shared: true,
       canManage: data?.can_manage ?? auth.isAuthenticated,
       backgroundColor: data?.background_color ?? null,
@@ -89,7 +90,7 @@ const freeEntries = computed(() => {
       error: entry.error,
       results: entry.results,
       userId: entry.user_id,
-      username: entry.username,
+      ownerName: entry.display_name ?? entry.username,
       shared: entry.shared ?? true,
       canManage: entry.can_manage,
       backgroundColor: entry.background_color,
@@ -366,9 +367,9 @@ function setPaperScope(scope: 'mine' | 'all') {
             <div class="flex-1 min-w-0">
               <span class="text-sm font-semibold line-clamp-1">{{ entry.title }}</span>
               <span
-                v-if="store.paperScope === 'all' && entry.username"
+                v-if="store.paperScope === 'all' && entry.ownerName"
                 class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
-              ><User class="h-2.5 w-2.5" />{{ entry.username }}<template v-if="isPrivate(entry)"> · <Lock class="h-2.5 w-2.5" />Private</template></span>
+              ><User class="h-2.5 w-2.5" />{{ entry.ownerName }}<template v-if="isPrivate(entry)"> · <Lock class="h-2.5 w-2.5" />Private</template></span>
             </div>
             <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
             <QAEntryBackgroundPicker
@@ -399,9 +400,9 @@ function setPaperScope(scope: 'mine' | 'all') {
           <div class="flex-1 min-w-0">
             <span class="text-sm font-semibold line-clamp-1">{{ entry.title }}</span>
             <span
-              v-if="store.paperScope === 'all' && entry.username"
+              v-if="store.paperScope === 'all' && entry.ownerName"
               class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
-            ><User class="h-2.5 w-2.5" />{{ entry.username }}<template v-if="isPrivate(entry)"> · <Lock class="h-2.5 w-2.5" />Private</template></span>
+            ><User class="h-2.5 w-2.5" />{{ entry.ownerName }}<template v-if="isPrivate(entry)"> · <Lock class="h-2.5 w-2.5" />Private</template></span>
             <p v-if="isFailed(entry) && entry.error" class="text-xs text-destructive mt-0.5 truncate">{{ entry.error }}</p>
           </div>
           <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />

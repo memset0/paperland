@@ -203,7 +203,7 @@ export const authApi = {
 
   logout: () => api.post<{ success: boolean }>('/api/auth/logout'),
 
-  updateAccount: (payload: { username?: string; current_password?: string; password?: string }) =>
+  updateAccount: (payload: { username?: string; nickname?: string | null; current_password?: string; password?: string }) =>
     api.patch<{ user: SessionUser }>('/api/auth/me', payload),
 }
 
@@ -239,7 +239,7 @@ export const usersApi = {
   list: () => api.get<{ data: User[] }>('/api/users'),
   create: (payload: { username: string; password: string; role: UserRole }) =>
     api.post<{ data: User }>('/api/users', payload),
-  update: (id: number, payload: { role?: UserRole; password?: string }) =>
+  update: (id: number, payload: { role?: UserRole; nickname?: string | null; password?: string }) =>
     api.patch<{ data: User }>(`/api/users/${id}`, payload),
 }
 

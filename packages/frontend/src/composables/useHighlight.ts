@@ -213,7 +213,7 @@ function createMark(hl: Highlight, viewerId: number | null): HTMLElement {
   if (isForeignHighlight(hl, viewerId)) {
     mark.dataset.highlightForeign = 'true'
     mark.className = `hl-foreign hl-foreign-${hl.color}`
-    mark.title = `${hl.username ?? 'Unknown'}${hl.shared === false ? ' (private)' : ''}`
+    mark.title = `${hl.display_name ?? hl.username ?? 'Unknown'}${hl.shared === false ? ' (private)' : ''}`
   } else {
     mark.className = `hl-${hl.color}`
   }

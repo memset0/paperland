@@ -2,10 +2,12 @@ import type { FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { requireAdmin } from '../auth/guards.js'
+import { normalizeNickname } from '../auth/nickname.js'
+import { resetDevAdminCache } from '../auth/session_auth.js'
 import type { UserRole } from '@paperland/shared'
 
-function publicUser(u: { id: number; username: string; role: string; created_at: string }) {
-  return { id: u.id, username: u.username, role: u.role as UserRole, created_at: u.created_at }
+function publicUser(u: { id: number; username: string; nickname: string | null; role: string; created_at: string }) {
+  return { id: u.id, username: u.username, nickname: u.nickname ?? null, role: u.role as UserRole, created_at: u.created_at }
 }
 
 function countAdmins(db: ReturnType<typeof getDatabase>): number {
@@ -42,8 +44,8 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     }
   )
 
-  // PATCH /api/users/:id — change role and/or reset password (admin only)
-  app.patch<{ Params: { id: string }; Body: { role?: UserRole; password?: string } }>(
+  // PATCH /api/users/:id — change role, nickname, and/or reset password (admin only)
+  app.patch<{ Params: { id: string }; Body: { role?: UserRole; nickname?: string | null; password?: string } }>(
     '/api/users/:id', { preHandler: requireAdmin }, async (request, reply) => {
       const db = getDatabase()
       const id = parseInt(request.params.id, 10)
@@ -51,8 +53,16 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       if (!user) {
         return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'User not found' } })
       }
-      const { role, password } = request.body || {}
+      const { role, nickname, password } = request.body || {}
       const updates: Record<string, unknown> = {}
+
+      if (nickname !== undefined) {
+        const normalized = normalizeNickname(nickname)
+        if ('error' in normalized) {
+          return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: normalized.error } })
+        }
+        updates.nickname = normalized.value
+      }
 
       if (role !== undefined && role !== user.role) {
         // Protect the last admin from being demoted.
@@ -73,6 +83,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         return { data: publicUser(user) }
       }
       db.update(schema.users).set(updates).where(eq(schema.users.id, id)).run()
+      resetDevAdminCache()
       const updated = db.select().from(schema.users).where(eq(schema.users.id, id)).get()!
       return { data: publicUser(updated) }
     }

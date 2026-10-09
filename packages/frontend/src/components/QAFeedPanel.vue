@@ -93,12 +93,12 @@ async function onDeleteResult(resultId: number) {
       >
         <ExternalLink class="h-3 w-3 inline mr-0.5 -mt-0.5" />{{ entry.paper_title }}
       </router-link>
-      <!-- Asker username distinguishes entries whenever the viewer chooses all scope. -->
+      <!-- Asker display name (nickname → username) distinguishes entries whenever the viewer chooses all scope. -->
       <span
         v-if="store.feedScope === 'all' && entry.username"
         class="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
       >
-        <User class="h-2.5 w-2.5" />{{ entry.username }}
+        <User class="h-2.5 w-2.5" />{{ entry.display_name ?? entry.username }}
         <!-- Owner's Q&A switch off: hidden from other non-admin users -->
         <template v-if="!entry.shared"> · <Lock class="h-2.5 w-2.5" />Private</template>
       </span>

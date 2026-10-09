@@ -14,8 +14,8 @@ declare module 'fastify' {
   }
 }
 
-function toSessionUser(row: { id: number; username: string; role: string }): SessionUser {
-  return { id: row.id, username: row.username, role: row.role as UserRole }
+export function toSessionUser(row: { id: number; username: string; nickname: string | null; role: string }): SessionUser {
+  return { id: row.id, username: row.username, nickname: row.nickname ?? null, role: row.role as UserRole }
 }
 
 /** Create a session for a user and return the opaque token (to be set as a cookie). */
@@ -65,4 +65,9 @@ export function getDevAdmin(): SessionUser | null {
     .get()
   _devAdmin = user ? toSessionUser(user) : null
   return _devAdmin
+}
+
+/** Drop the memoized dev admin so profile edits (username/nickname) show up immediately. */
+export function resetDevAdminCache(): void {
+  _devAdmin = null
 }

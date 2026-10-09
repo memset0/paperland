@@ -161,6 +161,7 @@ papers
 users
   id              integer   primary key autoincrement
   username        text      unique not null
+  nickname        text      nullable          // 对外显示名，可重复；为空时显示 username（≤32 字符，去首尾空格）
   password_hash   text      not null          // Bun.password (argon2id)
   role            text      not null          // "admin" | "user"
   open_token      text      nullable          // 浏览器插件快捷打开的每用户 CSRF token（首次请求时生成，可重新生成）

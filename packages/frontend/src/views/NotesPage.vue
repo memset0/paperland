@@ -42,7 +42,7 @@ const filtered = computed(() => {
   const list = [...all.value].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
   if (!q) return list
   return list.filter(
-    (n) => n.paper_title.toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q) || n.username.toLowerCase().includes(q),
+    (n) => n.paper_title.toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q) || n.username.toLowerCase().includes(q) || n.display_name.toLowerCase().includes(q),
   )
 })
 
@@ -100,7 +100,7 @@ function snippet(body: string): string {
             <Badge v-if="n.is_public" variant="secondary" class="gap-1 shrink-0"><Globe class="h-3 w-3" /> Published</Badge>
             <!-- Not visible to other users (owner's notes switch off): own notes, or admin view of others' -->
             <Badge v-if="!n.shared" variant="outline" class="gap-1 shrink-0"><Lock class="h-3 w-3" /> Private</Badge>
-            <span v-if="!isOwn(n)" class="text-xs text-muted-foreground shrink-0 ml-auto">{{ n.username }}</span>
+            <span v-if="!isOwn(n)" class="text-xs text-muted-foreground shrink-0 ml-auto">{{ n.display_name }}</span>
           </div>
           <div v-if="snippet(n.body)" class="text-xs text-muted-foreground line-clamp-2 mt-0.5">{{ snippet(n.body) }}</div>
         </button>

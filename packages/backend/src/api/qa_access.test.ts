@@ -16,7 +16,7 @@ beforeEach(async () => {
   sqlite = new Database(':memory:')
   sqlite.exec(`
     PRAGMA foreign_keys=ON;
-    CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL);
+    CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL, nickname TEXT);
     CREATE TABLE user_sharing_settings (
       user_id INTEGER NOT NULL, data_type TEXT NOT NULL, shared INTEGER NOT NULL, updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, data_type)
@@ -54,7 +54,7 @@ beforeEach(async () => {
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
 
-    INSERT INTO users VALUES (1,'alice','user'),(2,'bob','user'),(3,'admin','admin');
+    INSERT INTO users (id, username, role) VALUES (1,'alice','user'),(2,'bob','user'),(3,'admin','admin');
     INSERT INTO papers VALUES (42,'Test Paper','2026-08-24T00:00:00Z');
     INSERT INTO qa_entries VALUES
       (10,42,1,'free',NULL,'Alice question','done',NULL,'2026-08-24T00:03:00Z'),

@@ -10,6 +10,7 @@ import { serviceRunner } from '../services/service_runner.js'
 import { touchPaperUpdatedAt } from '../db/utils.js'
 import { requireUser } from '../auth/guards.js'
 import { canViewOwnedRow, ownerVisibilityFilter, parseScope, sharedFlagsFor } from '../auth/visibility.js'
+import { displayName } from '../auth/nickname.js'
 import { resolveRegenerationPrompt } from '../services/qa_prompt.js'
 import { markdownContentHash } from '../services/content_hash.js'
 import { loadQAReadingIndicators } from '../services/qa_reading.js'
@@ -25,15 +26,18 @@ function uniqueNumbers(values: Array<number | null>): number[] {
   return [...new Set(values.filter((value): value is number => value != null))]
 }
 
-function loadUsernames(db: ReturnType<typeof getDatabase>, userIds: Array<number | null>): Map<number, string> {
+function loadUsernames(
+  db: ReturnType<typeof getDatabase>,
+  userIds: Array<number | null>,
+): Map<number, { username: string; display_name: string }> {
   const ids = uniqueNumbers(userIds)
   if (ids.length === 0) return new Map()
   return new Map(
-    db.select({ id: schema.users.id, username: schema.users.username })
+    db.select({ id: schema.users.id, username: schema.users.username, nickname: schema.users.nickname })
       .from(schema.users)
       .where(inArray(schema.users.id, ids))
       .all()
-      .map((row) => [row.id, row.username]),
+      .map((row) => [row.id, { username: row.username, display_name: displayName(row)! }]),
   )
 }
 
@@ -411,7 +415,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
         prompt: entry.prompt || results[0]?.prompt || null,
         created_at: entry.created_at,
         user_id: entry.user_id ?? null,
-        username: entry.user_id != null ? (usernameById.get(entry.user_id) ?? null) : null,
+        username: entry.user_id != null ? (usernameById.get(entry.user_id)?.username ?? null) : null,
+        display_name: entry.user_id != null ? (usernameById.get(entry.user_id)?.display_name ?? null) : null,
         shared: entry.user_id != null ? (sharedByOwner.get(entry.user_id) ?? false) : false,
         can_manage: canManageEntry(entry, request.user),
         background_color: preferenceByEntry.get(entry.id) ?? null,
@@ -487,7 +492,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
           error: entry.error,
           prompt: entry.prompt || results[0]?.prompt || null,
           user_id: entry.user_id ?? null,
-          username: entry.user_id != null ? (usernameById.get(entry.user_id) ?? null) : null,
+          username: entry.user_id != null ? (usernameById.get(entry.user_id)?.username ?? null) : null,
+          display_name: entry.user_id != null ? (usernameById.get(entry.user_id)?.display_name ?? null) : null,
           shared: entry.user_id != null ? (sharedByOwner.get(entry.user_id) ?? false) : false,
           can_manage: canManageEntry(entry, request.user),
           background_color: preferenceByEntry.get(entry.id) ?? null,

@@ -4,7 +4,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { usersApi } from '@/api/client'
 import type { User, UserRole } from '@paperland/shared'
 import { toast } from 'vue-sonner'
-import { Key, Plus, Trash2, Copy, Check, Users, ShieldCheck, Shield, KeyRound } from '@lucide/vue'
+import { Key, Plus, Trash2, Copy, Check, Users, ShieldCheck, Shield, KeyRound, Pencil } from '@lucide/vue'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -63,6 +63,20 @@ async function doReset() {
   } catch { /* handled */ }
 }
 
+const showNickname = ref(false)
+const nicknameTarget = ref<User | null>(null)
+const nicknameInput = ref('')
+function openNickname(u: User) { nicknameTarget.value = u; nicknameInput.value = u.nickname ?? ''; showNickname.value = true }
+async function saveNickname() {
+  if (!nicknameTarget.value) return
+  try {
+    await usersApi.update(nicknameTarget.value.id, { nickname: nicknameInput.value })
+    toast.success('昵称已更新')
+    showNickname.value = false
+    await fetchUsers()
+  } catch { /* handled */ }
+}
+
 onMounted(() => { store.fetchTokens(); fetchUsers() })
 
 async function issueNew() {
@@ -102,14 +116,16 @@ function copyToken() {
         <TableHeader>
           <TableRow>
             <TableHead>用户名</TableHead>
+            <TableHead>昵称</TableHead>
             <TableHead class="w-28">角色</TableHead>
             <TableHead class="w-40">创建时间</TableHead>
-            <TableHead class="w-48 text-right">操作</TableHead>
+            <TableHead class="w-64 text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow v-for="u in users" :key="u.id">
             <TableCell class="font-medium">{{ u.username }}</TableCell>
+            <TableCell class="text-sm" :class="!u.nickname && 'text-muted-foreground'">{{ u.nickname || '—' }}</TableCell>
             <TableCell>
               <Badge :variant="u.role === 'admin' ? 'default' : 'secondary'" class="gap-1">
                 <ShieldCheck v-if="u.role === 'admin'" class="h-3 w-3" />
@@ -121,6 +137,9 @@ function copyToken() {
             <TableCell class="text-right space-x-1">
               <Button variant="ghost" size="xs" @click="toggleRole(u)">
                 {{ u.role === 'admin' ? '改为普通' : '设为管理员' }}
+              </Button>
+              <Button variant="ghost" size="xs" @click="openNickname(u)">
+                <Pencil />昵称
               </Button>
               <Button variant="ghost" size="xs" @click="openReset(u)">
                 <KeyRound />重置密码
@@ -218,6 +237,22 @@ function copyToken() {
     </Dialog>
 
     <!-- Reset password dialog -->
+    <Dialog v-model:open="showNickname">
+      <DialogContent class="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>修改昵称</DialogTitle>
+          <DialogDescription>为 {{ nicknameTarget?.username }} 设置昵称，留空则显示用户名。</DialogDescription>
+        </DialogHeader>
+        <form class="space-y-4" @submit.prevent="saveNickname">
+          <div class="space-y-2">
+            <Label for="nn-input">昵称</Label>
+            <Input id="nn-input" v-model="nicknameInput" maxlength="32" autocomplete="off" />
+          </div>
+          <Button type="submit" class="w-full">保存</Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+
     <Dialog v-model:open="showReset">
       <DialogContent class="sm:max-w-sm">
         <DialogHeader>

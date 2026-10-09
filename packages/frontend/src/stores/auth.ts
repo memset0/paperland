@@ -36,7 +36,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function updateAccount(payload: { username?: string; current_password?: string; password?: string }): Promise<SessionUser> {
+  async function updateAccount(payload: { username?: string; nickname?: string | null; current_password?: string; password?: string }): Promise<SessionUser> {
     const res = await authApi.updateAccount(payload)
     user.value = res.user
     return res.user

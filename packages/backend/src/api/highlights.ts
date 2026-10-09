@@ -18,7 +18,7 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
     if (request.user == null) return { data: [] }
 
     const db = getDatabase()
-    const rows = db.select({ highlight: schema.highlights, username: schema.users.username })
+    const rows = db.select({ highlight: schema.highlights, username: schema.users.username, nickname: schema.users.nickname })
       .from(schema.highlights)
       .leftJoin(schema.users, eq(schema.highlights.user_id, schema.users.id))
       .where(and(
@@ -29,9 +29,10 @@ export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
     const sharedByOwner = sharedFlagsFor('highlights', rows.map((r) => r.highlight.user_id))
 
     return {
-      data: rows.map(({ highlight, username }) => ({
+      data: rows.map(({ highlight, username, nickname }) => ({
         ...highlight,
         username: username ?? null,
+        display_name: nickname || username || null,
         shared: highlight.user_id != null ? (sharedByOwner.get(highlight.user_id) ?? false) : false,
       })),
     }

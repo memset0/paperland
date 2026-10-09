@@ -155,7 +155,7 @@ export async function referenceLinksRoutes(app: FastifyInstance): Promise<void> 
     if (request.user == null) return { data: [] }
 
     const db = getDatabase()
-    const rows = db.select({ link: schema.paperReferenceLinks, username: schema.users.username })
+    const rows = db.select({ link: schema.paperReferenceLinks, username: schema.users.username, nickname: schema.users.nickname })
       .from(schema.paperReferenceLinks)
       .leftJoin(schema.users, eq(schema.paperReferenceLinks.user_id, schema.users.id))
       .where(and(
@@ -166,9 +166,10 @@ export async function referenceLinksRoutes(app: FastifyInstance): Promise<void> 
       .all()
     const sharedByOwner = sharedFlagsFor('reference_links', rows.map((r) => r.link.user_id))
     return {
-      data: rows.map(({ link, username }) => ({
+      data: rows.map(({ link, username, nickname }) => ({
         ...link,
         username: username ?? null,
+        display_name: nickname || username || null,
         shared: sharedByOwner.get(link.user_id) ?? false,
       })),
     }

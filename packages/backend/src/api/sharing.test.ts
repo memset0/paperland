@@ -17,7 +17,7 @@ const admin = { id: 3, username: 'admin', role: 'admin' }
 beforeEach(async () => {
   sqlite = new Database(':memory:')
   sqlite.exec(`
-    CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL);
+    CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL, nickname TEXT);
     CREATE TABLE user_sharing_settings (
       user_id INTEGER NOT NULL, data_type TEXT NOT NULL, shared INTEGER NOT NULL, updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, data_type)
@@ -26,7 +26,7 @@ beforeEach(async () => {
       id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, paper_id INTEGER NOT NULL, title TEXT, url TEXT NOT NULL,
       description TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
-    INSERT INTO users VALUES (1,'alice','user'),(2,'bob','user'),(3,'admin','admin');
+    INSERT INTO users (id, username, role) VALUES (1,'alice','user'),(2,'bob','user'),(3,'admin','admin');
     INSERT INTO paper_reference_links VALUES
       (1,1,42,NULL,'https://a.example',NULL,'t','t'),
       (2,2,42,NULL,'https://b.example',NULL,'t','t'),

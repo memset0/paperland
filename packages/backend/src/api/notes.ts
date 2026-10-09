@@ -31,9 +31,16 @@ function notesVisibility(viewer: Viewer | null | undefined, scope: VisibilitySco
 }
 
 /** `shared` = visible to other non-admin users: published OR the owner shares notes. */
-function withShared<T extends { user_id: number; is_public: number | boolean }>(rows: T[]): Array<T & { shared: boolean }> {
+/** Adds `shared` and the author's `display_name` (nickname → username); drops the raw nickname. */
+function withShared<T extends { user_id: number; is_public: number | boolean; username: string; nickname: string | null }>(
+  rows: T[],
+): Array<Omit<T, 'nickname'> & { display_name: string; shared: boolean }> {
   const flags = sharedFlagsFor('notes', rows.map((r) => r.user_id))
-  return rows.map((r) => ({ ...r, shared: !!r.is_public || (flags.get(r.user_id) ?? false) }))
+  return rows.map(({ nickname, ...r }) => ({
+    ...r,
+    display_name: nickname || r.username,
+    shared: !!r.is_public || (flags.get(r.user_id) ?? false),
+  }))
 }
 
 export async function notesRoutes(app: FastifyInstance): Promise<void> {
@@ -146,6 +153,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
       id: schema.notes.id,
       user_id: schema.notes.user_id,
       username: schema.users.username,
+      nickname: schema.users.nickname,
       is_public: schema.notes.is_public,
       updated_at: schema.notes.updated_at,
       body: schema.notes.body,
@@ -182,6 +190,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
       updated_at: schema.notes.updated_at,
       paper_title: schema.papers.title,
       username: schema.users.username,
+      nickname: schema.users.nickname,
     }).from(schema.notes)
       .innerJoin(schema.papers, eq(schema.notes.paper_id, schema.papers.id))
       .innerJoin(schema.users, eq(schema.notes.user_id, schema.users.id))
@@ -225,6 +234,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
       updated_at: schema.notes.updated_at,
       paper_title: schema.papers.title,
       username: schema.users.username,
+      nickname: schema.users.nickname,
     }).from(schema.notes)
       .innerJoin(schema.papers, eq(schema.notes.paper_id, schema.papers.id))
       .innerJoin(schema.users, eq(schema.notes.user_id, schema.users.id))

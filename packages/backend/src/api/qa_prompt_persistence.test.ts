@@ -17,7 +17,7 @@ describe('QA prompt persistence reads', () => {
   test('a failed first free attempt is still returned with its stored question', async () => {
     sqlite = new Database(':memory:')
     sqlite.exec(`
-      CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL);
+      CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL, nickname TEXT);
     CREATE TABLE user_sharing_settings (
       user_id INTEGER NOT NULL, data_type TEXT NOT NULL, shared INTEGER NOT NULL, updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, data_type)
@@ -61,7 +61,7 @@ describe('QA prompt persistence reads', () => {
         body TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0, is_public INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
-      INSERT INTO users VALUES (1, 'reader', 'user');
+      INSERT INTO users (id, username, role) VALUES (1, 'reader', 'user');
       INSERT INTO qa_entries
         (paper_id, user_id, type, prompt, status, error, created_at)
       VALUES
@@ -85,6 +85,7 @@ describe('QA prompt persistence reads', () => {
       prompt: 'Why did the first attempt fail?',
       user_id: 1,
       username: 'reader',
+      display_name: 'reader',
       shared: true,
       can_manage: true,
       background_color: null,

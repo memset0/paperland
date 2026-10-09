@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { eq, and, ne } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
-import { createSession, destroySession, SESSION_COOKIE, SESSION_TTL_MS } from '../auth/session_auth.js'
+import { createSession, destroySession, resetDevAdminCache, SESSION_COOKIE, SESSION_TTL_MS, toSessionUser } from '../auth/session_auth.js'
+import { normalizeNickname } from '../auth/nickname.js'
 import { requireUser } from '../auth/guards.js'
 import { getOrCreateOpenToken, regenerateOpenToken } from '../auth/open_token.js'
-import type { SessionUser, UserRole } from '@paperland/shared'
+import type { SessionUser } from '@paperland/shared'
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/auth/login — public
@@ -27,7 +28,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       path: '/',
       maxAge: Math.floor(SESSION_TTL_MS / 1000),
     })
-    const sessionUser: SessionUser = { id: user.id, username: user.username, role: user.role as UserRole }
+    const sessionUser: SessionUser = toSessionUser(user)
     return { user: sessionUser }
   })
 
@@ -55,13 +56,21 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { token: regenerateOpenToken(request.user!.id) }
   })
 
-  // PATCH /api/auth/me — change own username and/or password
-  app.patch<{ Body: { username?: string; current_password?: string; password?: string } }>(
+  // PATCH /api/auth/me — change own username, nickname, and/or password
+  app.patch<{ Body: { username?: string; nickname?: string | null; current_password?: string; password?: string } }>(
     '/api/auth/me', { preHandler: requireUser }, async (request, reply) => {
       const db = getDatabase()
       const me = request.user! // guaranteed by requireUser
-      const { username, current_password, password } = request.body || {}
+      const { username, nickname, current_password, password } = request.body || {}
       const updates: Record<string, unknown> = {}
+
+      if (nickname !== undefined) {
+        const normalized = normalizeNickname(nickname)
+        if ('error' in normalized) {
+          return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: normalized.error } })
+        }
+        updates.nickname = normalized.value
+      }
 
       if (username !== undefined && username !== me.username) {
         if (!username.trim()) {
@@ -92,8 +101,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         return { user: me }
       }
       db.update(schema.users).set(updates).where(eq(schema.users.id, me.id)).run()
+      resetDevAdminCache()
       const updated = db.select().from(schema.users).where(eq(schema.users.id, me.id)).get()!
-      return { user: { id: updated.id, username: updated.username, role: updated.role as UserRole } }
+      return { user: toSessionUser(updated) }
     }
   )
 }
