@@ -1,5 +1,6 @@
 {
   "name": "paperland",
+  "version": "2.0.1",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -7,6 +8,7 @@
   "scripts": {
     "dev": "bun run packages/backend/src/index.ts & bun run --filter '@paperland/frontend' dev",
     "build": "bun run --filter '*' build",
+    "build:frontend": "bash scripts/build-frontend.sh",
     "test": "bun run --filter '@paperland/backend' test"
   }
 }

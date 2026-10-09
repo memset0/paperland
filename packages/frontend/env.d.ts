@@ -22,3 +22,7 @@ declare module 'monaco-editor/esm/vs/basic-languages/markdown/markdown' {
   export const conf: unknown
   export const language: { tokenizer: Record<string, unknown[]>; [k: string]: unknown }
 }
+
+// Injected by vite.config.ts `define`: Paperland version (root package.json) and short git HEAD.
+declare const __APP_VERSION__: string
+declare const __GIT_HASH__: string

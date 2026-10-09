@@ -47,8 +47,17 @@ This file provides shared guidance for AI coding tools working in this repositor
 - Only skip syncing if the user explicitly asks to archive without syncing.
 - After archiving, verify both the updated main specs and the archived change.
 - Report explicitly whether the change remains active or has been successfully archived.
+- After the spec sync and before committing, update the Paperland version per "Versioning" below and include the root `package.json` in the archive commit.
 - After every successful archive, including the spec sync above, automatically commit the files involved in that change and push the commit to `main`. Do not wait for a separate request or confirmation.
 - Do not auto-commit or push if the archive step fails.
+
+### Versioning
+
+- The Paperland version is the `version` field of the root `package.json` (`MAJOR.MINOR.PATCH`). It identifies builds; it carries no strict compatibility promise. The frontend footer shows it together with the git short hash.
+- **MAJOR** (currently 2): change only when the developer explicitly asks.
+- **MINOR**: MUST be incremented when an archived change makes an incompatible database schema change; MAY also be incremented when the user asks. Reset PATCH to `0` when MINOR changes.
+- **PATCH**: increment when at least one OpenSpec change is archived. Several changes archived in the same commit bump PATCH once.
+- Update the version only when archiving (the agent doing the archive does it); never bump it during implementation. If another agent's archive already changed it concurrently, bump from the current on-disk value.
 
 ### Concurrent-agent commits
 
@@ -107,6 +116,10 @@ bun run packages/backend/src/index.ts
 
 # Run frontend only (port 5173, 0.0.0.0, proxies API to backend)
 bun run --filter '@paperland/frontend' dev
+
+# Build the frontend (queued; the only allowed way to build — see "Frontend builds")
+bun run build:frontend                      # -> packages/frontend/dist (served in production)
+bun run build:frontend --out-dir <dir>      # verification build into a scratch dir
 
 # Run backend tests
 bun run --filter '@paperland/backend' test
@@ -168,6 +181,12 @@ Each service has `max_concurrency` and `rate_limit_interval` config. Services ar
 - **Wrong**: `cd packages/backend && bun run src/index.ts`
 
 **Commit safety check**: If `packages/backend/data/` appears in `git status`, something went wrong — this directory should never exist. Do NOT commit it. Investigate which process created it.
+
+## Frontend builds
+
+- Build the frontend ONLY through `bun run build:frontend` (`scripts/build-frontend.sh`). Never run `vite build`, `bunx vite build`, or `bun run --filter '@paperland/frontend' build` directly: this machine is small and concurrent builds starve each other of memory.
+- The script allows one build at a time machine-wide and queues the rest. Requests for the same output directory that queue behind a running build are merged into a single build, and every merged request exits with that build's status and log path (`data/build-queue/<key>.log`). Just run it and wait; do not kill or retry a queued build.
+- `bun run build:frontend` writes `packages/frontend/dist`, which the production backend serves, so it deploys whatever is on disk. Use `--out-dir <scratch dir>` when you only need to check that the build passes.
 
 ## Testing Caution
 

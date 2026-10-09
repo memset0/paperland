@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
 import { useRoute } from 'vue-router'
+import AppVersion from './AppVersion.vue'
 
 /**
  * Shared layout for "management" pages. Owns the page title (fixed position,
@@ -15,6 +16,8 @@ import { useRoute } from 'vue-router'
  *            (e.g. Q&A): the title header stays fixed and the content fills the
  *            remaining height. When false (default) the page flows normally and
  *            scrolls with the app's <main> outlet.
+ *
+ * Both modes end with the `AppVersion` footer (version + git hash).
  *
  * Detail pages (e.g. paper detail) do NOT use this component.
  */
@@ -48,10 +51,11 @@ const widthClass = computed(() => (props.full ? '' : 'mx-auto w-full max-w-5xl')
     <div :class="['flex-1 min-h-0 flex flex-col overflow-hidden', widthClass]">
       <slot />
     </div>
+    <AppVersion :class="['shrink-0 px-6 py-2 text-center', widthClass]" />
   </div>
 
   <!-- normal mode: flows and scrolls with the app's <main> outlet -->
-  <div v-else :class="['px-6 py-6', widthClass]">
+  <div v-else :class="['min-h-full flex flex-col px-6 py-6', widthClass]">
     <header class="flex items-center justify-between gap-3 mb-4 sm:mb-6">
       <h1 class="flex items-center gap-2 text-xl font-semibold">
         <component :is="pageIcon" v-if="pageIcon" class="h-5 w-5 shrink-0 text-primary" />
@@ -62,5 +66,6 @@ const widthClass = computed(() => (props.full ? '' : 'mx-auto w-full max-w-5xl')
       </div>
     </header>
     <slot />
+    <AppVersion class="mt-auto pt-10 text-center" />
   </div>
 </template>

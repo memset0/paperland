@@ -21,3 +21,4 @@ config.yml
 data/idea-forge/
 data/images/
 data/doc2x/
+data/build-queue/

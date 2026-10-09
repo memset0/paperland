@@ -21,7 +21,11 @@
 
 ### 生产运行
 
-从项目根目录执行 `bun run --filter '@paperland/frontend' build`，再运行 `bun run packages/backend/src/index.ts`。`frontend_hosting.ts` 使用已安装的 `@fastify/static`，在 `packages/frontend/dist/index.html` 存在时托管 Vue SPA；缺少构建产物时保留 API-only 启动。后端始终绑定 `127.0.0.1:3000`，Caddy 将 `paperland.dev.mem.ac` 反代到该端口，并以 `flush_interval -1` 透传 SSE。
+从项目根目录执行 `bun run build:frontend`，再运行 `bun run packages/backend/src/index.ts`。`frontend_hosting.ts` 使用已安装的 `@fastify/static`，在 `packages/frontend/dist/index.html` 存在时托管 Vue SPA；缺少构建产物时保留 API-only 启动。后端始终绑定 `127.0.0.1:3000`，Caddy 将 `paperland.dev.mem.ac` 反代到该端口，并以 `flush_interval -1` 透传 SSE。
+
+**前端构建排队**：`bun run build:frontend` 调 `scripts/build-frontend.sh`，是唯一的前端构建入口（规则见 `AGENTS.md` → Frontend builds）。用 `flock` 保证全机同一时刻只跑一个构建（锁随进程退出释放）；每个请求按输出目录登记递增序号，构建开始时覆盖此前登记的全部请求，排队中已被覆盖的请求不再构建，直接以那次构建的退出码退出并给出日志。默认输出 `packages/frontend/dist`，`--out-dir <dir>` 用于验证构建（同样排队，只与同目录请求合并）。状态与日志在 `data/build-queue/`（gitignore）；`BUILD_QUEUE_CMD` 可替换构建命令，用于测试队列本身。
+
+**版本号**：Paperland 版本号是根 `package.json` 的 `version`（`MAJOR.MINOR.PATCH`，当前大版本 2），只用于辨认构建。大版本号仅开发者要求时更新；数据库表不兼容变更时必须更新中版本号（用户要求也可更新，小版本号归零）；每次 OpenSpec 归档更新小版本号，由归档的 agent 完成，开发期间不改（规则见 `AGENTS.md` → Versioning）。`packages/frontend/vite.config.ts` 在构建 / dev server 启动时读取该版本和 `git rev-parse --short HEAD`（失败为 `unknown`），以 `define` 注入 `__APP_VERSION__`、`__GIT_HASH__`；hash 是构建时的 HEAD，构建早于提交时会落后一个 commit。
 
 线上后端使用 systemd 的 `paperland.service`，`WorkingDirectory=/root/yulun/paperland`，支持自动重启和开机启动；模型所需环境变量保存在机器本地 `/etc/paperland/backend.env`（root-only，不入 Git）。更新构建后执行 `systemctl restart paperland`。开发使用 `bun run dev`，仍通过 Vite 5173 访问。静态入口 HTML 禁止长期缓存，带构建版本的 `/assets/` 使用一年 immutable 缓存。部署时先检查运行中的服务任务，再重启后端。
 

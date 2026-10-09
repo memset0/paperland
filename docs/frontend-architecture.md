@@ -8,7 +8,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 ### 生产托管
 
-前端经 `bun run --filter '@paperland/frontend' build` 构建到 `packages/frontend/dist/`。后端启动时检测 `dist/index.html`，存在即通过 `frontend_hosting.ts` 挂载静态文件和 GET/HEAD 页面路由回退；刷新 `/papers/:id`、`/images` 等页面返回 SPA 入口。HTML 使用 `Cache-Control: no-cache`，`/assets/` 构建资源使用一年 immutable 缓存。未知 `/api`、`/external-api`、`/image` 路径以及缺失资源返回错误，不回退到 HTML。
+前端经 `bun run build:frontend`（排队构建，见 tech-stack.md「前端构建排队」）构建到 `packages/frontend/dist/`。后端启动时检测 `dist/index.html`，存在即通过 `frontend_hosting.ts` 挂载静态文件和 GET/HEAD 页面路由回退；刷新 `/papers/:id`、`/images` 等页面返回 SPA 入口。HTML 使用 `Cache-Control: no-cache`，`/assets/` 构建资源使用一年 immutable 缓存。未知 `/api`、`/external-api`、`/image` 路径以及缺失资源返回错误，不回退到 HTML。
 
 线上 `https://paperland.dev.mem.ac` 由 Caddy 转发到 `127.0.0.1:3000`，页面、API、图片共用入口；SSE 反代使用 `flush_interval -1`。后端由 `paperland.service` 运行，工作目录为项目根目录。开发仍使用根目录下的 `bun run dev` 和 Vite 5173；未构建前端时后端可独立提供 API。
 
@@ -91,6 +91,8 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - **全宽（`full`）**：论文管理 `/`（表格需要整页宽）。
 - **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/images`（图床画廊）、`/conferences`、`/conferences/:id`（标题固定为 `Conferences`，会议名 + 返回按钮置于内容区）、`/services`、`/settings`。
 - **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
+
+- **版本 footer**：`AppPage` 两种模式都以 `components/AppVersion.vue` 结尾（normal 模式在内容之后、内容不满一屏时贴底，`fill` 模式固定在底部一行），显示 `Paperland v<version> · <hash>`，hash 链接到 GitHub 对应 commit（`unknown` 时无链接）；移动端抽屉底部也显示。值来自 Vite `define` 注入的 `__APP_VERSION__` / `__GIT_HASH__`（见 tech-stack.md「版本号」）。论文详情不显示。
 
 > **新建管理页 checklist**：① 在 `router/index.ts` 给路由加 `meta.title`（英文，与侧边栏/标签一致）+ `meta.icon`（`@lucide/vue` 图标）；② 在 `App.vue` 加侧边栏导航项（同图标 + 英文标签）；③ 视图根用 `<AppPage>` 包裹，**不要再手写 `<h1>` 或宽度容器**——标题/图标由 `AppPage` 从 `meta` 自动渲染；画廊/看板/表格类传 `full`，自管内部滚动类传 `fill`，右上角按钮放 `#actions` 插槽。详情页除外。
 

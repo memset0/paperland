@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import LoginDialog from '@/components/LoginDialog.vue'
 import AccountDialog from '@/components/AccountDialog.vue'
+import AppVersion from '@/components/AppVersion.vue'
 import NoteWindowHost from '@/components/notes/NoteWindowHost.vue'
 
 const route = useRoute()
@@ -267,6 +268,7 @@ async function doLogout() {
                 </Button>
               </template>
             </div>
+            <AppVersion class="px-4 pb-3" />
           </SheetContent>
         </Sheet>
         <BookOpen class="h-4 w-4 text-primary" />

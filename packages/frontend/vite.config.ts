@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
 import { readFileSync, existsSync } from 'fs'
+import { execSync } from 'child_process'
 
 function loadAllowedHosts(): string[] {
   // Traverse upward to find config.yml
@@ -26,7 +27,28 @@ function loadAllowedHosts(): string[] {
   return []
 }
 
+// Paperland version (root package.json) and the checked-out commit, shown in the AppPage footer.
+const repoRoot = resolve(__dirname, '../..')
+function loadAppVersion(): string {
+  try {
+    return JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf-8')).version ?? 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+function loadGitHash(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(loadAppVersion()),
+    __GIT_HASH__: JSON.stringify(loadGitHash()),
+  },
   plugins: [vue(), tailwindcss()],
   resolve: {
     alias: {
