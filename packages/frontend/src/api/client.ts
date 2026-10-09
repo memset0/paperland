@@ -216,6 +216,11 @@ export const sharingApi = {
     api.put<{ data: SharingPreferences }>('/api/auth/me/sharing', patch),
 }
 
+// Browser extension download (zip with this site's URL + the user's token preset).
+export const extensionApi = {
+  downloadUrl: (baseUrl: string) => `/api/extension/download?base_url=${encodeURIComponent(baseUrl)}`,
+}
+
 // Arxiv quick-open (browser extension): per-user CSRF token + open-or-create by arxiv id.
 export const quickOpenApi = {
   getToken: () => api.get<{ token: string }>('/api/auth/open-token'),

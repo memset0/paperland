@@ -38,11 +38,11 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 ## 全局导航结构
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ Paperland                                                                    │
-├────────┬─────────────┬──────┬─────┬───────┬────────────┬──────────┬──────────┤
-│ Papers │ Conferences │ Tags │ Q&A │ Notes │ Idea Forge │ Services │ Settings │
-└────────┴─────────────┴──────┴─────┴───────┴────────────┴──────────┴──────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ Paperland                                                                                │
+├────────┬─────────────┬──────┬─────┬───────┬────────────┬───────────┬──────────┬──────────┤
+│ Papers │ Conferences │ Tags │ Q&A │ Notes │ Idea Forge │ Extension │ Services │ Settings │
+└────────┴─────────────┴──────┴─────┴───────┴────────────┴───────────┴──────────┴──────────┘
 ```
 
 ### 页面标题（浏览器标签）
@@ -126,6 +126,12 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
   - 已存在 → 绑定（补充缺失 id）
   - 不存在 → 创建新记录
 - 自动触发依赖 arxiv_id 的 fetch services
+
+#### Extension 页面（`/extension`）
+
+- 侧边栏 **Extension**（`Puzzle` 图标，位于 Idea Forge 之后，需登录），`views/ExtensionPage.vue`，使用 `AppPage`。
+- 内容：下载按钮（普通 `<a href download>` 指向 `GET /api/extension/download?base_url=<window.location.origin>`，同源请求携带会话 cookie）、Chrome/Edge 与 Firefox 安装步骤（Tabs）、使用方式与支持站点、Site URL + Token（复制 / 重新生成，与 Account settings 中的区块是同一个 token）。
+- `base_url` 用浏览器看到的 origin，而不是后端推断的地址，这样在 Caddy 反代和 Vite 代理下都正确。
 
 #### 快捷打开：浏览器插件 / `/open/arxiv/:arxiv_id`
 

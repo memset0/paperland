@@ -106,8 +106,9 @@ paperland/
 │   ├── browser-extension/          # 浏览器插件（MV3，Chrome/Edge/Firefox，免构建；见 docs/browser-extension.md）
 │   │   ├── manifest.json
 │   │   ├── icons/
-│   │   ├── src/                    # arxiv.js（id 提取，纯函数）/ background.js / options.html,js / settings.js
-│   │   └── test/                   # bun test（URL → arxiv id）
+│   │   ├── src/                    # arxiv.js（id 提取，纯函数）/ background.js / options.html,js / settings.js（storage 优先、preset.json 兜底）
+│   │   └── test/                   # bun test（URL → arxiv id、preset 合并）
+│   │                               # 下载：后端 api/extension.ts 即时打包 zip（无依赖 STORE 写入器 + Bun.hash.crc32），注入 src/preset.json
 │   │
 │   └── zotero-plugin/              # Zotero 7 侧边栏插件
 │       ├── addon/

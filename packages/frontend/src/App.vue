@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, Lightbulb, LogIn, CircleUser, CalendarDays, NotebookPen, Image as ImageIcon, Sun, Moon, Monitor } from '@lucide/vue'
+import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, Lightbulb, LogIn, CircleUser, CalendarDays, NotebookPen, Image as ImageIcon, Sun, Moon, Monitor, Puzzle } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
@@ -80,6 +80,7 @@ const navItems: NavItem[] = [
   { path: '/notes', label: 'Notes', icon: NotebookPen, requiresAuth: true },
   { path: '/images', label: 'Images', icon: ImageIcon, requiresAuth: true },
   { path: '/idea-forge', label: 'Idea Forge', icon: Lightbulb, requiresAuth: true },
+  { path: '/extension', label: 'Extension', icon: Puzzle, requiresAuth: true },
   { path: '/services', label: 'Services', icon: Activity, requiresAdmin: true },
   { path: '/settings', label: 'Settings', icon: Settings, requiresAdmin: true },
 ]

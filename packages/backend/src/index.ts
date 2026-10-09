@@ -19,6 +19,7 @@ import { highlightsRoutes } from './api/highlights.js'
 import { notesRoutes } from './api/notes.js'
 import { referenceLinksRoutes } from './api/reference_links.js'
 import { imagesRoutes } from './api/images.js'
+import { extensionRoutes } from './api/extension.js'
 import { mimeForExt } from './services/image_store.js'
 import { tagRoutes } from './api/tags.js'
 import { externalPaperRoutes } from './external-api/papers.js'
@@ -158,6 +159,7 @@ async function main() {
   await app.register(notesRoutes)
   await app.register(referenceLinksRoutes)
   await app.register(imagesRoutes)
+  await app.register(extensionRoutes)
   await app.register(tagRoutes)
 
   // Register idea-forge routes

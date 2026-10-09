@@ -8,7 +8,7 @@ External API 是独立于前端 Internal API 的第三方接口，主要用于 Z
 
 文本翻译、PDF 选区工具栏按需划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅在登录用户点击选区工具栏「翻译」后触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭、新选区关闭旧浮层，以及等待首个译文时显示所选原文的 UI fallback，均是 Internal UI 生命周期/呈现行为，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
 
-浏览器插件的「快捷打开」同样属于网站登录态的 Internal API，**不在** `/external-api/v1` 下、不接受 Bearer API Token：`GET /api/auth/open-token`（获取当前用户的快捷打开 CSRF token，首次请求时生成）、`POST /api/auth/open-token/regenerate`（重新生成，旧 token 立即失效）、`POST /api/papers/open-arxiv { arxiv_id, token }`（需会话 + token 匹配，否则 401 / 403 `INVALID_OPEN_TOKEN`；id 不可解析为 422；成功返回 `{ paper_id, arxiv_id, created }`）。arxiv id 会去掉 `arXiv:` 前缀与版本号后再查找/存储。该 token 与 External API Token 相互独立，不能用于调用 External API。详见 `browser-extension.md`。
+浏览器插件的「快捷打开」同样属于网站登录态的 Internal API，**不在** `/external-api/v1` 下、不接受 Bearer API Token：`GET /api/auth/open-token`（获取当前用户的快捷打开 CSRF token，首次请求时生成）、`POST /api/auth/open-token/regenerate`（重新生成，旧 token 立即失效）、`POST /api/papers/open-arxiv { arxiv_id, token }`（需会话 + token 匹配，否则 401 / 403 `INVALID_OPEN_TOKEN`；id 不可解析为 422；成功返回 `{ paper_id, arxiv_id, created }`）。arxiv id 会去掉 `arXiv:` 前缀与版本号后再查找/存储。该 token 与 External API Token 相互独立，不能用于调用 External API。插件下载 `GET /api/extension/download?base_url=<http(s) 绝对 URL>` 同样是 Internal API：需登录（401），`base_url` 非法时返回 422，成功时返回 `application/zip`（`paperland-extension-<version>.zip`），其中内置 `src/preset.json`（`base_url` + 当前用户的 token）。详见 `browser-extension.md`。
 
 ---
 
