@@ -37,7 +37,9 @@ export async function registerFrontendHosting(
       return reply.header('Cache-Control', cache).sendFile(relative)
     }
 
-    if (pathname === '/assets' || pathname.startsWith('/assets/') || extname(relative)) {
+    // `/open/arxiv/2401.12345` is an SPA route whose arxiv id merely looks like an extension.
+    const looksLikeFile = extname(relative) !== '' && !pathname.startsWith('/open/')
+    if (pathname === '/assets' || pathname.startsWith('/assets/') || looksLikeFile) {
       return notFound()
     }
     return entry(reply)

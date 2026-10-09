@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paperland Extension Options</title>
+  <style>
+    :root { color-scheme: light dark; --accent: #0069A8; }
+    body { font: 14px/1.5 system-ui, sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 18px; display: flex; align-items: center; gap: 8px; }
+    label { display: block; font-weight: 600; margin-top: 16px; }
+    input { width: 100%; box-sizing: border-box; padding: 6px 8px; font: 13px ui-monospace, monospace; }
+    .hint { color: GrayText; font-size: 12px; margin: 4px 0 0; }
+    button { margin-top: 20px; padding: 6px 16px; background: var(--accent); color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+    #status { margin-left: 12px; }
+  </style>
+</head>
+<body>
+  <h1><img src="../icons/icon-32.png" width="24" height="24" alt="" /> Paperland</h1>
+  <form id="form">
+    <label for="base_url">Paperland URL</label>
+    <input id="base_url" type="url" placeholder="https://paperland.example.com" required />
+    <p class="hint">The address you open Paperland at (Account settings → Browser Extension → Site URL).</p>
+
+    <label for="token">Token</label>
+    <input id="token" type="text" autocomplete="off" spellcheck="false" required />
+    <p class="hint">Copy it from Paperland → Account settings → Browser Extension → Token.</p>
+
+    <button type="submit">Save</button><span id="status"></span>
+  </form>
+  <p class="hint" style="margin-top: 24px">
+    Usage: on an arXiv / Hugging Face / alphaXiv paper page, click the toolbar button or press Alt+Shift+P.
+  </p>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

@@ -4,6 +4,8 @@ import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { ingestPaper } from '../services/ingest_paper.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { requireUser } from '../auth/guards.js'
+import { verifyOpenToken } from '../auth/open_token.js'
+import { normalizeArxivId } from '../utils/arxiv_id.js'
 import { userTagsByPapers, userTagsForPaper, findOrCreateUserTag, findUserTagByName, clearUserPaperTags } from '../utils/user-tags.js'
 import { canList, openreviewLinkCount, openreviewLinkCountsByPapers } from '../utils/listing.js'
 
@@ -287,6 +289,26 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       }
 
       return { ...parsePaper(paper), tags: userTagsForPaper(db, paper.id, userId), created }
+    }
+  )
+
+  // POST /api/papers/open-arxiv — backs the `/open/arxiv/:id?token=…` quick-open link
+  // (browser extension). Requires a session AND the user's quick-open CSRF token, then
+  // finds or creates the paper for the (normalized) arxiv id.
+  app.post<{ Body: { arxiv_id?: string; token?: string } }>(
+    '/api/papers/open-arxiv',
+    { preHandler: requireUser },
+    async (request, reply) => {
+      const { arxiv_id: rawId, token } = request.body || {}
+      if (!verifyOpenToken(request.user!.id, token)) {
+        return reply.code(403).send({ error: { code: 'INVALID_OPEN_TOKEN', message: 'Invalid quick-open token. Copy the current token from Account settings into the extension.' } })
+      }
+      const arxiv_id = normalizeArxivId(rawId)
+      if (!arxiv_id) {
+        return reply.code(422).send({ error: { code: 'VALIDATION_ERROR', message: `Invalid arxiv id: ${rawId ?? ''}` } })
+      }
+      const { paper, created } = await ingestPaper({ arxiv_id })
+      return { paper_id: paper.id, arxiv_id, created }
     }
   )
 

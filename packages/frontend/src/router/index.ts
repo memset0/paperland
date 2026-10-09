@@ -20,6 +20,15 @@ const routes = [
     meta: { title: 'Paper Detail' },
   },
   {
+    // Browser-extension quick-open link: /open/arxiv/<arxiv_id>?token=<token>. The `(.*)`
+    // keeps old-style ids (hep-th/9901001) in one param. Intentionally no requiresAuth —
+    // the view handles login itself so the target is not lost.
+    path: '/open/arxiv/:arxiv_id(.*)',
+    name: 'open-arxiv',
+    component: () => import('@/views/OpenArxiv.vue'),
+    meta: { title: 'Opening Paper' },
+  },
+  {
     path: '/qa',
     name: 'qa',
     component: () => import('@/views/QAPage.vue'),

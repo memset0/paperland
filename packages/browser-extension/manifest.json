@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Paperland",
+  "version": "0.1.0",
+  "description": "Open the arXiv paper on the current page (arXiv, Hugging Face, alphaXiv, …) in Paperland with one click.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Open in Paperland",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "scripts": ["src/background.js"],
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+P" },
+      "description": "Open the current paper in Paperland"
+    }
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "paperland-extension@paperland.local",
+      "strict_min_version": "121.0"
+    }
+  }
+}
