@@ -37,10 +37,10 @@ The sidebar (and mobile drawer) SHALL display all navigation items regardless of
 
 #### Scenario: Anonymous user sees all sidebar buttons
 - **WHEN** an anonymous user views the sidebar
-- **THEN** all navigation buttons (Papers, Conferences, Tags, Q&A, Notes, Idea Forge, Services, Settings) SHALL be visible
+- **THEN** all navigation buttons (Papers, Conferences, Tags, Q&A, Notes, Services, Settings) SHALL be visible
 
 #### Scenario: Anonymous user clicks a login-required item
-- **WHEN** an anonymous user clicks Tags, Q&A, Notes, or Idea Forge
+- **WHEN** an anonymous user clicks Tags, Q&A, or Notes
 - **THEN** the system SHALL prompt for login instead of navigating to the page
 
 #### Scenario: Non-admin clicks an admin-only item

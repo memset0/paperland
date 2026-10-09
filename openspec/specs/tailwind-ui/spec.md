@@ -47,13 +47,6 @@ The frontend SHALL use shadcn-vue (backed by reka-ui) as the source of UI primit
 - **THEN** the implementation SHALL call `toast.success` / `toast.error` from `vue-sonner`, and a single `<Toaster>` SHALL be mounted at the app root in `App.vue`
 - **AND** per-toast position SHALL be passed via the second argument (e.g., LaTeX copy uses `{ position: 'bottom-center' }`) when context-specific placement is required
 
-### Requirement: Idea-forge category mapping centralized
-The shared idea-category constants (`IDEA_CATEGORIES`, `IDEA_CATEGORY_LABELS`, `IDEA_CATEGORY_VARIANT`) SHALL be defined once in `src/lib/idea-categories.ts` and imported by all idea-forge components, rather than duplicated per-file.
-
-#### Scenario: Single source of truth for category mapping
-- **WHEN** any idea-forge component (e.g., `InboxView`, `ListView`, `KanbanView`, `IdeaDetail`, `IdeaManager`) renders or iterates the four idea categories
-- **THEN** it SHALL import from `@/lib/idea-categories` and not redefine the constants locally
-
 ### Requirement: Lucide icons sourced from `@lucide/vue`
 The frontend SHALL import Lucide icons from `@lucide/vue` (the package referenced by the shadcn-vue preset). The legacy `lucide-vue-next` dependency SHALL be removed after the migration.
 

@@ -73,10 +73,10 @@ The frontend SHALL maintain authentication state in a Pinia store that loads `GE
 - **THEN** the store SHALL update `isAuthenticated`/`isAdmin` and the UI SHALL reflect the new state without a full reload
 
 ### Requirement: Route guards for restricted pages
-Restricted routes SHALL require authentication, and `/services` and `/settings` SHALL additionally require the `admin` role. The restricted routes are `/tags`, `/qa`, `/idea-forge`, `/idea-forge/:projectName`, `/services`, and `/settings`. When an unauthenticated user navigates to a restricted route, the system SHALL prompt for login rather than silently failing; when a non-admin navigates to an admin-only route, the system SHALL indicate the page requires admin.
+Restricted routes SHALL require authentication, and `/services` and `/settings` SHALL additionally require the `admin` role. The restricted routes are `/tags`, `/qa`, `/services`, and `/settings`. When an unauthenticated user navigates to a restricted route, the system SHALL prompt for login rather than silently failing; when a non-admin navigates to an admin-only route, the system SHALL indicate the page requires admin.
 
 #### Scenario: Anonymous user opens a login-only route
-- **WHEN** an anonymous user navigates to `/tags`, `/qa`, or `/idea-forge`
+- **WHEN** an anonymous user navigates to `/tags` or `/qa`
 - **THEN** the system SHALL show a login prompt instead of the page content
 
 #### Scenario: Non-admin opens an admin-only route

@@ -22,7 +22,7 @@ TBD - created by archiving change add-page-title. Update Purpose after archive.
 - **THEN** `document.title` SHALL 为 `Paperland`
 
 ### Requirement: Static page titles
-每个顶层导航页面 SHALL 拥有与其侧边栏标签语义一致的固定标题（标题均为英文）：论文列表（`/`）→ `Papers`，标签管理（`/tags`）→ `Tags`，Q&A（`/qa`）→ `Q&A`，Idea Forge 列表（`/idea-forge`）→ `Idea Forge`，服务管理（`/services`）→ `Services`，设置（`/settings`）→ `Settings`。
+每个顶层导航页面 SHALL 拥有与其侧边栏标签语义一致的固定标题（标题均为英文）：论文列表（`/`）→ `Papers`，标签管理（`/tags`）→ `Tags`，Q&A（`/qa`）→ `Q&A`，服务管理（`/services`）→ `Services`，设置（`/settings`）→ `Settings`。
 
 #### Scenario: Open paper list
 - **WHEN** 用户打开 `/`
@@ -58,15 +58,8 @@ TBD - created by archiving change add-page-title. Update Purpose after archive.
 - **WHEN** 论文详情页已打开但论文数据尚未加载完成
 - **THEN** `document.title` SHALL 为 `Paper Detail · Paperland`
 
-### Requirement: Idea Forge project title from project name
-Idea Forge 项目页（`/idea-forge/:projectName`）SHALL 将页面标题设置为该项目名。
-
-#### Scenario: Open a project
-- **WHEN** 用户打开名为 `my-research` 的 Idea Forge 项目
-- **THEN** `document.title` SHALL 为 `my-research · Paperland`
-
 ### Requirement: Title resets when leaving a dynamic page
-当用户从动态页面（论文详情 / Idea Forge 项目）导航到其他页面时，`document.title` SHALL 更新为目标页面的标题，且 SHALL NOT 残留上一页面的内容标题。
+当用户从动态页面（如论文详情）导航到其他页面时，`document.title` SHALL 更新为目标页面的标题，且 SHALL NOT 残留上一页面的内容标题。
 
 #### Scenario: Leave paper detail
 - **WHEN** 用户从某论文详情页导航到 `/settings`
