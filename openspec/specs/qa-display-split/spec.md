@@ -82,7 +82,7 @@ Triggering any LLM action on the paper detail page — generating or regeneratin
 - **THEN** the system SHALL proceed, attributing the user QA entry to that user
 
 ### Requirement: PaperDetail shows every QA Result attempt state
-PaperDetail SHALL render queued, awaiting-output, streaming, done, failed, and cancelled Result attempts as independently selectable tabs within their existing QA entry. A newly created run SHALL appear immediately and become the selected latest tab; older completed answers SHALL remain accessible.
+PaperDetail SHALL render queued, awaiting-output, streaming, done, failed, and cancelled Result attempts as independently selectable tabs within their existing QA entry; soft-deleted Results SHALL NOT be rendered. A newly created run SHALL appear immediately and become the selected latest tab; older completed answers SHALL remain accessible. "Latest" SHALL mean the most recently created Result (by `created_at`, then id), regardless of completion time or status.
 
 #### Scenario: New regeneration appears beside history
 - **WHEN** a user regenerates an entry that already has completed answers
@@ -91,6 +91,10 @@ PaperDetail SHALL render queued, awaiting-output, streaming, done, failed, and c
 #### Scenario: Failed Result remains inspectable
 - **WHEN** a run fails after partial output
 - **THEN** its tab SHALL retain the partial answer, failed status, model, error, and retry action while completed sibling tabs remain usable
+
+#### Scenario: Latest by request time
+- **WHEN** an entry has a Result created at 10:00 that finished at 10:05 and another created at 10:01 that finished at 10:02
+- **THEN** the Result created at 10:01 SHALL be selected by default
 
 ### Requirement: PaperDetail progressively renders durable Result output
 For an active Result, PaperDetail SHALL subscribe to live updates and label queued, awaiting-output, and streaming states distinctly. `awaiting_output` SHALL display a live `Thinking · mm:ss` timer derived from server lifecycle timing; the timer SHALL stop at the first output and MAY remain visible as a frozen “thought for” duration. Streaming output SHALL append genuine persisted batches and progressively render Markdown. A non-streaming provider SHALL remain Thinking until its complete response and SHALL NOT simulate token output. Disconnect/reconnect SHALL reconcile from the server snapshot, with existing polling retained as a fallback.
@@ -127,7 +131,7 @@ PaperDetail SHALL render an active answer in a stable Result container. Frontend
 - **THEN** PaperDetail SHALL NOT automatically scroll the page or replace the surrounding card/tab DOM
 
 ### Requirement: PaperDetail offers exact stop and retry actions
-An authorized viewer SHALL see a stop action only for an active Result they may cancel and a retry action for a failed/cancelled Result they may manage. Stopping SHALL target that Result only; retrying SHALL create a new Result with the existing preset/free prompt rules rather than mutate the failed one.
+An authorized viewer SHALL see a stop action only for an active Result they may cancel and a retry action for a failed/cancelled Result they may manage. Stopping SHALL target that Result only; retrying SHALL create a new Result with the existing preset/free prompt rules rather than mutate the failed one. A free entry's retry SHALL reuse its immutable question, system prompt name, inputs, and history reference, assembling the model input with the current rules.
 
 #### Scenario: Stop one active tab
 - **WHEN** the user stops one active Result in an entry with another active Result
@@ -140,6 +144,10 @@ An authorized viewer SHALL see a stop action only for an active Result they may 
 #### Scenario: Retry failed preset question
 - **WHEN** an authorized user retries a failed preset Result
 - **THEN** a new Result SHALL use the latest preset text from `config.yml`
+
+#### Scenario: Retry a follow-up
+- **WHEN** the owner retries a failed Result of a follow-up entry with a screenshot input
+- **THEN** the new Result SHALL be built with the same inputs and the same parent answer history
 
 ### Requirement: Paper User QA scope selector
 The User Q&A card SHALL provide an accessible mine/all selector to authenticated viewers. Changing scope SHALL refetch the current paper, keep Preset Q&A unchanged, and preserve the selected scope while the paper detail view remains mounted.

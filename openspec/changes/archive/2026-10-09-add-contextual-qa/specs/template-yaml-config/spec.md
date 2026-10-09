@@ -1,9 +1,4 @@
-# template-yaml-config Specification
-
-## Purpose
-Unified QA template configuration in config.yml, including system prompt template and ordered QA question list.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: config.yml template fields
 The system SHALL support a required top-level `qa` field in `config.yml`: an ordered array of preset QA entries, each with `name` (string identifier), `prompt` (the question text), and an optional `system_prompt` naming the system prompt file to use for that preset (see the `contextual-qa` capability). The `qa` list SHALL only define preset questions; system prompts SHALL NOT be written in `config.yml`.
@@ -30,23 +25,17 @@ The former top-level `system_prompt` template field (with `{PAPER}` and `{PROMPT
 - **WHEN** `config.yml` contains a top-level `system_prompt`
 - **THEN** startup SHALL fail with a deprecation error naming the replacement configuration
 
-### Requirement: QA template ordering
-The system SHALL preserve the order of QA entries as defined in the `qa` array of `config.yml`. This order SHALL be used consistently in API responses and frontend display.
+## REMOVED Requirements
 
-#### Scenario: API returns templates in config order
-- **WHEN** `GET /api/templates` is called
-- **THEN** the response SHALL return templates in the exact order they appear in `config.yml`'s `qa` array
+### Requirement: System prompt template for prompt assembly
+**Reason**: The single-string `{PAPER}`/`{PROMPT}` template mixed rules and paper content into one user message. Model input is now assembled by the backend as a system prompt plus structured user content (paper, references, inputs, history, question), defined in the `contextual-qa` capability.
+**Migration**: Delete the top-level `system_prompt` from `config.yml`; move its answering rules into `prompts/system/paper-qa.md` and set `qa_prompt.default_system_prompt: paper-qa`.
 
-#### Scenario: Frontend displays templates in config order
-- **WHEN** the TemplateQA component renders the template list
-- **THEN** templates SHALL be displayed in the order received from the API (which matches `config.yml` order)
+### Requirement: Template loader reads from config
+**Reason**: Its `getSystemPrompt()` returned the removed `{PAPER}`/`{PROMPT}` template; replaced by "Template and system prompt loaders", whose `getSystemPrompt(name)` returns a system prompt file's text.
+**Migration**: Call `getSystemPrompt(name)` with a system prompt name instead of reading a template string; `loadTemplates()` and `loadTemplate(name)` are unchanged.
 
-### Requirement: Remove templates directory
-The `templates/` directory with individual `.md` files SHALL be removed. All template content SHALL be migrated into `config.yml`.
-
-#### Scenario: Migration from .md files to config.yml
-- **WHEN** the refactor is complete
-- **THEN** the `templates/` directory SHALL no longer exist, and all previous template content (abstract, method, experiment) SHALL be represented as QA entries in the `qa` field of `config.yml`
+## ADDED Requirements
 
 ### Requirement: Template and system prompt loaders
 The `template_loader` module SHALL read preset data from the loaded `AppConfig` (via `getConfig()`) instead of the filesystem, and SHALL read system prompt text from the configured system prompts directory. It SHALL export:

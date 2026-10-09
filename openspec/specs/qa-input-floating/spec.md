@@ -2,7 +2,9 @@
 
 ## Purpose
 QAInput（给论文提问的输入框）的呈现方式与定位规格。
+
 ## Requirements
+
 ### Requirement: Responsive behavior consistency
 QAInput SHALL 在移动端和桌面端均可正常使用，功能（模型选择、输入、提交）不受定位方式影响。
 
@@ -26,7 +28,7 @@ QAInput 卡片本身 SHALL 作为浮动面板，仅在用户通过功能入口�
 - **THEN** 面板关闭，下次需再次通过入口打开
 
 ### Requirement: Integrated panel controls and layout
-面板顶部一行 SHALL 自左至右依次为：提交按钮、模型选择、关闭按钮（关闭按钮位于面板右上角，即原提交按钮的位置）。输入框（textarea）SHALL 位于其下方并占据整行完整宽度，默认显示约 2 行，且自身 SHALL NOT 提供原生缩放手柄（`resize-none`）——改变大小改由面板的缩放手柄完成。
+面板顶部一行 SHALL 自左至右依次为：提交按钮、模型选择、关闭按钮（关闭按钮位于面板右上角，即原提交按钮的位置）。顶部行与输入框之间 SHALL 有一行附件栏（无附件时不占位），按加入顺序列出选段和截图附件，每个显示类别 icon、英文标号（如 `@Quote1`、`@Image1`）、摘要（选段前若干字 / 截图缩略图）和页码（跨页为页码范围），可单独移除；附件数量不设上限（详见 `contextual-qa`）。输入框（textarea）SHALL 位于其下方并占据整行完整宽度，默认显示约 2 行，且自身 SHALL NOT 提供原生缩放手柄（`resize-none`）——改变大小改由面板的缩放手柄完成。
 
 #### Scenario: Top row order
 - **WHEN** 面板展开且用户已登录
@@ -39,6 +41,10 @@ QAInput 卡片本身 SHALL 作为浮动面板，仅在用户通过功能入口�
 #### Scenario: Input has no native resize grip
 - **WHEN** 用户查看输入框右下角
 - **THEN** 输入框自身不提供原生 resize 手柄；缩放改由面板的缩放手柄完成
+
+#### Scenario: Attachment bar above the input
+- **WHEN** 用户从 PDF 把一个选段和一张截图「加入提问框」
+- **THEN** 输入框上方出现附件栏，依次显示 `@Quote1` 和 `@Image1` 两个附件，并在光标处插入对应标号
 
 ### Requirement: Resize via bottom-right grip
 桌面端面板 SHALL 在其右下角提供一个缩放手柄，拖动该手柄改变整个面板的大小（宽与高）。输入框随面板增大而占满更多空间。移动端不提供该手柄（移动端为全屏）。
@@ -74,6 +80,8 @@ QAInput 卡片本身 SHALL 作为浮动面板，仅在用户通过功能入口�
 
 打开后用户可移动 / 缩放；关闭再打开 SHALL 回到默认几何。
 
+几何不记忆，但**草稿内容**（问题文本、附件及其标号、追问时选定的父回答）SHALL 按「用户 + 论文」保存在浏览器本地存储中，关闭面板或刷新页面后恢复，提交成功后清空；本地存储不可用时按空草稿处理。
+
 #### Scenario: Double-column default position
 - **WHEN** 用户在双栏布局页面打开面板
 - **THEN** 面板默认贴左下角，宽度等于左侧 PDF 栏的当前宽度
@@ -85,6 +93,10 @@ QAInput 卡片本身 SHALL 作为浮动面板，仅在用户通过功能入口�
 #### Scenario: Reopen returns to default
 - **WHEN** 用户移动 / 缩放面板后将其关闭，再次打开
 - **THEN** 面板回到当前布局对应的默认位置与大小，不沿用上次的位置/大小
+
+#### Scenario: Draft restored while geometry resets
+- **WHEN** 用户输入了一半问题并加入一个附件后刷新页面，再打开面板
+- **THEN** 面板回到默认位置与大小，问题文本和附件按原标号恢复
 
 ### Requirement: Mobile fullscreen overlay
 移动端（视口宽度 < md breakpoint）面板 SHALL 以全屏浮层（inset-0）形式打开。
@@ -99,4 +111,3 @@ QAInput 卡片本身 SHALL 作为浮动面板，仅在用户通过功能入口�
 #### Scenario: Submit button content
 - **WHEN** 面板表单可用（已登录、可提交）
 - **THEN** 提交按钮显示发送图标加 "Submit" 文字
-

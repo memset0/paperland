@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { FileText, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Link2, Loader2, AlertTriangle, MoveHorizontal, MoveVertical, Crop, Languages, X, Copy, RefreshCw, MessageCircleQuestion, Plus, MessagesSquare, List } from '@lucide/vue'
+import { FileText, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Link2, Loader2, AlertTriangle, MoveHorizontal, MoveVertical, Crop, Languages, X, Copy, RefreshCw, MessageCircleQuestion, Plus, MessagesSquare, List, Image as ImageIcon } from '@lucide/vue'
 import type { QAImageInput, QATextSelectionInput, TranslateResponse, TranslationStreamStatus } from '@paperland/shared'
 import { toast } from 'vue-sonner'
 import { loadPdfjs } from '@/lib/pdfjs'
@@ -927,11 +927,11 @@ function regionInput(region: CaptureRegion, hash: string): Omit<QAImageInput, 'l
   return { kind: 'image', image_hash: hash, pdf: { page: region.page, rx: r4(region.x), ry: r4(region.y), rw: r4(region.w), rh: r4(region.h) } }
 }
 
-async function onCaptureAction(action: 'copy' | 'ask' | 'add') {
+async function onCaptureAction(action: 'copy-url' | 'copy' | 'ask' | 'add') {
   const menu = captureMenu.value
   captureMenu.value = null
   if (!menu || !props.paperId) return
-  if (action === 'copy') { await captureRegion(menu.region); return }
+  if (action === 'copy' || action === 'copy-url') { await captureRegion(menu.region, action === 'copy-url'); return }
   if (askDisabled.value || capturing.value) return
   capturing.value = true
   try {
@@ -949,14 +949,14 @@ async function onCaptureAction(action: 'copy' | 'ask' | 'add') {
   }
 }
 
-async function captureRegion(region: { page: number; x: number; y: number; w: number; h: number }) {
+async function captureRegion(region: { page: number; x: number; y: number; w: number; h: number }, urlOnly = false) {
   if (!props.paperId || capturing.value) return
   capturing.value = true
   try {
     const { url } = await uploadRegion(region)
     const anchor = `paperland://paper/${props.paperId}?pdf=${region.page}&rx=${r4(region.x)}&ry=${r4(region.y)}&rw=${r4(region.w)}&rh=${r4(region.h)}`
-    await navigator.clipboard.writeText(`[![](${url})](${anchor})`)
-    toast.success('已复制截图链接', { position: 'bottom-center' })
+    await navigator.clipboard.writeText(urlOnly ? url : `[![](${url})](${anchor})`)
+    toast.success(urlOnly ? '已复制图片链接' : '已复制截图 Markdown', { position: 'bottom-center' })
     exitCaptureMode()
   } catch {
     toast.error('截图上传失败，请重试', { position: 'bottom-center' })
@@ -1308,20 +1308,23 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
         class="pdf-sel-toolbar pdf-capture-menu"
         :style="{ left: captureMenu.x + 'px', top: captureMenu.y + 'px' }"
       >
-        <button class="pdf-sel-btn" :disabled="capturing" title="复制截图链接" @click="onCaptureAction('copy')">
-          <Link2 class="h-3.5 w-3.5" /> 复制截图链接
+        <button class="pdf-sel-btn" :disabled="capturing" title="复制图床图片链接" @click="onCaptureAction('copy-url')">
+          <ImageIcon class="h-3.5 w-3.5" /> 复制图片链接
         </button>
-        <button
-          v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
-          :title="askHint || '用预设问题直接提问这张截图'" @click="onCaptureAction('ask')"
-        >
-          <MessageCircleQuestion class="h-3.5 w-3.5" /> 截图提问
+        <button class="pdf-sel-btn" :disabled="capturing" title="复制带定位的 Markdown 图片链接" @click="onCaptureAction('copy')">
+          <Link2 class="h-3.5 w-3.5" /> 复制 Markdown
         </button>
         <button
           v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
           :title="askHint || '加入提问框'" @click="onCaptureAction('add')"
         >
           <Plus class="h-3.5 w-3.5" /> 加入提问框
+        </button>
+        <button
+          v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
+          :title="askHint || '用预设问题直接提问这张截图'" @click="onCaptureAction('ask')"
+        >
+          <MessageCircleQuestion class="h-3.5 w-3.5" /> 截图提问
         </button>
         <button class="pdf-sel-btn" title="取消" @click="captureMenu = null">
           <X class="h-3.5 w-3.5" />

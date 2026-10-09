@@ -6,11 +6,11 @@ Provides a dedicated /qa page that displays all free QA entries across all paper
 ## Requirements
 
 ### Requirement: QA feed API endpoint
-The system SHALL provide `GET /api/qa/free` that returns free QA entries across all papers, ordered by `created_at` descending, with paper info, **creator identity**, and results included, **paginated** via `page` (default 1) and `page_size` (default 20) query parameters. The endpoint SHALL accept an optional `scope` query parameter with value `mine` (default) or `all`. `scope=mine` SHALL return only entries owned by the current user. `scope=all` SHALL follow the uniform all-scope rules of the `data-sharing-preferences` capability: for a non-admin, the caller's own entries plus entries of users whose `qa` sharing switch is on; for an admin, every user's entries. Each returned entry SHALL include `user_id`, `username` (or `null` when unresolvable), and `shared`. The response SHALL be a `{ data, pagination }` envelope whose `pagination` object contains `page`, `page_size`, `total`, and `total_pages`, with `total` counting only entries visible under the requested scope. The endpoint SHALL require authentication.
+The system SHALL provide `GET /api/qa/free` that returns free QA entries across all papers, ordered by `created_at` descending, with paper info, **creator identity**, and results included, **paginated** via `page` (default 1) and `page_size` (default 20) query parameters. The endpoint SHALL accept an optional `scope` query parameter with value `mine` (default) or `all`. `scope=mine` SHALL return only entries owned by the current user. `scope=all` SHALL follow the uniform all-scope rules of the `data-sharing-preferences` capability: for a non-admin, the caller's own entries plus entries of users whose `qa` sharing switch is on; for an admin, every user's entries. Each returned entry SHALL include `user_id`, `username` (or `null` when unresolvable), `shared`, `instruction`, `inputs`, `parent_entry_id`, and its number of follow-ups; its `results` SHALL exclude soft-deleted Results. The response SHALL be a `{ data, pagination }` envelope whose `pagination` object contains `page`, `page_size`, `total`, and `total_pages`, with `total` counting only entries visible under the requested scope. The endpoint SHALL require authentication.
 
 #### Scenario: Fetch own free QA entries (paginated)
 - **WHEN** an authenticated user calls `GET /api/qa/free?page=1&page_size=20` (no `scope`, or `scope=mine`)
-- **THEN** the response SHALL return `{ "data": [...], "pagination": { "page", "page_size", "total", "total_pages" } }`, where `data` contains at most `page_size` of that user's free QA entries (each with fields `entry_id`, `paper_id`, `paper_title`, `status`, `error`, `prompt`, `created_at`, `results`, `user_id`, `username`, `shared`) and `total` is the user's full free-QA count
+- **THEN** the response SHALL return `{ "data": [...], "pagination": { "page", "page_size", "total", "total_pages" } }`, where `data` contains at most `page_size` of that user's free QA entries (each with fields `entry_id`, `paper_id`, `paper_title`, `status`, `error`, `prompt`, `created_at`, `results`, `user_id`, `username`, `shared`, `instruction`, `inputs`, `parent_entry_id`, `followup_count`) and `total` is the user's full free-QA count
 
 #### Scenario: Non-admin requesting all scope is downgraded
 - **WHEN** a non-admin calls `GET /api/qa/free?scope=all`, user A shares Q&A, and user C does not
@@ -39,6 +39,10 @@ The system SHALL provide `GET /api/qa/free` that returns free QA entries across 
 #### Scenario: Anonymous request rejected
 - **WHEN** an anonymous client calls `GET /api/qa/free`
 - **THEN** the system SHALL respond with 401 Unauthorized
+
+#### Scenario: Soft-deleted results omitted
+- **WHEN** one of an entry's two Results has been soft-deleted
+- **THEN** the entry's `results` SHALL contain only the other Result
 
 ### Requirement: QA feed page displays chronological list
 The /qa page SHALL display the current user's free QA entries as a **paginated** chronological list of collapsible panels, ordered by creation time (newest first), showing one page (default 20 entries) at a time rather than all entries at once. While entries are loading the page SHALL show shadcn `Skeleton` placeholder cards, and the page header SHALL provide a refresh action. When more than one page of entries exists, the page SHALL provide previous/next pagination controls that show the current page number and the total page count.

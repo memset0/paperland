@@ -1,13 +1,19 @@
-## ADDED Requirements
+# paper-delete Specification
+
+## Purpose
+Delete a paper and everything that belongs to it, through the internal API, the external API, and a confirmation dialog in the frontend.
+
+## Requirements
 
 ### Requirement: Delete paper via internal API
 The system SHALL provide a `DELETE /api/papers/:id` endpoint. The endpoint SHALL delete the paper and all associated data in a single database transaction, in the following order:
-1. All `qa_results` linked via `qa_entries` for this paper
-2. All `qa_entries` for this paper
-3. All `service_executions` for this paper
-4. All `paper_tags` for this paper
-5. All `highlights` matching the paper's pdf_path (if pdf_path is not null)
-6. The paper record itself
+1. All `qa_result_cites` for this paper
+2. All `qa_results` linked via `qa_entries` for this paper, including soft-deleted ones
+3. All `qa_entries` for this paper
+4. All `service_executions` for this paper
+5. All `paper_tags` for this paper
+6. All `highlights` matching the paper's pdf_path (if pdf_path is not null)
+7. The paper record itself
 
 The response SHALL return HTTP 200 with `{"success": true, "deleted_id": <id>}`.
 

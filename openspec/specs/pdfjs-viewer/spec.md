@@ -4,6 +4,7 @@
 Render a paper's PDF inline in the paper detail viewer with an embedded pdf.js renderer (in place of a native browser PDF plugin), providing selectable text, lazy continuous-scroll rendering, page navigation and zoom, capture of selections as page-relative offsets, region screenshot capture (drag-to-select → DPI-configurable PNG → image host) with a copyable image+anchor snippet, copyable page/selection anchor links, external page/region (text-offset or rectangle) navigation with transient highlighting, and a graceful raw-file fallback on failure.
 
 ## Requirements
+
 ### Requirement: Embedded pdf.js rendering of the PDF tab
 The PDF原文 tab SHALL render the paper's PDF with an embedded pdf.js renderer instead of a native browser PDF plugin. The PDF SHALL be loaded from the existing same‑origin endpoint `GET /api/files/<pdf_path>`. The viewer SHALL render pages as canvases in a continuous vertical scroll, render each page's pdf.js text layer so text is selectable, and render pages lazily — a page's canvas and text layer are produced only when the page nears the viewport, with a correctly sized placeholder reserving its space beforehand so scroll position is stable.
 
@@ -87,7 +88,7 @@ The viewer SHALL accept an external navigation request of the form `{ page }`, `
 - **THEN** the viewer SHALL still scroll to the page, skip the highlight, and surface a brief "anchor stale" notice rather than throwing
 
 ### Requirement: Region screenshot capture to the image host
-The viewer SHALL provide a toolbar control that enters a "region capture" mode in which the user drags a rectangle over a single PDF page; on completion the viewer SHALL render that rectangle to a PNG at the configured capture DPI, upload it to the image host, and copy to the clipboard a Markdown snippet whose image is wrapped in a `paperland://` link back to the captured region. The control SHALL be available only when a `paperId` is provided (so the link can be built). The captured region SHALL be a normalized `{ page, x, y, w, h }` rectangle in `[0,1]` page space, constrained to the single page under the drag's start point.
+The viewer SHALL provide a toolbar control that enters a "region capture" mode in which the user drags a rectangle over a single PDF page; on completion the viewer SHALL offer a small action menu next to the region, in this order: 复制图片链接 (copy the image URL) and 复制 Markdown (copy the Markdown image with its location link) for everyone who can capture, plus 加入提问框 (add to the question box) and 截图提问 (ask about the screenshot directly) for authenticated users. Every action SHALL first render that rectangle to a PNG at the configured capture DPI and upload it to the image host; 复制图片链接 SHALL then copy the bare image-host URL, 复制 Markdown SHALL copy a Markdown snippet whose image is wrapped in a `paperland://` link back to the captured region, while the two ask actions SHALL use the uploaded image as an image input (see `contextual-qa`). Dismissing the menu SHALL discard the capture without uploading. The control SHALL be available only when a `paperId` is provided (so the link can be built). The captured region SHALL be a normalized `{ page, x, y, w, h }` rectangle in `[0,1]` page space, constrained to the single page under the drag's start point.
 
 While capture mode is active, the viewer SHALL show a crosshair cursor and a drag overlay above the text layer so the drag draws a selection rectangle instead of selecting text, and SHALL restore normal text selection when capture mode is exited (via the toolbar control, `Esc`, or after a capture completes).
 
@@ -99,9 +100,13 @@ The clipboard snippet SHALL have the form `[![](<image_url>)](paperland://paper/
 - **AND** on release it SHALL form a normalized `{ page: N, x, y, w, h }` region clamped to page N's bounds
 
 #### Scenario: Capture uploads and copies a snippet
-- **WHEN** a region on page N is captured for a paper with id <id>
+- **WHEN** a region on page N is captured for a paper with id <id> and the user chooses 复制 Markdown
 - **THEN** the viewer SHALL render the region to a PNG, upload it to the image host, and copy `[![](<image_url>)](paperland://paper/<id>?pdf=N&rx=<x>&ry=<y>&rw=<w>&rh=<h>)` to the clipboard
 - **AND** a confirmation toast SHALL appear
+
+#### Scenario: Capture copies the bare image URL
+- **WHEN** a region is captured and the user chooses 复制图片链接
+- **THEN** the viewer SHALL upload the PNG to the image host and copy only `<image_url>` to the clipboard, with a confirmation toast
 
 #### Scenario: Upload failure is surfaced
 - **WHEN** the image upload fails (e.g. the rendered PNG exceeds the image host size limit)
@@ -110,6 +115,14 @@ The clipboard snippet SHALL have the form `[![](<image_url>)](paperland://paper/
 #### Scenario: Capture control hidden without a paper id
 - **WHEN** the viewer is shown without a `paperId`
 - **THEN** the region capture control SHALL NOT be available
+
+#### Scenario: Ask about a captured region
+- **WHEN** an authenticated user captures a region and chooses 截图提问
+- **THEN** the viewer SHALL upload the PNG to the image host and start a direct ask with that image as `@Image1`
+
+#### Scenario: Dismiss the capture menu
+- **WHEN** the user presses `Esc` or clicks elsewhere while the capture action menu is open
+- **THEN** nothing SHALL be uploaded or copied
 
 ### Requirement: Configurable region-capture DPI
 The viewer SHALL render a captured region at a configurable DPI whose default is defined in `config.yml` (not hardcoded in the frontend), defaulting to 300. The render scale SHALL be derived from the DPI as `scale = dpi / 72` (PDF user-space units are 1/72 inch). To bound memory at high DPI, the viewer SHALL render only the captured region (a region-sized canvas), not the whole page rasterized then cropped.
@@ -256,11 +269,11 @@ The active request and panel SHALL belong to one immutable selection identity. A
 - **THEN** it SHALL NOT update the panel for the current selection
 
 ### Requirement: Selection translation coexists with PDF selection tools and authentication
-Selection translation SHALL reuse the native text selection. The translate button and the existing copy-selection-link action SHALL share one floating selection toolbar below the selection. Pointer interaction inside the translation panel or the toolbar SHALL NOT inadvertently clear the source selection. Entering region screenshot capture mode SHALL suppress the toolbar and selection translation. Only authenticated users SHALL see the translate button or trigger the translation API; anonymous users SHALL retain native selection and existing public PDF behavior without an automatic login prompt or translation panel.
+Selection translation SHALL reuse the native text selection. The translate button, the 提问 (ask) and 加入提问框 (add to question box) actions, and the existing copy-selection-link action SHALL share one floating selection toolbar below the selection. 提问 and 加入提问框 SHALL also be offered for selections spanning several pages (see `contextual-qa`); translation and copy-selection-link keep their single-page behavior. Pointer interaction inside the translation panel or the toolbar SHALL NOT inadvertently clear the source selection. Entering region screenshot capture mode SHALL suppress the toolbar and selection translation. Only authenticated users SHALL see the translate, 提问, and 加入提问框 buttons or trigger the translation or Q&A APIs; the ask actions SHALL be disabled with a hint when the paper has no usable full text; anonymous users SHALL retain native selection and existing public PDF behavior without an automatic login prompt or translation panel.
 
 #### Scenario: Copy selection link remains available
 - **WHEN** an authenticated user has a valid single-page selection in a paper's PDF
-- **THEN** the selection toolbar SHALL offer both the translate button and the copy-selection-link action, addressing the same page/offset selection
+- **THEN** the selection toolbar SHALL offer the translate button, 提问, 加入提问框, and the copy-selection-link action, addressing the same page/offset selection
 
 #### Scenario: Panel interaction preserves source selection
 - **WHEN** the user presses a panel control or scrolls the panel and browser focus transfer temporarily collapses the source PDF selection
@@ -275,6 +288,10 @@ Selection translation SHALL reuse the native text selection. The translate butto
 - **WHEN** an anonymous visitor selects PDF text
 - **THEN** no translate button, translation request, or automatic login prompt SHALL appear
 - **AND** the native selection and other anonymously available viewer behavior SHALL remain intact
+
+#### Scenario: Ask actions on a cross-page selection
+- **WHEN** an authenticated user selects a paragraph that continues onto the next page
+- **THEN** the toolbar SHALL offer 提问 and 加入提问框 for the whole selection
 
 ### Requirement: Text layer aligned with the rendered page
 The selectable text layer SHALL stay visually aligned with the rendered page canvas. Each text run's selectable box SHALL match the position, height, and width of the glyphs drawn on the canvas, so the native selection highlight covers exactly the text the user dragged across. This alignment SHALL hold at every zoom level, including while a zoom or split-pane resize is CSS-scaling the existing canvas before the page is re-rasterized.

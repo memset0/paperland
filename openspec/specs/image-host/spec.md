@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-image-host. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Authenticated image upload
 
 The system SHALL accept image uploads only from authenticated users via
@@ -65,7 +67,7 @@ requester without authentication, returning the file bytes with the correct
 ### Requirement: Image management page
 
 The system SHALL provide an authenticated management page, reachable from the main
-navigation, that lists all uploaded images and supports uploading and deleting images. The
+navigation, that lists all uploaded images and supports uploading images. Images SHALL NOT be deletable: the page SHALL offer no delete control and the API SHALL provide no delete endpoint, so images referenced by notes or Q&A inputs remain available. The
 page SHALL use the shared management-page layout component (`AppPage`) for its title, icon,
 and content width — it MUST NOT hand-write its own page header.
 
@@ -77,7 +79,7 @@ and content width — it MUST NOT hand-write its own page header.
 #### Scenario: Browsing uploaded images
 - **WHEN** a logged-in user opens the image host management page
 - **THEN** the system displays every image as a grid item showing a thumbnail, file size,
-  dimensions (when available), creation date, and its reference count
+  dimensions (when available), creation date, its note reference count, and its Q&A reference count
 - **AND** provides a control to copy each image's link
 
 #### Scenario: Upload a single image from the management page
@@ -87,24 +89,28 @@ and content width — it MUST NOT hand-write its own page header.
   the grid
 
 #### Scenario: Delete an image
-- **WHEN** the user deletes an image from the management page
-- **THEN** the system removes the database row and the file from disk
-- **AND** if the image is currently referenced by one or more notes, the system warns the
-  user before deleting
+- **WHEN** a user looks for a way to delete an image, or a client sends `DELETE /api/images/<hash>`
+- **THEN** the page SHALL offer no delete control and the request SHALL NOT remove the image (the route does not exist)
 
 ### Requirement: Reference counting across notes
 
 The system SHALL compute, for each image, how many times it is referenced by note content,
-by counting occurrences of the image's hash across all note body content.
+by counting occurrences of the image's hash across all note body content. It SHALL separately
+compute how many Q&A image inputs reference it, by counting image inputs in all `qa_entries.inputs`
+whose image hash equals the image's hash.
 
 #### Scenario: Reference count reflects note usage
 - **WHEN** the management page (or `GET /api/images`) is loaded
-- **THEN** each image's reported reference count equals the total number of occurrences of
+- **THEN** each image's reported note reference count equals the total number of occurrences of
   that image's hash found across all notes' Markdown content
 
 #### Scenario: Unreferenced image
 - **WHEN** an image's hash appears in no note content
 - **THEN** its reference count is reported as `0`
+
+#### Scenario: Q&A reference count
+- **WHEN** a screenshot is used as an image input by two Q&A entries
+- **THEN** its reported Q&A reference count is `2`, independent of its note reference count
 
 ### Requirement: Paste-to-upload in the note editor
 
@@ -118,4 +124,3 @@ image to the image host and insert a Markdown image link at the cursor.
 - **AND** inserts `![](/image/YYYY/MM/DD/{hash}.ext)` at the caret position in the note
   content
 - **AND** the rendered note displays the image inline
-

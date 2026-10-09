@@ -7,7 +7,7 @@ Defines durable, independently observable QA model runs that preserve prompt and
 ## Requirements
 
 ### Requirement: Every QA model run has a durable Result identity
-The system SHALL create one `qa_results` record for every selected model run before that run waits for ServiceRunner capacity. The record SHALL contain the exact prompt snapshot, model name, initiating user when known, and exact Service execution id. Repeated runs of the same question and model SHALL remain separate records.
+The system SHALL create one `qa_results` record for every selected model run before that run waits for ServiceRunner capacity. The record SHALL contain the question text snapshot, model name, initiating user when known, and exact Service execution id; the full model input SHALL NOT be stored (see `contextual-qa`). Repeated runs of the same question and model SHALL remain separate records. When one submission selects several models, the records SHALL be created in reverse order of the model selection list, so the first-listed model's Result is the most recently created.
 
 #### Scenario: Submit one question to multiple models
 - **WHEN** a user submits one free question to three selected models
@@ -16,6 +16,10 @@ The system SHALL create one `qa_results` record for every selected model run bef
 #### Scenario: Repeat the same model
 - **WHEN** a user regenerates an entry twice with the same model
 - **THEN** both runs SHALL remain independently addressable and SHALL NOT overwrite the earlier Result
+
+#### Scenario: Reverse creation order
+- **WHEN** a user submits a question with models A, B, C selected in that order
+- **THEN** the Results SHALL be created for C, then B, then A
 
 ### Requirement: Result lifecycle distinguishes queue, first output, and terminal state
 Each Result SHALL follow `queued → awaiting_output → streaming → done|failed|cancelled`, except that a provider without incremental output MAY transition directly from `awaiting_output` to a terminal state. `queued` SHALL mean it is waiting for ServiceRunner capacity/rate limit; `awaiting_output` SHALL mean the provider invocation has started but no non-empty output has arrived and SHALL be presented to users as Thinking; `streaming` SHALL begin with the first non-empty provider delta.
