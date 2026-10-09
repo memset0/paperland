@@ -39,55 +39,6 @@ export function createPdfSelectionSnapshot(input: {
   }
 }
 
-export interface TimerAdapter {
-  set(callback: () => void, delayMs: number): unknown
-  clear(handle: unknown): void
-}
-
-const browserTimer: TimerAdapter = {
-  set: (callback, delayMs) => setTimeout(callback, delayMs),
-  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-}
-
-/** One stable identity arms one timer and activates at most once. */
-export class StableSelectionIntent {
-  private timer: unknown = null
-  private pendingIdentity: string | null = null
-  private activeIdentity: string | null = null
-
-  constructor(private readonly delayMs = 500, private readonly timers: TimerAdapter = browserTimer) {}
-
-  consider(snapshot: PdfSelectionSnapshot, activate: (snapshot: PdfSelectionSnapshot) => void): 'scheduled' | 'unchanged' {
-    if (snapshot.identity === this.pendingIdentity || snapshot.identity === this.activeIdentity) return 'unchanged'
-    this.clearTimer()
-    this.pendingIdentity = snapshot.identity
-    this.activeIdentity = null
-    this.timer = this.timers.set(() => {
-      this.timer = null
-      if (this.pendingIdentity !== snapshot.identity) return
-      this.pendingIdentity = null
-      this.activeIdentity = snapshot.identity
-      activate(snapshot)
-    }, this.delayMs)
-    return 'scheduled'
-  }
-
-  cancel(): void {
-    this.clearTimer()
-    this.pendingIdentity = null
-    this.activeIdentity = null
-  }
-
-  isCurrent(identity: string): boolean {
-    return identity === this.pendingIdentity || identity === this.activeIdentity
-  }
-
-  private clearTimer(): void {
-    if (this.timer != null) this.timers.clear(this.timer)
-    this.timer = null
-  }
-}
-
 export interface PanelPlacement {
   left: number
   top: number
@@ -95,7 +46,7 @@ export interface PanelPlacement {
   placement: 'above' | 'below'
 }
 
-export type OutsidePanelSelectionDecision = 'dismiss' | 'keep_for_replacement'
+export type OutsidePanelSelectionDecision = 'dismiss' | 'keep_for_new_selection'
 
 /** Show source context only until the stream/cache provides actual translated text. */
 export function selectPdfTranslationPanelText(sourceText: string, translatedText: string): string {
@@ -108,7 +59,7 @@ export function decideOutsidePanelSelection(
   settledSelectionIdentity: string | null,
 ): OutsidePanelSelectionDecision {
   return settledSelectionIdentity && settledSelectionIdentity !== activeIdentity
-    ? 'keep_for_replacement'
+    ? 'keep_for_new_selection'
     : 'dismiss'
 }
 

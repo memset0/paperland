@@ -4,34 +4,9 @@ import {
   decideOutsidePanelSelection,
   placeSelectionPanel,
   selectPdfTranslationPanelText,
-  StableSelectionIntent,
-  type TimerAdapter,
 } from './pdf-selection-translation'
 
 const rect = { left: 100, top: 200, right: 180, bottom: 220, width: 80, height: 20 }
-
-class FakeTimers implements TimerAdapter {
-  now = 0
-  next = 1
-  tasks = new Map<number, { at: number; callback: () => void }>()
-
-  set(callback: () => void, delayMs: number): number {
-    const id = this.next++
-    this.tasks.set(id, { at: this.now + delayMs, callback })
-    return id
-  }
-
-  clear(handle: unknown): void { this.tasks.delete(handle as number) }
-
-  advance(ms: number): void {
-    this.now += ms
-    const due = [...this.tasks.entries()].filter(([, task]) => task.at <= this.now)
-    for (const [id, task] of due) {
-      this.tasks.delete(id)
-      task.callback()
-    }
-  }
-}
 
 function snapshot(page = 1, ts = 0, te = 5, text = 'hello') {
   return createPdfSelectionSnapshot({ page, ts, te, text, rect })!
@@ -51,36 +26,6 @@ describe('PDF selection translation helpers', () => {
     expect(createPdfSelectionSnapshot({ page: 1, ts: 0, te: 0, text: 'hello', rect })).toBeNull()
     expect(createPdfSelectionSnapshot({ page: 1, ts: 0, te: 5, text: ' ', rect })).toBeNull()
     expect(createPdfSelectionSnapshot({ page: 1, ts: 0, te: 5, text: 'hello', rect: { ...rect, width: 0 } })).toBeNull()
-  })
-
-  test('activates only after an unchanged 500ms identity and deduplicates repeats', () => {
-    const timers = new FakeTimers()
-    const intent = new StableSelectionIntent(500, timers)
-    const activated: string[] = []
-    const first = snapshot()
-    expect(intent.consider(first, (value) => activated.push(value.identity))).toBe('scheduled')
-    timers.advance(499)
-    expect(activated).toEqual([])
-    expect(intent.consider(first, (value) => activated.push(value.identity))).toBe('unchanged')
-    timers.advance(1)
-    expect(activated).toEqual([first.identity])
-    expect(intent.consider(first, (value) => activated.push(value.identity))).toBe('unchanged')
-  })
-
-  test('replaces a pending identity and cancel prevents activation', () => {
-    const timers = new FakeTimers()
-    const intent = new StableSelectionIntent(500, timers)
-    const activated: string[] = []
-    intent.consider(snapshot(), (value) => activated.push(value.identity))
-    timers.advance(499)
-    const second = snapshot(1, 6, 11, 'world')
-    intent.consider(second, (value) => activated.push(value.identity))
-    timers.advance(499)
-    expect(activated).toEqual([])
-    timers.advance(1)
-    expect(activated).toEqual([second.identity])
-    intent.cancel()
-    expect(intent.isCurrent(second.identity)).toBe(false)
   })
 
   test('places above when possible and below with reserved action space near top', () => {
@@ -107,11 +52,11 @@ describe('PDF selection translation helpers', () => {
     expect(placement).toEqual({ left: 8, top: 22, width: 204, placement: 'below' })
   })
 
-  test('dismisses a plain outside click but keeps a different selection for stable replacement', () => {
+  test('dismisses a plain outside click but keeps a different selection for the toolbar', () => {
     const active = snapshot().identity
     expect(decideOutsidePanelSelection(active, null)).toBe('dismiss')
     expect(decideOutsidePanelSelection(active, active)).toBe('dismiss')
-    expect(decideOutsidePanelSelection(active, snapshot(1, 6, 11, 'world').identity)).toBe('keep_for_replacement')
+    expect(decideOutsidePanelSelection(active, snapshot(1, 6, 11, 'world').identity)).toBe('keep_for_new_selection')
   })
 
   test('shows source for initial and retry waits, then follows stream and cache output', () => {
