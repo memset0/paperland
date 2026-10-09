@@ -154,7 +154,7 @@ doc2x:
   test('services accept a concurrency_group', () => {
     const file = configFile(oneModel)
     writeFileSync(file, require('fs').readFileSync(file, 'utf8').replace('services: {}',
-      'services:\n  doc2x_parse: { max_concurrency: 5, concurrency_group: doc2x }'), 'utf8')
+      'services:\n  doc2x_parse: { max_concurrency: 1, concurrency_group: doc2x }'), 'utf8')
     expect(loadConfig(file).services.doc2x_parse.concurrency_group).toBe('doc2x')
   })
 

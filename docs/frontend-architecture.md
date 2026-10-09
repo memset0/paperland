@@ -779,7 +779,7 @@ doc2x_translate:            # 手动排队；解析完成后由依赖图「完�
 ```
 
 - **eligible 门槛**：paper-bound 服务可以声明 `eligible(paper)`。在自动调度中（初次触发和完成后的重检查），不满足门槛的服务会被**静默跳过**，不写 blocked/deferred 记录；显式调用 `executeServiceForPaper` 不受门槛约束。
-- **共享并发组**：`services.<name>.concurrency_group` 相同的服务共用一个信号量。doc2x 两个服务都在 `doc2x` 组里，上限 5（Doc2X 账号级并发上限的假设值）。
+- **共享并发组**：`services.<name>.concurrency_group` 相同的服务共用一个信号量。doc2x 两个服务都在 `doc2x` 组里，上限 1（实测 Doc2X 账号同时只能跑 1 个任务，解析与翻译串行排队）。
 - **翻译复用 parseId**：`doc2x_translate` 优先用 `metadata.doc2x_parse_id`，通过 doc2x 网关（CLI 内部使用、未公开的接口：`CreateTranslateTask` → `GetTaskStatus` → `CreateExternalPDFMergeTask`）直接从已有解析建翻译任务。这样不会重新解析，不扣页数，只扣翻译积分（约 10.6 积分/页）。没有 parseId 或网关失败时，回退到 `doc2x translate` CLI，CLI 会重新解析，因此要再扣一次页数。
 
 ### 3.3 Pure Service

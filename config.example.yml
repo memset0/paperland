@@ -62,11 +62,13 @@ services:
     max_concurrency: 2
     rate_limit_interval: 1
   # doc2x CLI services share the Doc2X account-level task limit via one concurrency group.
+  # The account runs only one task at a time (verified): extra concurrent parses fail with
+  # task_request_failed, so keep this at 1.
   doc2x_parse:
-    max_concurrency: 5
+    max_concurrency: 1
     concurrency_group: doc2x
   doc2x_translate:
-    max_concurrency: 5
+    max_concurrency: 1
     concurrency_group: doc2x
 
 models:
@@ -95,16 +97,15 @@ content_priority:
   - doc2x_parsed
   - pdf_parsed
 
-# doc2x CLI integration: new papers are translated on import (preserved-layout bilingual PDF) and
-# the same run's parse is exported as precise Markdown; old papers on demand. Prerequisites (one-time, as the OS user that runs
+# doc2x CLI integration: new papers are parsed into precise Markdown on import (the parse id is stored);
+# the preserved-layout bilingual translation runs on demand only and reuses that parse. Prerequisites (one-time, as the OS user that runs
 # the backend): `npm i -g @noedgeai-org/doc2x-cli@latest` (Node >= 22) and `doc2x login`.
 doc2x:
   enabled: false
   cli_path: doc2x                 # absolute path if doc2x is not on the backend's PATH
   timeout: 1800                   # seconds per CLI run
   output_dir: ./data/doc2x        # artifacts: <output_dir>/<paperId>/{parse,translate}/
-  # Papers created at/after this time are auto-translated on import (one doc2x run yields both the
-  # bilingual PDF and the precise Markdown); older papers are processed on demand only.
+  # Papers created at/after this time are auto-parsed on import; older papers are parsed on demand.
   auto_since: '2026-10-09T06:30:00Z'
   token_file: ~/.config/doc2x/cli-oauth-tokens.json   # written by `doc2x login`
   gateway_url: https://v2c.doc2x.noedgeai.com

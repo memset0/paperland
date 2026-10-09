@@ -378,12 +378,13 @@ services:
     max_concurrency: 2
     rate_limit_interval: 1
   # concurrency_group：同组服务共享一个并发信号量（组内 max_concurrency 取相同值）。
-  # doc2x 两个服务共享 Doc2X 账号级任务并发上限（暂按 5 假设）。
+  # doc2x 两个服务共享 Doc2X 账号级任务并发上限：实测账号同时只能跑 1 个任务
+  # （并发解析多出来的会以 task_request_failed 失败），所以固定为 1。
   doc2x_parse:
-    max_concurrency: 5
+    max_concurrency: 1
     concurrency_group: doc2x
   doc2x_translate:
-    max_concurrency: 5
+    max_concurrency: 1
     concurrency_group: doc2x
 
 # 模型配置
