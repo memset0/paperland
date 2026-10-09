@@ -4,7 +4,8 @@ database:
   backup:
     enabled: true
     dir: ./data/backups
-    retention_days: 30
+    keep_daily_days: 7             # keep every daily backup up to this many days old
+    keep_checkpoint_days: [14, 28] # plus the oldest backup in each interval (7,14] and (14,28]
 
 # Optional: restrict allowed hosts (for CORS)
 # allowed_hosts:
@@ -131,3 +132,10 @@ notes:
     sm: 240
     md: 480
     lg: 720
+
+# Multi-user sharing. Highlights, notes, free Q&A and reference links are "optionally shared":
+# each user has one switch per type (Account → Sharing). This is the value used for a user who
+# has never touched a switch. Shared data appears in other users' "All" lists; admins see all
+# data regardless; published notes are always listed.
+sharing:
+  default_shared: true

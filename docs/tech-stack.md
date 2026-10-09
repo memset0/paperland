@@ -90,6 +90,7 @@ paperland/
 │   │   │   │   └── migrations/
 │   │   │   ├── auth/               # 认证
 │   │   │   │   ├── basic_auth.ts   # HTTP Basic Auth 中间件
+│   │   │   │   ├── visibility.ts   # 多用户可见性：共享开关 + mine/all 过滤（可选共享数据）
 │   │   │   │   └── token_auth.ts   # Bearer Token 中间件
 │   │   │   ├── config.ts           # config.yml 加载
 │   │   │   └── index.ts            # 入口
@@ -101,6 +102,12 @@ paperland/
 │   │   │   └── types.ts            # Paper, QAEntry, QAResult 等类型
 │   │   ├── tsconfig.json
 │   │   └── package.json
+│   │
+│   ├── browser-extension/          # 浏览器插件（MV3，Chrome/Edge/Firefox，免构建；见 docs/browser-extension.md）
+│   │   ├── manifest.json
+│   │   ├── icons/
+│   │   ├── src/                    # arxiv.js（id 提取，纯函数）/ background.js / options.html,js / settings.js
+│   │   └── test/                   # bun test（URL → arxiv id）
 │   │
 │   └── zotero-plugin/              # Zotero 7 侧边栏插件
 │       ├── addon/
@@ -156,6 +163,7 @@ users
   username        text      unique not null
   password_hash   text      not null          // Bun.password (argon2id)
   role            text      not null          // "admin" | "user"
+  open_token      text      nullable          // 浏览器插件快捷打开的每用户 CSRF token（首次请求时生成，可重新生成）
   created_at      text      not null
 
 sessions
@@ -209,6 +217,14 @@ qa_user_preferences
   updated_at      text      not null
   primary key (user_id, qa_entry_id)
 
+user_sharing_settings                          // 可选共享数据的每用户每类型共享开关（迁移 0027）；稀疏：无行 = config sharing.default_shared
+  user_id         integer   → users.id ON DELETE CASCADE
+  data_type       text      not null          // highlights | notes | qa | reference_links
+  shared          integer   not null          // 1 = 出现在其他用户的 All 列表；0 = 私有（admin 仍可见）
+  updated_at      text      not null
+  primary key (user_id, data_type)
+  // 读取过滤统一由 packages/backend/src/auth/visibility.ts（ownerVisibilityFilter / sharedFlagsFor / canViewOwnedRow）完成
+
 service_executions
   id              integer   primary key autoincrement
   service_name    text      not null
@@ -229,7 +245,7 @@ api_tokens
 
 highlights
   id              integer   primary key autoincrement
-  user_id         integer   → users.id        // 属主（高亮按用户私有）
+  user_id         integer   → users.id        // 属主（高亮可选共享，受 user_sharing_settings.highlights 控制）
   pathname        text      not null
   content_hash    text      not null
   qa_result_id    integer   nullable → qa_results.id  // QA answer 高亮归属；其他内容为空
@@ -240,19 +256,19 @@ highlights
   note            text      nullable
   created_at      text      not null
 
-notes                                          // 按用户私有的论文笔记（每 用户×论文 一篇 Markdown 大笔记）
+notes                                          // 按用户归属的论文笔记（每 用户×论文 一篇 Markdown 大笔记；可选共享，受 user_sharing_settings.notes 控制）
   id              integer   primary key autoincrement
   user_id         integer   → users.id, not null     // 属主
   paper_id        integer   → papers.id, not null
   body            text      not null default ''       // 整篇 Markdown；结构由标题派生，锚点以 paperland:// 链接内联于 body
   completed       integer   not null default 0         // 1 = 用户标记该笔记「精读完成」（论文列表 note-status 列 + 详情页功能栏切换）
-  is_public       integer   not null default 0         // 1 = 已公开（任何人含匿名可只读思维导图+全文）；属主经 PUT .../note/visibility 切换（迁移 0020）
+  is_public       integer   not null default 0         // 1 = 已发布（任何人含匿名可只读思维导图+全文，且无视共享开关始终出现在 All 列表）；属主经 PUT .../note/visibility 切换（迁移 0020）
   created_at      text      not null
   updated_at      text      not null
   // 唯一索引 notes_user_paper_unq (user_id, paper_id) —— 每 用户×论文 至多一行；惰性创建（首次写入才建行）
   // 旧的 kind/parent_id/title/sort_order 树字段已由迁移 0017 删除；旧树经 notes-migration.ts 压平为单篇 body
 
-paper_reference_links                          // 按用户私有的论文参考链接（博客解读 / 项目主页 / 讨论帖等）
+paper_reference_links                          // 按用户归属的论文参考链接（博客解读 / 项目主页 / 讨论帖等；可选共享，受 user_sharing_settings.reference_links 控制）
   id              integer   primary key autoincrement
   user_id         integer   → users.id, not null     // 属主
   paper_id        integer   → papers.id, not null
@@ -385,6 +401,11 @@ reference_links:
   max_bytes: 524288                   # 读取响应的最大字节数（512KB，足够取到 <title>）
   user_agent: paperland-link-preview/1.0   # 抓取时使用的 User-Agent
 
+# 多用户共享：高亮 / 笔记 / Free Q&A / 参考链接为「用户可选共享」，每用户每类型一个开关（Account → Sharing）。
+# default_shared = 用户从未设置开关时的取值（默认 true）。整块可省略（config.ts 显式 .default）。
+sharing:
+  default_shared: true
+
 # 笔记渲染。image_width_tiers = 图片 alt 里 `w=sm|md|lg` 指令对应的 px max-width 三档。
 # 整块/字段可省略，省略时用下列默认（靠 config.ts 显式 .default 提供）。详见 frontend-architecture.md。
 notes:
@@ -404,7 +425,7 @@ notes:
 
 `qa_service` 与 `translation_service` 继续共用 `services/model_invoke.ts` 的 `callModel(prompt, modelName, options?)` 门面，内部只路由到独立 `OpenAIProvider` / `CodexProvider`。`stream` 缺省为 false；Codex exec 与 app-server 都强制 ephemeral，app-server 还会在 `turn/start` 前验证 `thread.ephemeral === true`，不污染个人 Codex 历史。
 
-**PDF 划词翻译**：纯前端复用上述 Internal SSE API 与全局 `translations` cache，不新增 provider、endpoint、表或 migration。`PdfViewer` 保留现有 60ms 选区捕获/复制链接，同时在登录用户的单页 text-layer 选区 identity 稳定 500ms 后挂载 `StreamingTranslationText`。Vue scoped slot 在 translated text 仍为空时显示 immutable selection snapshot 的原文，首个非空 delta 或 cache result 到达后切换为译文；这只是现有 SSE 消费端的 fallback，不改变 backend、数据库、provider、配置或依赖。面板内 pointer focus transfer 导致的 collapsed selection 不清理 active child；普通外部点击清理，而不同新选区在稳定 500ms、真正 mount replacement 时才 abort 旧 child。其他 viewer 生命周期变化仍会 abort；匿名用户不自动请求或弹登录。
+**PDF 划词翻译**：纯前端复用上述 Internal SSE API 与全局 `translations` cache，不新增 provider、endpoint、表或 migration。`PdfViewer` 以 60ms 选区捕获显示选区工具栏（复制链接 + 翻译），仅在登录用户点击「翻译」后对单页 text-layer 选区 identity 挂载 `StreamingTranslationText`，不再有 500ms 自动触发。Vue scoped slot 在 translated text 仍为空时显示 immutable selection snapshot 的原文，首个非空 delta 或 cache result 到达后切换为译文；这只是现有 SSE 消费端的 fallback，不改变 backend、数据库、provider、配置或依赖。面板内 pointer focus transfer 导致的 collapsed selection 不清理 active child；普通外部点击与不同的新选区都会立即 abort 旧 child。其他 viewer 生命周期变化仍会 abort；匿名用户不显示翻译按钮、不请求或弹登录。
 
 **QA prompt 持久化**：`qa_entries` 是问题文本的持久化来源。free QA 在创建 Entry 时写入 `prompt`，后续重跑只读该字段；template QA 每次运行前从 `config.yml` 读取最新模板并更新 Entry。历史 `qa_results.prompt` 仍保存每次成功调用实际使用的快照。迁移通过最新历史 Result 回填可恢复的 Entry；没有任何 Result 的旧失败 free QA 不会伪造原文，只有在用户明确授权且生成当前一致性备份后，才按精确 ID 清理。
 
@@ -476,8 +497,8 @@ SQLite 为单文件数据库，支持自动定期备份。
 | 备份频率 | 每日一次 |
 | 备份目录 | `data/backups/` |
 | 备份文件名 | `paperland_YYYY-MM-DD.db` |
-| 保留天数 | 30 天 |
-| 清理策略 | 自动删除超过 30 天的备份文件 |
+| 保留策略 | 分层保留：最近 7 天每日一份 + 检查点 (7,14]、(14,28] 各保留最老一份（稳态约 10 个文件） |
+| 清理策略 | 每次备份后按文件名日期（UTC）计算天数，删除不在保留集合中的 `paperland_*.db`；`pre-*.db` 等手工备份不处理 |
 
 ### 备份流程
 
@@ -487,8 +508,9 @@ SQLite 为单文件数据库，支持自动定期备份。
     ├── 1. 使用 SQLite 的 backup API 复制数据库
     │      → data/backups/paperland_2026-03-18.db
     │
-    ├── 2. 扫描 data/backups/ 目录
-    │      删除超过 30 天的 .db 文件
+    ├── 2. 扫描 data/backups/ 目录，selectBackupsToDelete() 计算删除集合
+    │      保留 0..7 天的全部；(7,14]、(14,28] 区间各保留最老一份
+    │      （检查点随时间在区间内老化，而不是每天被替换）；超过 28 天的删除
     │
     └── 3. 记录日志
 ```
@@ -502,7 +524,8 @@ database:
   backup:
     enabled: true
     dir: ./data/backups
-    retention_days: 30
+    keep_daily_days: 7             # 最近 N 天每日备份全部保留
+    keep_checkpoint_days: [14, 28] # 每个区间 (上一个检查点, c] 保留最老一份
 ```
 
 > 注意：迁移到 PostgreSQL 后，备份策略应改用 `pg_dump` 等专用工具，此自动备份仅适用于 SQLite。

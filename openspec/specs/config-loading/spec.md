@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change project-init. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Config file discovery
 The system SHALL locate `config.yml` by traversing upward from `process.cwd()`, checking each directory until the file is found or the filesystem root is reached. If `configPath` is explicitly provided, it SHALL be used directly without traversal. Once found, the config SHALL be validated against the expected schema using Zod. If invalid, the server SHALL fail to start with a descriptive error message.
 
@@ -34,8 +36,12 @@ The config SHALL support database configuration with `type` (sqlite or postgresq
 - **THEN** the system SHALL use SQLite with the specified file path
 
 #### Scenario: Backup configuration
-- **WHEN** config.yml contains `database.backup.enabled: true`, `database.backup.dir`, and `database.backup.retention_days`
-- **THEN** the system SHALL use these values for the backup scheduler
+- **WHEN** config.yml contains `database.backup.enabled: true`, `database.backup.dir`, `database.backup.keep_daily_days`, and `database.backup.keep_checkpoint_days`
+- **THEN** the system SHALL use these values for the backup scheduler and tiered retention
+
+#### Scenario: Backup retention defaults
+- **WHEN** config.yml enables backup but omits `keep_daily_days` and `keep_checkpoint_days`
+- **THEN** the system SHALL default them to `7` and `[14, 28]`, and SHALL ignore a legacy `retention_days` key
 
 ### Requirement: Auth configuration
 The config SHALL support an `auth.users` array where each entry has `username` and `password` fields.

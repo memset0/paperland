@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, and, or, ne, desc } from 'drizzle-orm'
+import { eq, and, or, ne, desc, sql } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { requireUser } from '../auth/guards.js'
+import { canViewOwnedRow, ownerVisibilityFilter, sharedFlagsFor, type Viewer } from '../auth/visibility.js'
+import type { VisibilityScope } from '@paperland/shared'
 
 /**
  * Notes API — ONE Markdown document per (user, paper). The whole note is a single `body`
@@ -14,6 +16,24 @@ function toNote<T extends { completed: number; is_public: number }>(
   row: T,
 ): Omit<T, 'completed' | 'is_public'> & { completed: boolean; is_public: boolean } {
   return { ...row, completed: !!row.completed, is_public: !!row.is_public }
+}
+
+/**
+ * Cross-user note visibility (see auth/visibility.ts): a note is visible to another user when it is
+ * published (`is_public`, readable by anyone incl. anonymous — the special case that overrides the
+ * owner's switch), or the viewer is logged in and the owner shares notes, or the viewer is an admin.
+ */
+function notesVisibility(viewer: Viewer | null | undefined, scope: VisibilityScope) {
+  if (!viewer) return scope === 'all' ? eq(schema.notes.is_public, 1) : sql`0`
+  const owned = ownerVisibilityFilter(viewer, 'notes', schema.notes.user_id, scope)
+  if (scope === 'mine' || owned === undefined) return owned
+  return or(eq(schema.notes.is_public, 1), owned)
+}
+
+/** `shared` = visible to other non-admin users: published OR the owner shares notes. */
+function withShared<T extends { user_id: number; is_public: number | boolean }>(rows: T[]): Array<T & { shared: boolean }> {
+  const flags = sharedFlagsFor('notes', rows.map((r) => r.user_id))
+  return rows.map((r) => ({ ...r, shared: !!r.is_public || (flags.get(r.user_id) ?? false) }))
 }
 
 export async function notesRoutes(app: FastifyInstance): Promise<void> {
@@ -114,8 +134,9 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
-  // GET /api/papers/:id/public-notes — body-less list of OTHER users' public, non-empty notes for
-  // the paper (anonymous excludes nobody). The body is fetched lazily per entry via GET /api/notes/:noteId.
+  // GET /api/papers/:id/public-notes — body-less list of OTHER users' non-empty notes for the paper
+  // that the caller may read: published (anyone) + shared (logged-in) + all (admin). Anonymous
+  // excludes nobody. The body is fetched lazily per entry via GET /api/notes/:noteId.
   app.get<{ Params: { id: string } }>('/api/papers/:id/public-notes', async (request) => {
     const paperId = parseInt(request.params.id, 10)
     const callerId = request.user?.id ?? -1 // -1 excludes nobody for anonymous
@@ -125,24 +146,26 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
       id: schema.notes.id,
       user_id: schema.notes.user_id,
       username: schema.users.username,
+      is_public: schema.notes.is_public,
       updated_at: schema.notes.updated_at,
       body: schema.notes.body,
     }).from(schema.notes)
       .innerJoin(schema.users, eq(schema.notes.user_id, schema.users.id))
       .where(and(
         eq(schema.notes.paper_id, paperId),
-        eq(schema.notes.is_public, 1),
+        notesVisibility(request.user, 'all'),
         ne(schema.notes.user_id, callerId),
       ))
       .orderBy(desc(schema.notes.updated_at))
       .all()
       .filter((r) => r.body.trim() !== '')
-      .map(({ body: _body, ...summary }) => summary)
-    return { data: rows }
+      .map(({ body: _body, ...summary }) => ({ ...summary, is_public: !!summary.is_public }))
+    return { data: withShared(rows) }
   })
 
   // GET /api/notes/:noteId — a single note's full content with author. Authorized when the note is
-  // public, OR owned by the caller, OR the caller is an admin. Otherwise 404 (don't reveal existence).
+  // published (anyone), OR owned by the caller, OR the caller is an admin, OR the caller is logged in
+  // and the owner shares notes. Otherwise 404 (don't reveal existence).
   app.get<{ Params: { noteId: string } }>('/api/notes/:noteId', async (request, reply) => {
     const noteId = parseInt(request.params.noteId, 10)
     if (Number.isNaN(noteId)) return reply.code(404).send({ error: { message: 'Not found' } })
@@ -166,41 +189,29 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
       .get()
 
     if (!row) return reply.code(404).send({ error: { message: 'Not found' } })
-    const isOwner = request.user?.id === row.user_id
-    const isAdmin = request.user?.role === 'admin'
-    if (!row.is_public && !isOwner && !isAdmin) {
+    if (!row.is_public && !canViewOwnedRow(request.user, row.user_id, 'notes')) {
       return reply.code(404).send({ error: { message: 'Not found' } })
     }
-    return { data: toNote(row) }
+    return { data: withShared([toNote(row)])[0] }
   })
 
   // GET /api/notes — one note per paper (the single document), annotated with paper title, author,
   // completion, and visibility. Empty-body documents are excluded. Query:
   //   ?scope=mine|all      (default mine)   — mine: caller's own notes (anonymous → 401);
-  //                                            all: public notes (any author) + caller's own.
-  //   ?include_private=true (admin only)    — when scope=all, also include others' private notes.
+  //                                            all: published (any author) + shared-by-owner + own;
+  //                                            admin: every note; anonymous: published only.
+  //   (the former ?include_private flag is ignored — admins' `all` already includes everything)
   // NOTE: auth is guarded inline (not via the requireUser preHandler) — under this Fastify
   // version a preHandler that sends 401 does not reliably halt a GET handler.
-  app.get<{ Querystring: { scope?: string; include_private?: string } }>('/api/notes', async (request, reply) => {
+  app.get<{ Querystring: { scope?: string } }>('/api/notes', async (request, reply) => {
     const userId = request.user?.id ?? null
-    const isAdmin = request.user?.role === 'admin'
     const scope = request.query.scope === 'all' ? 'all' : 'mine'
 
     if (scope === 'mine' && userId == null) {
       return reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Login required' } })
     }
 
-    // Visibility filter. mine → only the caller's notes. all → public OR own; admins may also
-    // pull others' private notes via include_private (no visibility filter at all).
-    let where
-    if (scope === 'mine') {
-      where = eq(schema.notes.user_id, userId!)
-    } else {
-      const includePrivate = request.query.include_private === 'true' && isAdmin
-      if (includePrivate) where = undefined // every note
-      else if (userId != null) where = or(eq(schema.notes.is_public, 1), eq(schema.notes.user_id, userId))
-      else where = eq(schema.notes.is_public, 1)
-    }
+    const where = notesVisibility(request.user, scope)
 
     const db = getDatabase()
     const rows = db.select({
@@ -222,6 +233,6 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
       .all()
       .filter((r) => r.body.trim() !== '')
       .map(toNote)
-    return { data: rows }
+    return { data: withShared(rows) }
   })
 }

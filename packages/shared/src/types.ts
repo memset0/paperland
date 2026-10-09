@@ -86,6 +86,8 @@ export interface QAFeedEntry {
   created_at: string
   user_id: number | null
   username: string | null
+  /** Whether the owner shares Q&A (false only ever reaches admins viewing others' entries). */
+  shared: boolean
   can_manage: boolean
   background_color: QAEntryBackgroundColor | null
   highlight_count: number
@@ -183,7 +185,8 @@ export interface DatabaseConfig {
   backup?: {
     enabled: boolean
     dir: string
-    retention_days: number
+    keep_daily_days: number
+    keep_checkpoint_days: number[]
   }
 }
 
@@ -261,7 +264,20 @@ export interface AppConfig {
   translation: TranslationConfig
   image_host: ImageHostConfig
   pdf_viewer: PdfViewerConfig
+  sharing: SharingConfig
 }
+
+export interface SharingConfig {
+  /** Effective value of a user's sharing switch when they have never set it. */
+  default_shared: boolean
+}
+
+// Multi-user sharing: optionally-shared data types, one switch per user per type.
+export type SharingDataType = 'highlights' | 'notes' | 'qa' | 'reference_links'
+export type SharingPreferences = Record<SharingDataType, boolean>
+/** Read scope for optionally-shared lists. */
+export type VisibilityScope = 'mine' | 'all'
+
 
 // A cached English→Chinese translation, content-addressed by the source text hash.
 // Shared across all users (no user_id).
@@ -348,6 +364,11 @@ export interface Highlight {
   text: string
   color: HighlightColor
   created_at: string
+  /** Owner attribution — present on every read (`scope=mine|all`). */
+  user_id?: number
+  username?: string | null
+  /** Whether the owner shares highlights (false only reaches admins for others' rows). */
+  shared?: boolean
 }
 
 // Notes — per-user, per-paper SINGLE Markdown document. The whole note is one
@@ -377,6 +398,8 @@ export interface NoteWithPaper extends Note {
 // aggregate (`GET /api/notes?scope=all`).
 export interface NoteWithAuthor extends NoteWithPaper {
   username: string
+  /** Visible to other non-admin users: published OR the owner shares notes. */
+  shared: boolean
 }
 
 // A body-less summary of another user's public note for a paper, listed in the
@@ -386,6 +409,9 @@ export interface PublicNoteSummary {
   id: number
   user_id: number
   username: string
+  is_public: boolean
+  /** Visible to other non-admin users: published OR the owner shares notes. */
+  shared: boolean
   updated_at: string
 }
 
@@ -440,6 +466,10 @@ export interface PaperReferenceLink {
   description: string | null
   created_at: string
   updated_at: string
+  /** Owner attribution — present on reads. */
+  username?: string | null
+  /** Whether the owner shares reference links (false only reaches admins for others' rows). */
+  shared?: boolean
 }
 
 // Result of crawling a url server-side to derive a reference link's description.

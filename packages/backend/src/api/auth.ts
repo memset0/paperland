@@ -3,6 +3,7 @@ import { eq, and, ne } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { createSession, destroySession, SESSION_COOKIE, SESSION_TTL_MS } from '../auth/session_auth.js'
 import { requireUser } from '../auth/guards.js'
+import { getOrCreateOpenToken, regenerateOpenToken } from '../auth/open_token.js'
 import type { SessionUser, UserRole } from '@paperland/shared'
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
@@ -41,6 +42,17 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/auth/me — public, returns null user when anonymous (never 401)
   app.get('/api/auth/me', async (request) => {
     return { user: request.user ?? null }
+  })
+
+  // GET /api/auth/open-token — the current user's quick-open (CSRF) token for the
+  // browser extension's `/open/arxiv/:id?token=…` link; generated on first request.
+  app.get('/api/auth/open-token', { preHandler: requireUser }, async (request) => {
+    return { token: getOrCreateOpenToken(request.user!.id) }
+  })
+
+  // POST /api/auth/open-token/regenerate — replace the token (old one stops working)
+  app.post('/api/auth/open-token/regenerate', { preHandler: requireUser }, async (request) => {
+    return { token: regenerateOpenToken(request.user!.id) }
   })
 
   // PATCH /api/auth/me — change own username and/or password

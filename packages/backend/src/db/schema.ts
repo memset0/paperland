@@ -6,6 +6,8 @@ export const users = sqliteTable('users', {
   username: text('username').notNull().unique(),
   password_hash: text('password_hash').notNull(),
   role: text('role').notNull().default('user'), // 'admin' | 'user'
+  // Per-user CSRF token for the arxiv quick-open link (browser extension); lazily generated.
+  open_token: text('open_token'),
   created_at: text('created_at').notNull(),
 })
 
@@ -92,6 +94,18 @@ export const qaUserPreferences = sqliteTable('qa_user_preferences', {
 }, (table) => [
   primaryKey({ columns: [table.user_id, table.qa_entry_id] }),
   index('qa_user_preferences_entry_idx').on(table.qa_entry_id),
+])
+
+// Per-user, per-data-type sharing switch for optionally-shared data (highlights, notes, qa,
+// reference_links). Sparse: a missing row means "use config.yml sharing.default_shared". A switch
+// governs whether that user's rows of that type appear in OTHER non-admin users' `scope=all` lists.
+export const userSharingSettings = sqliteTable('user_sharing_settings', {
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  data_type: text('data_type').notNull(), // 'highlights' | 'notes' | 'qa' | 'reference_links'
+  shared: integer('shared').notNull(), // 1 = shared, 0 = private
+  updated_at: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.user_id, table.data_type] }),
 ])
 
 export const serviceExecutions = sqliteTable('service_executions', {

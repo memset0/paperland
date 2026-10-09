@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { eq, and, asc } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { requireUser } from '../auth/guards.js'
+import { ownerVisibilityFilter, parseScope, sharedFlagsFor } from '../auth/visibility.js'
 import { getConfig } from '../config.js'
 
 const TITLE_MAX = 200
@@ -146,22 +147,31 @@ function normalizeDescription(raw: unknown): { ok: boolean; value: string | null
 }
 
 export async function referenceLinksRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/papers/:id/reference-links — owner-scoped; anonymous gets an empty list (HTTP 200).
-  // Ordered oldest-first (insertion order), id as tiebreaker.
-  app.get<{ Params: { id: string } }>('/api/papers/:id/reference-links', async (request) => {
+  // GET /api/papers/:id/reference-links?scope=mine|all — mine (default) = own; all = own + links of
+  // users who share reference links (admin: every user's) — see auth/visibility.ts. Anonymous gets
+  // an empty list (HTTP 200). Ordered oldest-first (insertion order), id as tiebreaker.
+  app.get<{ Params: { id: string }; Querystring: { scope?: string } }>('/api/papers/:id/reference-links', async (request) => {
     const paperId = parseInt(request.params.id, 10)
-    const userId = request.user?.id
-    if (userId == null) return { data: [] }
+    if (request.user == null) return { data: [] }
 
     const db = getDatabase()
-    const data = db.select().from(schema.paperReferenceLinks)
+    const rows = db.select({ link: schema.paperReferenceLinks, username: schema.users.username })
+      .from(schema.paperReferenceLinks)
+      .leftJoin(schema.users, eq(schema.paperReferenceLinks.user_id, schema.users.id))
       .where(and(
         eq(schema.paperReferenceLinks.paper_id, paperId),
-        eq(schema.paperReferenceLinks.user_id, userId),
+        ownerVisibilityFilter(request.user, 'reference_links', schema.paperReferenceLinks.user_id, parseScope(request.query.scope)),
       ))
       .orderBy(asc(schema.paperReferenceLinks.created_at), asc(schema.paperReferenceLinks.id))
       .all()
-    return { data }
+    const sharedByOwner = sharedFlagsFor('reference_links', rows.map((r) => r.link.user_id))
+    return {
+      data: rows.map(({ link, username }) => ({
+        ...link,
+        username: username ?? null,
+        shared: sharedByOwner.get(link.user_id) ?? false,
+      })),
+    }
   })
 
   // GET /api/reference-links/preview?url=… — crawl the page and derive a description.

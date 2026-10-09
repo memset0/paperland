@@ -1,13 +1,30 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { highlightApi } from '@/api/client'
-import type { Highlight, HighlightColor } from '@paperland/shared'
+import type { Highlight, HighlightColor, VisibilityScope } from '@paperland/shared'
 import { useQAStore } from './qa'
 
 export const useHighlightStore = defineStore('highlights', () => {
   const highlights = ref<Highlight[]>([])
   const currentPathname = ref<string | null>(null)
   const loading = ref(false)
+
+  // Mine (default) / All: All overlays other users' shared highlights (admins: every user's) as
+  // read-only marks. Remembered per browser; storage may be unavailable, so fall back to mine.
+  const SCOPE_KEY = 'paperland.highlights.scope'
+  function readScope(): VisibilityScope {
+    try { return localStorage.getItem(SCOPE_KEY) === 'all' ? 'all' : 'mine' } catch { return 'mine' }
+  }
+  const scope = ref<VisibilityScope>(readScope())
+  let loadedKey: string | null = null // `${scope}|${pathname}` of the current data
+
+  /** Switch scope and reload the current page's highlights. */
+  async function setScope(next: VisibilityScope) {
+    if (scope.value === next) return
+    scope.value = next
+    try { localStorage.setItem(SCOPE_KEY, next) } catch { /* ignore */ }
+    if (currentPathname.value) await loadForPathname(currentPathname.value, true)
+  }
 
   /** All highlights grouped by content_hash */
   const byContentHash = computed(() => {
@@ -26,13 +43,15 @@ export const useHighlightStore = defineStore('highlights', () => {
   }
 
   /** Load all highlights for the current page */
-  async function loadForPathname(pathname: string) {
-    if (currentPathname.value === pathname && highlights.value.length > 0) return
+  async function loadForPathname(pathname: string, force = false) {
+    const key = `${scope.value}|${pathname}`
+    if (!force && loadedKey === key && highlights.value.length > 0) return
     currentPathname.value = pathname
+    loadedKey = key
     loading.value = true
     try {
-      const res = await highlightApi.fetch(pathname)
-      highlights.value = res.data
+      const res = await highlightApi.fetch(pathname, scope.value)
+      if (loadedKey === key) highlights.value = res.data
     } finally {
       loading.value = false
     }
@@ -77,8 +96,8 @@ export const useHighlightStore = defineStore('highlights', () => {
   }
 
   return {
-    highlights, currentPathname, loading,
+    highlights, currentPathname, loading, scope,
     byContentHash, getForHash,
-    loadForPathname, create, update, remove,
+    loadForPathname, setScope, create, update, remove,
   }
 })

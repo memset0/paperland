@@ -17,6 +17,10 @@ beforeEach(async () => {
   sqlite.exec(`
     PRAGMA foreign_keys=ON;
     CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL);
+    CREATE TABLE user_sharing_settings (
+      user_id INTEGER NOT NULL, data_type TEXT NOT NULL, shared INTEGER NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, data_type)
+    );
     CREATE TABLE papers (id INTEGER PRIMARY KEY, title TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE qa_entries (
       id INTEGER PRIMARY KEY, paper_id INTEGER NOT NULL, user_id INTEGER, type TEXT NOT NULL,
@@ -103,6 +107,32 @@ describe('QA multi-user scope and viewer state', () => {
     expect(bob.can_manage).toBe(false)
     expect(bob.highlight_count).toBe(1)
     expect(bob.note_anchor_count).toBe(2)
+  })
+
+  test('all scope respects the owner Q&A sharing switch; admin sees everything', async () => {
+    sqlite.exec("INSERT INTO user_sharing_settings VALUES (2,'qa',0,'t')")
+    const alice = await app.inject({ method: 'GET', url: '/api/papers/42/qa?scope=all', headers: { 'x-test-user': '1' } })
+    expect(alice.json().free.map((entry: any) => entry.entry_id)).toEqual([10])
+    expect(Object.keys(alice.json().template)).toEqual(['summary'])
+
+    const feed = await app.inject({ method: 'GET', url: '/api/qa/free?scope=all', headers: { 'x-test-user': '1' } })
+    expect(feed.json().pagination.total).toBe(1)
+    expect(feed.json().data.map((entry: any) => entry.entry_id)).toEqual([10])
+
+    const bobOwn = await app.inject({ method: 'GET', url: '/api/qa/free?scope=all', headers: { 'x-test-user': '2' } })
+    expect(bobOwn.json().data.map((entry: any) => entry.entry_id)).toEqual([10, 20])
+
+    const admin = await app.inject({ method: 'GET', url: '/api/qa/free?scope=all', headers: { 'x-test-user': '3' } })
+    const bobEntry = admin.json().data.find((entry: any) => entry.entry_id === 20)
+    expect(bobEntry).toMatchObject({ username: 'bob', shared: false })
+    expect(admin.json().data.find((entry: any) => entry.entry_id === 10).shared).toBe(true)
+
+    const stream = await app.inject({ method: 'GET', url: '/api/qa/results/102/stream', headers: { 'x-test-user': '1' } })
+    expect(stream.statusCode).toBe(404)
+    const pref = await app.inject({
+      method: 'PUT', url: '/api/qa/20/preferences', headers: { 'x-test-user': '1' }, payload: { background_color: 'blue' },
+    })
+    expect(pref.statusCode).toBe(404)
   })
 
   test('anonymous paper QA sees preset only', async () => {

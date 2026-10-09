@@ -6,10 +6,11 @@ import { useAuthStore } from '@/stores/auth'
 import { api } from '@/api/client'
 import {
   Play, RefreshCw, CheckCircle2, Circle, Loader2, AlertCircle,
-  ChevronsDownUp, ChevronsUpDown, User
+  ChevronsDownUp, ChevronsUpDown, User, Lock
 } from '@lucide/vue'
 import QAResultView from './QAResultView.vue'
 import QAEntryBackgroundPicker from './QAEntryBackgroundPicker.vue'
+import HighlightScopeToggle from './HighlightScopeToggle.vue'
 import QAReadingIndicators from './QAReadingIndicators.vue'
 import { qaEntryBackgroundClass } from './qa-entry-style'
 import { Card } from '@/components/ui/card'
@@ -44,6 +45,7 @@ interface QAEntry {
   templateName?: string
   userId: number | null
   username: string | null
+  shared: boolean
   canManage: boolean
   backgroundColor: QAEntryBackgroundColor | null
   highlightCount: number
@@ -65,6 +67,7 @@ const templateEntries = computed(() => {
       templateName: tmpl.name,
       userId: null,
       username: null,
+      shared: true,
       canManage: data?.can_manage ?? auth.isAuthenticated,
       backgroundColor: data?.background_color ?? null,
       highlightCount: data?.highlight_count ?? 0,
@@ -87,6 +90,7 @@ const freeEntries = computed(() => {
       results: entry.results,
       userId: entry.user_id,
       username: entry.username,
+      shared: entry.shared ?? true,
       canManage: entry.can_manage,
       backgroundColor: entry.background_color,
       highlightCount: entry.highlight_count,
@@ -196,6 +200,12 @@ function generateTemplate(templateName: string) {
   store.regenerateTemplate(props.paperId, templateName)
 }
 
+// Entry hidden from other non-admin users (owner's Q&A switch off): admins see it on others'
+// entries; owners see it on their own.
+function isPrivate(entry: QAEntry): boolean {
+  return entry.type === 'free' && !entry.shared
+}
+
 function setPaperScope(scope: 'mine' | 'all') {
   store.setPaperScope(scope)
 }
@@ -212,6 +222,8 @@ function setPaperScope(scope: 'mine' | 'all') {
         </span>
       </div>
       <div class="flex items-center gap-1.5">
+        <!-- Page-wide highlight overlay scope (applies to every answer on this paper) -->
+        <HighlightScopeToggle class="mr-1" />
         <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllOpen(templateEntries, true)">
           <ChevronsUpDown />
         </Button>
@@ -356,7 +368,7 @@ function setPaperScope(scope: 'mine' | 'all') {
               <span
                 v-if="store.paperScope === 'all' && entry.username"
                 class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
-              ><User class="h-2.5 w-2.5" />{{ entry.username }}</span>
+              ><User class="h-2.5 w-2.5" />{{ entry.username }}<template v-if="isPrivate(entry)"> · <Lock class="h-2.5 w-2.5" />Private</template></span>
             </div>
             <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
             <QAEntryBackgroundPicker
@@ -389,7 +401,7 @@ function setPaperScope(scope: 'mine' | 'all') {
             <span
               v-if="store.paperScope === 'all' && entry.username"
               class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
-            ><User class="h-2.5 w-2.5" />{{ entry.username }}</span>
+            ><User class="h-2.5 w-2.5" />{{ entry.username }}<template v-if="isPrivate(entry)"> · <Lock class="h-2.5 w-2.5" />Private</template></span>
             <p v-if="isFailed(entry) && entry.error" class="text-xs text-destructive mt-0.5 truncate">{{ entry.error }}</p>
           </div>
           <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />

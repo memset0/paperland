@@ -5,7 +5,7 @@ import { useHighlightStore } from '@/stores/highlights'
 import type { QAFeedEntry } from '@paperland/shared'
 import {
   CheckCircle2, Loader2, AlertCircle,
-  RefreshCw, ExternalLink, User
+  RefreshCw, ExternalLink, User, Lock
 } from '@lucide/vue'
 import QAResultView from './QAResultView.vue'
 import QAEntryBackgroundPicker from './QAEntryBackgroundPicker.vue'
@@ -99,6 +99,8 @@ async function onDeleteResult(resultId: number) {
         class="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
       >
         <User class="h-2.5 w-2.5" />{{ entry.username }}
+        <!-- Owner's Q&A switch off: hidden from other non-admin users -->
+        <template v-if="!entry.shared"> · <Lock class="h-2.5 w-2.5" />Private</template>
       </span>
       <span
         class="shrink-0 text-[10px] text-muted-foreground"

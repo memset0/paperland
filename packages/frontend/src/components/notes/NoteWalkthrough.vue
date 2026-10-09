@@ -9,7 +9,7 @@ import NoteHelpDialog from './NoteHelpDialog.vue'
 import PublicNotesPanel from './PublicNotesPanel.vue'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from 'vue-sonner'
-import { Pencil, Eye, Columns, ExternalLink, CircleHelp, Circle, CircleCheck, Globe, Lock, Link2 } from '@lucide/vue'
+import { Pencil, Eye, Columns, ExternalLink, CircleHelp, Circle, CircleCheck, Globe, GlobeLock, Link2 } from '@lucide/vue'
 
 // The left-panel note view over the single document, with three modes:
 //  - render (default): reading-oriented, auto-numbered, clickable headings → floating editor;
@@ -117,10 +117,12 @@ const modes: { value: PanelMode; icon: typeof Pencil; label: string }[] = [
           v-if="canPublish"
           class="px-2 py-0.5 inline-flex items-center gap-1 text-xs rounded border hover:bg-muted"
           :class="store.isPublic ? 'text-primary' : 'text-muted-foreground'"
-          :title="store.isPublic ? 'Public — click to make private' : 'Private — click to publish'"
+          :title="store.isPublic
+            ? 'Published — anyone with the link can read it (no account needed), and it is always listed in All. Click to unpublish'
+            : 'Not published — click to publish a public link (readable without an account). Sharing with logged-in users is set in Account → Sharing'"
           @click="togglePublic"
         >
-          <component :is="store.isPublic ? Globe : Lock" class="h-3 w-3" /> {{ store.isPublic ? 'Public' : 'Private' }}
+          <component :is="store.isPublic ? Globe : GlobeLock" class="h-3 w-3" /> {{ store.isPublic ? 'Published' : 'Publish' }}
         </button>
         <button
           v-if="canPublish && store.isPublic"

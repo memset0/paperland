@@ -88,8 +88,8 @@ export const qaResultApi = {
 import type { Highlight, HighlightColor } from '@paperland/shared'
 
 export const highlightApi = {
-  fetch: (pathname: string) =>
-    api.get<{ data: Highlight[] }>(`/api/highlights?pathname=${encodeURIComponent(pathname)}`),
+  fetch: (pathname: string, scope: VisibilityScope = 'mine') =>
+    api.get<{ data: Highlight[] }>(`/api/highlights?pathname=${encodeURIComponent(pathname)}&scope=${scope}`),
 
   create: (data: {
     pathname: string
@@ -207,6 +207,34 @@ export const authApi = {
     api.patch<{ user: SessionUser }>('/api/auth/me', payload),
 }
 
+// Per-user sharing switches for optionally-shared data (highlights, notes, Q&A, reference links).
+import type { SharingPreferences, VisibilityScope } from '@paperland/shared'
+
+export const sharingApi = {
+  get: () => api.get<{ data: SharingPreferences }>('/api/auth/me/sharing'),
+  update: (patch: Partial<SharingPreferences>) =>
+    api.put<{ data: SharingPreferences }>('/api/auth/me/sharing', patch),
+}
+
+// Arxiv quick-open (browser extension): per-user CSRF token + open-or-create by arxiv id.
+export const quickOpenApi = {
+  getToken: () => api.get<{ token: string }>('/api/auth/open-token'),
+  regenerateToken: () => api.post<{ token: string }>('/api/auth/open-token/regenerate'),
+
+  // Raw fetch so failures (bad token / bad id) surface inline on the open page, not as a toast.
+  async openArxiv(arxiv_id: string, token: string): Promise<{ paper_id: number; arxiv_id: string; created: boolean }> {
+    const res = await fetch('/api/papers/open-arxiv', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ arxiv_id, token }),
+    })
+    const body = await res.json().catch(() => ({} as any))
+    if (!res.ok) throw Object.assign(new Error(body?.error?.message || res.statusText || 'Request failed'), { status: res.status })
+    return body
+  },
+}
+
 export const usersApi = {
   list: () => api.get<{ data: User[] }>('/api/users'),
   create: (payload: { username: string; password: string; role: UserRole }) =>
@@ -256,12 +284,11 @@ export const notesApi = {
     return { ok: true, data: json.data as Note }
   },
 
-  // Cross-paper aggregate. `scope=all` lists everyone's public notes (+ own); admins may pass
-  // `include_private` to also pull others' unpublished notes. Default (no opts) = the caller's own.
-  listAll: (opts?: { scope?: 'mine' | 'all'; include_private?: boolean }) => {
+  // Cross-paper aggregate. `scope=all` lists published + shared notes (+ own); admins get every
+  // note (`shared: false` marks the private ones). Default (no opts) = the caller's own.
+  listAll: (opts?: { scope?: VisibilityScope }) => {
     const qs = new URLSearchParams()
     if (opts?.scope) qs.set('scope', opts.scope)
-    if (opts?.include_private) qs.set('include_private', 'true')
     const q = qs.toString()
     return api.get<{ data: NoteWithAuthor[] }>(`/api/notes${q ? `?${q}` : ''}`)
   },
@@ -274,7 +301,8 @@ export const notesApi = {
   setVisibility: (paperId: number, is_public: boolean) =>
     api.put<{ data: Note }>(`/api/papers/${paperId}/note/visibility`, { is_public }),
 
-  // Body-less list of OTHER users' public notes for a paper (right-panel section). Degrades to
+  // Body-less list of OTHER users' notes the caller may read for a paper (published + shared;
+  // admin: all) — the right-panel section. Degrades to
   // empty for anonymous / not-yet-ready routes.
   async listPublicForPaper(paperId: number): Promise<{ data: PublicNoteSummary[] }> {
     try {
@@ -304,10 +332,10 @@ export const notesApi = {
 import type { PaperReferenceLink, ReferenceLinkPreview } from '@paperland/shared'
 
 export const referenceLinksApi = {
-  // Owner-scoped read; anonymous (or a not-yet-ready route) degrades silently to empty.
-  async getForPaper(paperId: number): Promise<{ data: PaperReferenceLink[] }> {
+  // mine (default) / all scoped read; anonymous (or a not-yet-ready route) degrades silently to empty.
+  async getForPaper(paperId: number, scope: VisibilityScope = 'mine'): Promise<{ data: PaperReferenceLink[] }> {
     try {
-      const res = await fetch(`/api/papers/${paperId}/reference-links`, { credentials: 'same-origin' })
+      const res = await fetch(`/api/papers/${paperId}/reference-links?scope=${scope}`, { credentials: 'same-origin' })
       if (!res.ok) return { data: [] }
       return await res.json()
     } catch {

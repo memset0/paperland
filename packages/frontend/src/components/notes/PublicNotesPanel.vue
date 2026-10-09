@@ -5,10 +5,11 @@ import type { PublicNoteSummary, NoteWithAuthor } from '@paperland/shared'
 import PublicNoteView from './PublicNoteView.vue'
 import { requestedPublicNote } from '@/composables/usePublicNoteOpen'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { ChevronRight, Users, Loader2 } from '@lucide/vue'
+import { ChevronRight, Users, Loader2, Globe, Lock } from '@lucide/vue'
 
-// Right-panel "Public notes from others" section. Lists OTHER users' public notes for the paper
-// (the server already excludes the caller's own + private notes). Each entry is collapsed and its
+// Right-panel "Notes from others" section. Lists OTHER users' notes the viewer may read for the
+// paper — published (anyone, incl. anonymous) + shared by their owner (logged-in viewers) + all
+// (admins; unshared ones marked Private). The server already excludes the caller's own note. Each entry is collapsed and its
 // body UNFETCHED until first expand; expanding lazily fetches the full note and renders it
 // read-only (mind-map → body) via PublicNoteView. A `?note=` deep link drives a specific entry open.
 const props = defineProps<{ paperId: number }>()
@@ -57,7 +58,10 @@ watch(requestedPublicNote, async (req) => {
     // Safety net: not in the public list (e.g. just published) — pull it directly if readable.
     const note = await notesApi.getById(noteId)
     if (note) {
-      list.value = [{ id: note.id, user_id: note.user_id, username: note.username, updated_at: note.updated_at }, ...list.value]
+      list.value = [{
+        id: note.id, user_id: note.user_id, username: note.username,
+        is_public: note.is_public, shared: note.shared, updated_at: note.updated_at,
+      }, ...list.value]
       bodies[noteId] = note
     } else {
       return
@@ -81,7 +85,7 @@ watch(() => props.paperId, () => {
 <template>
   <div v-if="list.length" class="pnp space-y-2">
     <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-      <Users class="h-3 w-3" /> Public notes from others
+      <Users class="h-3 w-3" /> Notes from others
     </div>
     <Collapsible
       v-for="n in list" :key="n.id"
@@ -93,6 +97,8 @@ watch(() => props.paperId, () => {
       <CollapsibleTrigger class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/40 cursor-pointer">
         <ChevronRight class="h-3.5 w-3.5 shrink-0 transition-transform" :class="open[n.id] ? 'rotate-90' : ''" />
         <span class="text-sm font-medium truncate flex-1">{{ n.username }}</span>
+        <span v-if="n.is_public" class="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground shrink-0" title="Published — readable via link without an account"><Globe class="h-2.5 w-2.5" />Published</span>
+        <span v-else-if="!n.shared" class="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground shrink-0" title="Not shared — visible to you as admin"><Lock class="h-2.5 w-2.5" />Private</span>
         <span class="text-xs text-muted-foreground shrink-0">{{ fmt(n.updated_at) }}</span>
       </CollapsibleTrigger>
       <CollapsibleContent class="px-3 pb-3 pt-1 border-t">

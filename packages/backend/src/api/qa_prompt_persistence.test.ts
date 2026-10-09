@@ -18,6 +18,10 @@ describe('QA prompt persistence reads', () => {
     sqlite = new Database(':memory:')
     sqlite.exec(`
       CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL);
+    CREATE TABLE user_sharing_settings (
+      user_id INTEGER NOT NULL, data_type TEXT NOT NULL, shared INTEGER NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, data_type)
+    );
       CREATE TABLE qa_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         paper_id INTEGER NOT NULL,
@@ -81,6 +85,7 @@ describe('QA prompt persistence reads', () => {
       prompt: 'Why did the first attempt fail?',
       user_id: 1,
       username: 'reader',
+      shared: true,
       can_manage: true,
       background_color: null,
       highlight_count: 0,

@@ -7,6 +7,7 @@ import AppPage from '@/components/AppPage.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import HighlightScopeToggle from '@/components/HighlightScopeToggle.vue'
 
 const qaStore = useQAStore()
 const scrollEl = ref<HTMLElement | null>(null)
@@ -49,6 +50,7 @@ async function onScopeChange(scope: 'mine' | 'all') {
 <template>
   <AppPage fill>
     <template #actions>
+      <HighlightScopeToggle class="mr-1 h-8" />
       <div class="inline-flex rounded-md ring-1 ring-foreground/10 overflow-hidden mr-1">
         <Button
           variant="ghost"

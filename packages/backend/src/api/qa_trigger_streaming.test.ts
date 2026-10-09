@@ -62,6 +62,10 @@ translation:
   sqlite = new Database(':memory:')
   sqlite.exec(`
     CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL);
+    CREATE TABLE user_sharing_settings (
+      user_id INTEGER NOT NULL, data_type TEXT NOT NULL, shared INTEGER NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, data_type)
+    );
     CREATE TABLE papers (
       id INTEGER PRIMARY KEY, arxiv_id TEXT, corpus_id TEXT, title TEXT NOT NULL, authors TEXT NOT NULL,
       abstract TEXT, contents TEXT, pdf_path TEXT, metadata TEXT, link TEXT, tags_json TEXT,

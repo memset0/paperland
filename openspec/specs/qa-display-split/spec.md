@@ -2,7 +2,9 @@
 
 ## Purpose
 The paper detail page Q&A area renders Preset Q&A and User Q&A as separate, independently-controlled cards.
+
 ## Requirements
+
 ### Requirement: Preset QA and User QA are rendered in separate cards
 The QAList component SHALL render two independent card containers: one for preset QA entries (config-ordered) and one for user QA entries (newest-first). Each card SHALL have its own header with title and expand/collapse-all controls.
 
@@ -63,21 +65,6 @@ Each card (Preset Q&A and User Q&A) SHALL have its own "全部展开" and "全�
 #### Scenario: User clicks expand-all on Template QA card
 - **WHEN** user clicks "全部展开" on the Preset Q&A card
 - **THEN** only preset QA questions expand; user QA questions remain unchanged
-
-### Requirement: Preset QA is public, User QA is owner-scoped
-On the paper detail page, the Preset Q&A card SHALL be visible to everyone, including anonymous visitors. The User Q&A card SHALL display only the current authenticated user's user QA entries; anonymous visitors and other users SHALL NOT see a user's user QA entries.
-
-#### Scenario: Anonymous visitor sees only template QA
-- **WHEN** an anonymous visitor opens a paper detail page that has both preset and user QA
-- **THEN** the Preset Q&A card SHALL be shown with its results, and the User Q&A card SHALL show no entries
-
-#### Scenario: User sees only their own free QA
-- **WHEN** an authenticated user opens a paper detail page
-- **THEN** the User Q&A card SHALL show only that user's user QA entries for the paper
-
-#### Scenario: Another user's free QA hidden
-- **WHEN** user B opens a paper for which user A created user QA entries
-- **THEN** user B SHALL NOT see user A's user QA entries
 
 ### Requirement: QA generation requires login
 Triggering any LLM action on the paper detail page — generating or regenerating preset Q&A, submitting a user question, regenerating, or deleting a result — SHALL require an authenticated user. For anonymous visitors these controls SHALL prompt for login rather than initiate an LLM call.
@@ -153,3 +140,33 @@ An authorized viewer SHALL see a stop action only for an active Result they may 
 #### Scenario: Retry failed preset question
 - **WHEN** an authorized user retries a failed preset Result
 - **THEN** a new Result SHALL use the latest preset text from `config.yml`
+
+### Requirement: Paper User QA scope selector
+The User Q&A card SHALL provide an accessible mine/all selector to authenticated viewers. Changing scope SHALL refetch the current paper, keep Preset Q&A unchanged, and preserve the selected scope while the paper detail view remains mounted.
+
+#### Scenario: Switch to all on a paper
+- **WHEN** the viewer selects `all`
+- **THEN** the card SHALL reload all User Q&A for that paper without changing Preset Q&A
+
+#### Scenario: Asker identity
+- **WHEN** an all-scope entry is rendered
+- **THEN** it SHALL visibly identify the asker by username when resolvable
+
+### Requirement: Preset QA is public, User QA follows sharing
+On the paper detail page, the Preset Q&A card SHALL be visible to everyone, including anonymous visitors. The User Q&A card SHALL default to the current authenticated user's user QA entries (Mine) and SHALL offer authenticated users a Mine / All selector. `GET /api/papers/:id/qa?scope=all` SHALL follow the uniform all-scope rules: for a non-admin, the caller's own free entries plus those of users whose `qa` sharing switch is on; for an admin, every user's free entries. Each free entry SHALL carry `user_id`, `username`, and `shared`; entries owned by others SHALL show the asker and, for an admin viewing an unshared entry, a "Private" marker. Anonymous visitors SHALL see no user QA entries.
+
+#### Scenario: Anonymous visitor sees only template QA
+- **WHEN** an anonymous visitor opens a paper detail page that has both preset and user QA
+- **THEN** the Preset Q&A card SHALL be shown with its results, and the User Q&A card SHALL show no entries
+
+#### Scenario: User sees only their own free QA by default
+- **WHEN** an authenticated user opens a paper detail page
+- **THEN** the User Q&A card SHALL show only that user's user QA entries for the paper
+
+#### Scenario: Shared free QA visible in All
+- **WHEN** user B selects All on a paper for which user A, who shares Q&A, created user QA entries
+- **THEN** user B SHALL see user A's entries labeled with A's username, without management actions
+
+#### Scenario: Unshared free QA hidden from non-admins
+- **WHEN** user A does not share Q&A and non-admin user B selects All
+- **THEN** user B SHALL NOT see user A's user QA entries

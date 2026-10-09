@@ -6,7 +6,9 @@ External API 是独立于前端 Internal API 的第三方接口，主要用于 Z
 
 生产入口为 `https://paperland.dev.mem.ac/external-api/v1`：Caddy 将整个站点转发到仅监听 `127.0.0.1:3000` 的后端，后端同时托管前端构建产物。开发入口仍经 Vite 5173 转发。此次托管调整不改变 Bearer Token 认证或接口契约；未知 External API 路径继续返回错误，不能落入前端 SPA 的 HTML 回退。
 
-文本翻译、PDF 稳定选区划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅登录用户会自动触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭、新稳定选区替换，以及等待首个译文时显示所选原文的 UI fallback，均是 Internal UI 生命周期/呈现行为，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
+文本翻译、PDF 选区工具栏按需划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅在登录用户点击选区工具栏「翻译」后触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭、新选区关闭旧浮层，以及等待首个译文时显示所选原文的 UI fallback，均是 Internal UI 生命周期/呈现行为，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
+
+浏览器插件的「快捷打开」同样属于网站登录态的 Internal API，**不在** `/external-api/v1` 下、不接受 Bearer API Token：`GET /api/auth/open-token`（获取当前用户的快捷打开 CSRF token，首次请求时生成）、`POST /api/auth/open-token/regenerate`（重新生成，旧 token 立即失效）、`POST /api/papers/open-arxiv { arxiv_id, token }`（需会话 + token 匹配，否则 401 / 403 `INVALID_OPEN_TOKEN`；id 不可解析为 422；成功返回 `{ paper_id, arxiv_id, created }`）。arxiv id 会去掉 `arXiv:` 前缀与版本号后再查找/存储。该 token 与 External API Token 相互独立，不能用于调用 External API。详见 `browser-extension.md`。
 
 ---
 
@@ -29,6 +31,8 @@ Authorization: Bearer <token>
 ### Token 的用户归属
 
 每个 Token 归属一个用户（签发它的管理员，或指定用户）。以该 Token 调用 External API 时，请求**按其归属用户**操作：因此通过 Token 创建 / 同步的**标签**等按用户私有的数据，归该用户所有，与其他用户的数据相互隔离。升级到用户系统前已存在的 Token 一律迁移归属到初始 `admin` 用户，**Zotero 等既有集成无需改动即可继续工作**。
+
+External API 只涉及论文（始终全站共享）与标签（始终私有），不暴露高亮、笔记、Free Q&A、参考链接等「用户可选共享」数据，因此不受 Account → Sharing 开关影响（多用户可见性规则见 `frontend-architecture.md` §5.3）。
 
 ---
 

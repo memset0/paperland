@@ -85,7 +85,7 @@ export function getRenderedTextLength(container: HTMLElement): number {
  * Walks text segments and wraps matching offset ranges with <mark> elements.
  * Returns the number of highlights successfully applied.
  */
-export function applyHighlights(container: HTMLElement, highlights: Highlight[]): number {
+export function applyHighlights(container: HTMLElement, highlights: Highlight[], viewerId: number | null = null): number {
   if (highlights.length === 0) return 0
 
   const segments = buildTextSegments(container)
@@ -104,7 +104,7 @@ export function applyHighlights(container: HTMLElement, highlights: Highlight[])
     }
 
     // Apply the highlight by wrapping segments
-    applyOneHighlight(container, hl)
+    applyOneHighlight(container, hl, viewerId)
     // Rebuild segments after DOM modification
     segments.length = 0
     segments.push(...buildTextSegments(container))
@@ -137,7 +137,7 @@ function extractText(segments: TextSegment[], start: number, end: number): strin
 /**
  * Apply a single highlight to the DOM.
  */
-function applyOneHighlight(container: HTMLElement, hl: Highlight) {
+function applyOneHighlight(container: HTMLElement, hl: Highlight, viewerId: number | null) {
   const segments = buildTextSegments(container)
 
   for (const seg of segments) {
@@ -151,10 +151,10 @@ function applyOneHighlight(container: HTMLElement, hl: Highlight) {
 
     if (seg.isAtomic) {
       // Wrap entire atomic element
-      wrapAtomicElement(seg.node as Element, hl)
+      wrapAtomicElement(seg.node as Element, hl, viewerId)
     } else {
       // Wrap portion of text node
-      wrapTextNode(seg.node as Text, overlapStart, overlapEnd, hl)
+      wrapTextNode(seg.node as Text, overlapStart, overlapEnd, hl, viewerId)
     }
   }
 }
@@ -162,8 +162,8 @@ function applyOneHighlight(container: HTMLElement, hl: Highlight) {
 /**
  * Wrap a KaTeX atomic element in a <mark>.
  */
-function wrapAtomicElement(element: Element, hl: Highlight) {
-  const mark = createMark(hl)
+function wrapAtomicElement(element: Element, hl: Highlight, viewerId: number | null) {
+  const mark = createMark(hl, viewerId)
   element.parentNode?.insertBefore(mark, element)
   mark.appendChild(element)
 }
@@ -171,11 +171,11 @@ function wrapAtomicElement(element: Element, hl: Highlight) {
 /**
  * Wrap a portion of a text node in a <mark>.
  */
-function wrapTextNode(textNode: Text, start: number, end: number, hl: Highlight) {
+function wrapTextNode(textNode: Text, start: number, end: number, hl: Highlight, viewerId: number | null) {
   const text = textNode.textContent || ''
   if (start === 0 && end === text.length) {
     // Wrap entire text node
-    const mark = createMark(hl)
+    const mark = createMark(hl, viewerId)
     textNode.parentNode?.insertBefore(mark, textNode)
     mark.appendChild(textNode)
   } else {
@@ -188,7 +188,7 @@ function wrapTextNode(textNode: Text, start: number, end: number, hl: Highlight)
     if (before) {
       parent.insertBefore(document.createTextNode(before), textNode)
     }
-    const mark = createMark(hl)
+    const mark = createMark(hl, viewerId)
     mark.textContent = middle
     parent.insertBefore(mark, textNode)
     if (after) {
@@ -201,11 +201,22 @@ function wrapTextNode(textNode: Text, start: number, end: number, hl: Highlight)
 /**
  * Create a <mark> element for a highlight.
  */
-function createMark(hl: Highlight): HTMLElement {
+/** Another user's highlight (All scope): rendered as a read-only underline with an owner tooltip. */
+export function isForeignHighlight(hl: Highlight, viewerId: number | null): boolean {
+  return hl.user_id != null && hl.user_id !== viewerId
+}
+
+function createMark(hl: Highlight, viewerId: number | null): HTMLElement {
   const mark = document.createElement('mark')
   mark.dataset.highlightId = String(hl.id)
   mark.dataset.highlightColor = hl.color
-  mark.className = `hl-${hl.color}`
+  if (isForeignHighlight(hl, viewerId)) {
+    mark.dataset.highlightForeign = 'true'
+    mark.className = `hl-foreign hl-foreign-${hl.color}`
+    mark.title = `${hl.username ?? 'Unknown'}${hl.shared === false ? ' (private)' : ''}`
+  } else {
+    mark.className = `hl-${hl.color}`
+  }
   return mark
 }
 

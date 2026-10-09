@@ -127,6 +127,33 @@ describe('GET /api/papers/:id/reference-links', () => {
     expect(titles).toEqual(['first', 'second'])
   })
 
+  it('scope=all includes shared links with attribution; opted-out links only for admin', async () => {
+    const alice = makeUser('alice'); const bob = makeUser('bob')
+    const paper = makePaper()
+    currentUser = { id: bob.id, username: 'bob', role: 'user' }
+    await app.inject({ method: 'POST', url: `/api/papers/${paper}/reference-links`, payload: { url: 'https://b.io' } })
+    currentUser = { id: alice.id, username: 'alice', role: 'user' }
+    await app.inject({ method: 'POST', url: `/api/papers/${paper}/reference-links`, payload: { url: 'https://a.io' } })
+
+    const all = (await app.inject({ method: 'GET', url: `/api/papers/${paper}/reference-links?scope=all` })).json().data
+    expect(all.map((l: any) => l.url)).toEqual(['https://b.io', 'https://a.io'])
+    expect(all[0]).toMatchObject({ user_id: bob.id, username: 'bob', shared: true })
+
+    // Bob can see but not delete Alice's shared link.
+    const aliceLinkId = all[1].id
+    currentUser = { id: bob.id, username: 'bob', role: 'user' }
+    expect((await app.inject({ method: 'DELETE', url: `/api/reference-links/${aliceLinkId}` })).statusCode).toBe(404)
+
+    // Bob opts out → hidden from Alice, visible to an admin flagged private.
+    await db.insert(schema.userSharingSettings).values({ user_id: bob.id, data_type: 'reference_links', shared: 0, updated_at: 't' })
+    currentUser = { id: alice.id, username: 'alice', role: 'user' }
+    const hidden = (await app.inject({ method: 'GET', url: `/api/papers/${paper}/reference-links?scope=all` })).json().data
+    expect(hidden.map((l: any) => l.url)).toEqual(['https://a.io'])
+    currentUser = { id: alice.id, username: 'alice', role: 'admin' }
+    const admin = (await app.inject({ method: 'GET', url: `/api/papers/${paper}/reference-links?scope=all` })).json().data
+    expect(admin.find((l: any) => l.user_id === bob.id).shared).toBe(false)
+  })
+
   it('returns an empty list for an anonymous request (no error)', async () => {
     const paper = makePaper()
     currentUser = null

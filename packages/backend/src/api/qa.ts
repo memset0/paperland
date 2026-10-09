@@ -9,6 +9,7 @@ import { getModelCapabilities } from '../services/model_invoke.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { touchPaperUpdatedAt } from '../db/utils.js'
 import { requireUser } from '../auth/guards.js'
+import { canViewOwnedRow, ownerVisibilityFilter, parseScope, sharedFlagsFor } from '../auth/visibility.js'
 import { resolveRegenerationPrompt } from '../services/qa_prompt.js'
 import { markdownContentHash } from '../services/content_hash.js'
 import { loadQAReadingIndicators } from '../services/qa_reading.js'
@@ -54,6 +55,12 @@ function canManageEntry(entry: { type: string; user_id: number | null }, user: {
   if (!user) return false
   if (entry.type === 'template') return true
   return user.role === 'admin' || entry.user_id === user.id
+}
+
+/** Read visibility of a QA entry: preset is public; free follows the owner's `qa` sharing switch. */
+function canViewEntry(entry: { type: string; user_id: number | null }, user: { id: number; role: string } | null | undefined): boolean {
+  if (entry.type === 'template') return true
+  return canViewOwnedRow(user, entry.user_id, 'qa')
 }
 
 function canManageResultCancellation(
@@ -355,18 +362,19 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     return { image_width_tiers: config.notes.image_width_tiers }
   })
 
-  // List free QA entries across all papers (for /qa feed page), paginated. Every authenticated
-  // user may explicitly request all users' entries; mine remains the default.
+  // List free QA entries across all papers (for /qa feed page), paginated. mine (default) = own;
+  // all = own + entries of users who share Q&A (admin: every user's) — see auth/visibility.ts.
   app.get<{ Querystring: { page?: string; page_size?: string; scope?: string } }>('/api/qa/free', { preHandler: requireUser }, async (request) => {
     const db = getDatabase()
     const userId = request.user!.id
     const page = Math.max(1, parseInt(request.query.page || '1', 10) || 1)
     const pageSize = Math.min(100, Math.max(1, parseInt(request.query.page_size || '20', 10) || 20))
-    const allScope = request.query.scope === 'all'
+    const scope = parseScope(request.query.scope)
 
-    const where = allScope
-      ? eq(schema.qaEntries.type, 'free')
-      : and(eq(schema.qaEntries.type, 'free'), eq(schema.qaEntries.user_id, userId))
+    const where = and(
+      eq(schema.qaEntries.type, 'free'),
+      ownerVisibilityFilter(request.user, 'qa', schema.qaEntries.user_id, scope),
+    )
     const total = Number(db.select({ value: sql<number>`count(*)` }).from(schema.qaEntries)
       .where(where)
       .get()?.value || 0)
@@ -378,6 +386,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       .all()
 
     const usernameById = loadUsernames(db, pageEntries.map((entry) => entry.user_id))
+    const sharedByOwner = sharedFlagsFor('qa', pageEntries.map((entry) => entry.user_id))
     const resultsByEntry = loadResultsByEntry(db, pageEntries.map((entry) => entry.id))
     const preferenceByEntry = loadBackgroundPreferences(db, userId, pageEntries.map((entry) => entry.id))
     const indicators = loadQAReadingIndicators(db, userId, pageEntries, resultsByEntry)
@@ -403,6 +412,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
         created_at: entry.created_at,
         user_id: entry.user_id ?? null,
         username: entry.user_id != null ? (usernameById.get(entry.user_id) ?? null) : null,
+        shared: entry.user_id != null ? (sharedByOwner.get(entry.user_id) ?? false) : false,
         can_manage: canManageEntry(entry, request.user),
         background_color: preferenceByEntry.get(entry.id) ?? null,
         highlight_count: indicators.highlightByEntry.get(entry.id) || 0,
@@ -422,25 +432,26 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
-  // List QA entries for a paper. Template QA is public; authenticated users can explicitly
-  // request all free QA, while mine remains the default.
+  // List QA entries for a paper. Template QA is always public; free QA follows the uniform
+  // mine/all visibility (all = own + sharing users' entries; admin: every user's).
   app.get<{ Params: { id: string }; Querystring: { scope?: string } }>('/api/papers/:id/qa', async (request) => {
     const db = getDatabase()
     const paperId = parseInt(request.params.id, 10)
     const userId = request.user?.id ?? null
-    const allScope = request.query.scope === 'all' && userId != null
+    const scope = parseScope(request.query.scope)
 
-    const entryWhere = allScope
-      ? eq(schema.qaEntries.paper_id, paperId)
-      : userId == null
-        ? and(eq(schema.qaEntries.paper_id, paperId), eq(schema.qaEntries.type, 'template'))
-        : and(
-            eq(schema.qaEntries.paper_id, paperId),
-            or(
-              eq(schema.qaEntries.type, 'template'),
-              and(eq(schema.qaEntries.type, 'free'), eq(schema.qaEntries.user_id, userId)),
+    const entryWhere = userId == null
+      ? and(eq(schema.qaEntries.paper_id, paperId), eq(schema.qaEntries.type, 'template'))
+      : and(
+          eq(schema.qaEntries.paper_id, paperId),
+          or(
+            eq(schema.qaEntries.type, 'template'),
+            and(
+              eq(schema.qaEntries.type, 'free'),
+              ownerVisibilityFilter(request.user, 'qa', schema.qaEntries.user_id, scope),
             ),
-          )
+          ),
+        )
 
     const entries = db.select().from(schema.qaEntries)
       .where(entryWhere)
@@ -448,6 +459,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       .all()
     const resultsByEntry = loadResultsByEntry(db, entries.map((entry) => entry.id))
     const usernameById = loadUsernames(db, entries.map((entry) => entry.user_id))
+    const sharedByOwner = sharedFlagsFor('qa', entries.map((entry) => entry.user_id))
     const preferenceByEntry = loadBackgroundPreferences(db, userId, entries.map((entry) => entry.id))
     const indicators = loadQAReadingIndicators(db, userId, entries, resultsByEntry)
 
@@ -476,6 +488,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
           prompt: entry.prompt || results[0]?.prompt || null,
           user_id: entry.user_id ?? null,
           username: entry.user_id != null ? (usernameById.get(entry.user_id) ?? null) : null,
+          shared: entry.user_id != null ? (sharedByOwner.get(entry.user_id) ?? false) : false,
           can_manage: canManageEntry(entry, request.user),
           background_color: preferenceByEntry.get(entry.id) ?? null,
           highlight_count: indicators.highlightByEntry.get(entry.id) || 0,
@@ -495,7 +508,7 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
       const entryId = parseInt(request.params.entryId, 10)
       const color = request.body?.background_color ?? null
       const entry = db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, entryId)).get()
-      if (!entry) {
+      if (!entry || !canViewEntry(entry, request.user)) {
         reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA entry not found' } })
         return
       }
@@ -720,7 +733,8 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
         return
       }
       const entry = db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, initial.qa_entry_id)).get()
-      if (!entry) {
+      // A non-shared Result is indistinguishable from a missing one.
+      if (!entry || !canViewEntry(entry, request.user)) {
         reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } })
         return
       }

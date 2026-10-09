@@ -127,6 +127,14 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
   - 不存在 → 创建新记录
 - 自动触发依赖 arxiv_id 的 fetch services
 
+#### 快捷打开：浏览器插件 / `/open/arxiv/:arxiv_id`
+
+- 路由 `/open/arxiv/:arxiv_id(.*)?token=<token>`（`views/OpenArxiv.vue`，`(.*)` 让旧式 id `hep-th/9901001` 保持为一个参数）。浏览器插件（`packages/browser-extension/`，见 `docs/browser-extension.md`）在 arxiv / Hugging Face / alphaXiv 页面一键打开该路径。
+- 页面调用 `POST /api/papers/open-arxiv { arxiv_id, token }`：不存在则创建（与方式一相同的 ingest 流程，自动触发服务）、存在则复用，随后 `router.replace` 到 `/papers/:id`，带 token 的 URL 不留在历史记录中。
+- 路由**不**设置 `requiresAuth`（守卫会跳回 `/` 丢失目标）；未登录时页面自行弹出登录框，登录成功后自动继续。token 无效 / id 无效时在页面内显示错误和返回列表链接，不创建论文。
+- token 是每用户的 CSRF token：仅凭 token 无法操作（还需会话 cookie），用于防止第三方页面用链接诱导已登录用户创建论文。在 **Account settings → Browser Extension** 查看站点地址与 token（复制 / 重新生成）。
+- 生产托管：`frontend_hosting.ts` 对 `/open/` 前缀豁免「带扩展名即视为静态文件」规则（`2401.12345` 看起来像扩展名），保证该路径返回 SPA 入口。
+
 #### 方式二：通过 corpus_id 创建
 
 - 用户输入 corpus_id
@@ -203,15 +211,15 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 #### 参考链接
 
-信息卡片中（标签区块下方）有「参考链接」区块（`components/ReferenceLinksSection.vue`），用于挂载论文之外的外部资源（博客解读、项目主页、讨论帖等）。**按 用户×论文 私有**（与笔记/标签一致，匿名只读返回空）。
+信息卡片中（标签区块下方）有「参考链接」区块（`components/ReferenceLinksSection.vue`），用于挂载论文之外的外部资源（博客解读、项目主页、讨论帖等）。**按 用户×论文 归属、用户可选共享**（受属主 `reference_links` 共享开关控制，匿名只读返回空）。区块标题右侧有 Mine / All 切换（`localStorage` 记忆，默认 Mine）；All 中别人的链接显示属主用户名（admin 看未共享的带 Private 标记），且不显示编辑/删除按钮。
 
 - 每条链接**只有 `url` 必填**；`description`（描述）由后端爬取链接页 `<title>` 自动生成，形如 `${document.title} (${hostname})`（例：`Build software better, together (github.com)`），**用户不可手动编辑**；`title` 为可选字段，仅保留给历史数据 / 显示回退
 - **显示标签按回退链 `title → description → url` 解析**：有 `title` 用 `title`（历史数据），否则用自动 `description`，再否则用原始 `url`。链接渲染为超链接，`target="_blank" rel="noopener noreferrer"` 新标签页打开；当 `title` 与 `description` 同时存在时，`description` 作为次要灰字显示在标题下方
 - 列表按添加顺序（`created_at` 升序）展示
-- **管理控件（「+」添加、编辑、删除）仅对已登录用户显示**（`useAuthStore().isAuthenticated` 门控；匿名用户看不到任何增删改入口）；编辑/删除按钮常驻显示（hover 加深），删除前用 `window.confirm` 弹窗二次确认
+- **管理控件（「+」添加；编辑、删除仅自己的链接）仅对已登录用户显示**（`useAuthStore().isAuthenticated` 门控；匿名用户看不到任何增删改入口）；编辑/删除按钮常驻显示（hover 加深），删除前用 `window.confirm` 弹窗二次确认
 - 内联表单只有一个 URL 输入：用户输入合法 http(s) 链接后，前端 debounce（~500ms，回车/保存前也会触发）调用 `referenceLinksApi.preview(url)` 自动拉取描述，期间显示加载态，结果作为只读次要文字预览；保存提交 `{ url, description }`（不含 title），增删改后就地刷新，不整页刷新
 - 组件自取自管（`referenceLinksApi`：`getForPaper` / `preview` / `create` / `update` / `remove`），无需 Pinia store；宽屏 split view 与窄屏 single column 两处均渲染
-- 后端 `GET|POST /api/papers/:id/reference-links`、`GET /api/reference-links/preview?url=…`、`PATCH|DELETE /api/reference-links/:id`，写操作与 preview 均经 `requireUser`（preview 同时只放行登录用户，避免成为开放抓取代理）+ owner 校验，`url` 仅放行 http/https
+- 后端 `GET /api/papers/:id/reference-links?scope=mine|all`（返回 `username`/`shared`）、`POST /api/papers/:id/reference-links`、`GET /api/reference-links/preview?url=…`、`PATCH|DELETE /api/reference-links/:id`，写操作与 preview 均经 `requireUser`（preview 同时只放行登录用户，避免成为开放抓取代理）+ owner 校验，`url` 仅放行 http/https
 - preview 端点服务端抓取链接页 `<title>`：超时 / 最大字节数 / User-Agent 由 `config.yml` 的 `reference_links` 配置块控制；抓取失败（超时、非 2xx、无 `<title>`）不报错而是返回 `description: null`，链接仍可仅凭 url 保存（显示回退到 url）
 
 #### 删除论文
@@ -284,8 +292,8 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 - **无白闪渲染**：pdf.js 在每次 render **开始**时把 canvas 填白（`background || "#ffffff"`），夜间的 `pageColors`（HCM 滤镜）要到 render **结束**才套上。若 canvas 先挂进 DOM 再渲染，浏览器会画出「白底→黑字→暗色滤镜」的中间帧 → 闪白。故每页渲染到**离屏新建 canvas**，待 `renderTask.promise` 完成（已是暗色）后再 `appendChild`/`replaceWith` 换入；旧 canvas 保留到换入瞬间。这样首帧即暗色不闪白，主题切换/缩放重栅格期间也不空屏不闪。
 - **当前页 / 跳转 / 缩放 / 适配模式**：滚动时按页矩形与视口中线判定「当前页」；工具栏含 上/下一页、页码跳转输入、缩放、**适配模式切换**（宽度铺满 ↔ 高度铺满，`MoveHorizontal`/`MoveVertical` 图标，**仅当前打开有效、不记忆**，默认宽度铺满；切换会把 zoom 重置为 1 使适配精确）。`effectiveScale = fitScale × zoom`，`fitScale` 由 `fitMode` 取「容器宽 / 首页宽」或「容器高 / 首页高」；缩放/适配后 canvas + 文本层按新尺度重渲染并保持对齐，文本层设 `--scale-factor`。
 - **拖动分屏不卡**：宽度变化时只即时缩放占位页与 CSS 填充的 canvas，昂贵的重栅格化（canvas + 文本层）去抖 ~320ms（`RE_RASTER_DEBOUNCE_MS`），待尺度真正稳定后只做一次；期间页面保持 CSS 缩放（略软）直到落定（高度铺满模式下拖动分屏宽度不改变 `fitScale`，更不触发重渲染）。
-- **选区 → 链接**：文本层支持原生选区；落定后用 `getSelectionOffsets`（复用 `useHighlight`）算出该页 `ts/te` 偏移，弹出「复制选区链接」浮钮，复制 `<选区文本> [#](paperland://paper/<id>?pdf=<page>&ts=<ts>&te=<te>)`；工具栏「复制本页链接」复制 `[PDF p.N](paperland://paper/<id>?pdf=N)`。
-- **稳定选区 → 流式翻译**：上述选区捕获仍以约 60ms 更新 `selRegion`/复制链接；另有独立 500ms translation-intent timer。只有登录用户的同一单页 text-layer 选区在 page/`ts`/`te`/text identity 上连续 500ms 不变，才挂载 `StreamingTranslationText` 调现有 `/api/translate/stream`。浮层优先居中放在选区上方，空间不足时放到下方并为复制链接按钮预留位置；宽度/x/y 都 clamp 在 viewer 内，内容增长由 ResizeObserver 重算。请求开始但尚无译文时，结果区直接显示该次稳定选区的原文，不显示“加载翻译”类占位文字；首个非空 delta 或 cache result 到达后，真实译文立即替换原文预览。每个真实 delta 整段追加后让出一帧，cache hit 直接完成。面板内 pointer interaction 拥有其引发的临时 selection collapse：旧浮层/source snapshot 保留并在 pointer-up 尝试恢复 Range；普通外部点击才关闭。若外部手势形成不同有效选区，旧浮层继续显示到新 identity 稳定 500ms 后才替换/abort，避免空白间隔。scroll Range 失效、zoom/theme text-layer 重渲染、PDF 切换、截图模式、Escape 或卸载仍会取消 timer/abort 请求/关闭浮层，late event 不得覆盖新选区；scroll 保持 Range 有效时按 rAF 重定位。匿名选区不调用 API、不弹登录，原生选择与现有复制链接行为不变。
+- **选区 → 链接**：文本层支持原生选区；落定后用 `getSelectionOffsets`（复用 `useHighlight`）算出该页 `ts/te` 偏移，在选区下方弹出浮动选区工具栏（`.pdf-sel-toolbar`，样式对齐 Markdown 划线高亮工具栏）：登录用户有「翻译」按钮，有 `paperId` 时有「复制选区链接」，后者复制 `<选区文本> [#](paperland://paper/<id>?pdf=<page>&ts=<ts>&te=<te>)`；工具栏「复制本页链接」复制 `[PDF p.N](paperland://paper/<id>?pdf=N)`。
+- **选区 → 按需流式翻译**：不再自动翻译（旧的 500ms stable-intent 已移除）。选区捕获约 60ms 落定后只显示工具栏；登录用户点击工具栏「翻译」才对当前 page/`ts`/`te`/text identity 挂载 `StreamingTranslationText` 调 `/api/translate/stream`（同一 identity 已打开时再次点击为 no-op）。浮层优先居中放在选区上方，空间不足时放到下方并为工具栏预留位置；宽度/x/y 都 clamp 在 viewer 内，内容增长由 ResizeObserver 重算。请求开始但尚无译文时，结果区直接显示原文，不显示“加载翻译”类占位文字；首个非空 delta 或 cache result 到达后，真实译文立即替换原文预览。每个真实 delta 整段追加后让出一帧，cache hit 直接完成。面板与工具栏内的 pointer interaction 拥有其引发的临时 selection collapse：浮层/source snapshot 保留并在 pointer-up 尝试恢复 Range；普通外部点击才关闭。选中不同的有效选区会立即 abort 旧请求并关闭旧浮层，新选区只显示工具栏。scroll Range 失效、zoom/theme text-layer 重渲染、PDF 切换、截图模式、Escape 或卸载会关闭工具栏/abort 请求/关闭浮层，late event 不得覆盖新选区；scroll 保持 Range 有效时按 rAF 重定位。匿名用户不显示「翻译」按钮、不调用 API、不弹登录。
 - **跳转 + 高亮**：监听 `requestedPdfTarget`，`{page}` 滚动到该页；`{page,ts,te}` 先确保该页渲染，再用 `buildTextSegments` 把偏移映射为 `Range.getClientRects()`，在页面上叠加临时高亮 div（`pdf-region-flash`，2.2s 淡出，不落库）并滚动到选区中心；`{page,rect}` 则把归一化 `[0,1]` 矩形直接换算到页面像素框画同款临时高亮（`highlightRect`）。`rect` 优先于 `ts/te`；偏移越界 / 矩形非法则退化为仅跳页 + toast 提示。
 - **失败兜底**：pdf.js 加载/解析失败时显示错误态并给出原始文件链接 `/api/files/<pdf_path>`；无 `pdf_path` 时保留「暂无 PDF」占位。
 - **框选截图 → 图床**：工具栏 `Crop` 图标进入截图模式（仅在传入 `paperId` 时显示，激活态高亮）。模式下滚动区 `cursor:crosshair`、文本层 `pointer-events:none` + `user-select:none`，从而拖拽画出橡皮筋矩形而非选中文字（`mousedown`→`mousemove`→`mouseup`，`Esc` 或再次点击取消）。松手后把该矩形钳制到所在 `.pdf-page`、归一化为 `{page,x,y,w,h}`，调 `cropRegionToImage(region, dpi)` 渲成 PNG，经 `utils/uploadImage` 上传图床，剪贴板写入 `[![](<image_url>)](paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=)`（坐标保留 4 位小数）并 toast 提示；上传期间 `capturing` 置位、忽略后续拖拽。
@@ -486,9 +494,9 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 | 入口 | 说明 |
 |------|------|
 | 论文详情页内嵌 | 针对当前论文提问，paper_id 自动绑定，展示模板提问和自由提问 |
-| 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接。默认仅展示当前用户自己的提问；所有登录用户均可切换「My Q&A / All Q&A」查看所有用户的提问并看到提问者。别人的 QA 对普通用户只读，owner/admin 才有重新生成与删除操作。 |
+| 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接。默认仅展示当前用户自己的提问；所有登录用户均可切换「My Q&A / All Q&A」查看自己 + 开启 Q&A 共享的用户的提问（admin 看全部，未共享的标 Private）并看到提问者。别人的 QA 对普通用户只读，owner/admin 才有重新生成与删除操作。 |
 
-**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = card 外的论文/提问者/时间行 + 下方可折叠 shadcn `Card`。card 头部显示状态、问题、当前用户的非零“高亮 N / 笔记引用 N”、个人淡色背景选择器以及回答数/模型；card body 复用 `QAResultView`。每次模型运行在排队前即成为独立 Result tab，状态为 `queued → awaiting_output → streaming → done|failed|cancelled`。多回答 Tabs 按成功完成时间、活动运行创建时间及 id 判定最新，新增 Result 自动选中；计时/答案/SSE/等价轮询不改变 selection signature，保留用户手动历史选择。`scope=mine|all` 默认 mine，所有登录用户可切换；all 中显示 asker，普通用户能实时阅读别人的 QA，但停止/重生成/删除仍由 Result/Entry owner 或 admin 控制。背景色通过 `qa_user_preferences` 跨设备同步，支持 gray/brown/orange/yellow/green/blue/purple/pink/red 九色。高亮计数来自当前用户实际 rows，笔记引用计数从当前用户该论文的 `notes.body` 锚点派生，不缓存计数。分页和轮询仍只重拉当前页，并批量聚合 creator/preferences/highlights/notes。
+**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = card 外的论文/提问者/时间行 + 下方可折叠 shadcn `Card`。card 头部显示状态、问题、当前用户的非零“高亮 N / 笔记引用 N”、个人淡色背景选择器以及回答数/模型；card body 复用 `QAResultView`。每次模型运行在排队前即成为独立 Result tab，状态为 `queued → awaiting_output → streaming → done|failed|cancelled`。多回答 Tabs 按成功完成时间、活动运行创建时间及 id 判定最新，新增 Result 自动选中；计时/答案/SSE/等价轮询不改变 selection signature，保留用户手动历史选择。`scope=mine|all` 默认 mine，所有登录用户可切换；all 按 Q&A 共享开关过滤（admin 不过滤），显示 asker，普通用户能实时阅读别人的 QA，但停止/重生成/删除仍由 Result/Entry owner 或 admin 控制。背景色通过 `qa_user_preferences` 跨设备同步，支持 gray/brown/orange/yellow/green/blue/purple/pink/red 九色。高亮计数来自当前用户实际 rows，笔记引用计数从当前用户该论文的 `notes.body` 锚点派生，不缓存计数。分页和轮询仍只重拉当前页，并批量聚合 creator/preferences/highlights/notes。
 
 #### QA Result 流式前端状态
 
@@ -588,6 +596,8 @@ content_priority:
 点击/tap 高亮 → 弹出菜单（改色 / 删除）→ PUT/DELETE /api/highlights/:id
 ```
 
+> **Mine / All 高亮叠加**：`HighlightScopeToggle`（论文详情 Preset Q&A 卡片头部、`/qa` 页头）切换 `useHighlightStore().scope`（`localStorage` 记忆，默认 Mine），重新拉取 `?scope=`。别人的高亮由 `applyHighlights(el, hls, viewerId)` 渲染为 `.hl-foreign`（无底色、按颜色的虚线下划线，`title` 显示属主用户名 / private），点击不弹改色删除菜单，只读。
+
 > **高亮只做高亮**：高亮本身不再附带笔记（per-paper 笔记由独立的 Notes 系统承担）。工具栏无「添加笔记」输入框、点击菜单无「编辑笔记」、桌面端也不再有悬停 tooltip。数据库里旧的 `highlights.note` 历史数据保留但不再读取（active schema 已移除该列，未做破坏性迁移）。
 
 #### 移动端适配
@@ -603,7 +613,7 @@ content_priority:
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/highlights?pathname=...` | 按页面路径获取所有高亮 |
+| GET | `/api/highlights?pathname=...&scope=mine\|all` | 按页面路径获取高亮；`all` = 自己的 + 共享者的（admin 全部），每条带 `user_id`/`username`/`shared` |
 | POST | `/api/highlights` | 创建高亮（仅颜色，无 note） |
 | PUT | `/api/highlights/:id` | 修改颜色 |
 | DELETE | `/api/highlights/:id` | 删除高亮 |
@@ -904,14 +914,25 @@ models:
 - 前端路由守卫：受限路由未登录弹登录框、非管理员访问管理员页提示无权限。
 - 侧边栏：未登录仍展示全部按钮（保持美观），点击受限项弹"需要登录"提示；登录后显示账户菜单（用户名、改名改密、登出）。
 
-### 5.3 数据归属（按用户私有）
+### 5.3 数据归属与多用户可见性
 
-`free Q&A`、`论文标签（tag for paper）`、`文本高亮` 增加 `user_id`（外键 `users.id`）：
+所有用户数据分三类（openspec `data-sharing-preferences`）：
+
+| 类别 | 数据 | 规则 |
+|---|---|---|
+| **始终全站共享** | 论文（任何人添加都进全站列表，避免重复抓取）、Preset Q&A、会议、翻译缓存 | 不受任何开关影响 |
+| **纯私有** | 标签及论文↔标签、图床图片列表、API token、QA 背景色/阅读偏好 | 只返回给属主 |
+| **用户可选共享** | 高亮、笔记、Free Q&A（含未来划线/截图提问）、参考链接 | 由属主每类一个开关决定 |
+
+- **共享开关**：每用户每类型一个全局开关（表 `user_sharing_settings`，稀疏存储；无行 = `config.yml` 的 `sharing.default_shared`，默认 `true`，因此存量数据迁移后即为共享）。开关作用于该类型全部已有与新建数据，无单条覆盖。账户对话框（`AccountDialog.vue`）的 **Sharing** 区块四个复选框，`GET/PUT /api/auth/me/sharing`（`sharingApi`，后端 `api/sharing.ts`）。
+- **统一 mine/all 语义**（后端 `auth/visibility.ts` 的 `ownerVisibilityFilter` 在 SQL 层过滤，分页 total 正确）：`mine` = 自己的；`all`（普通用户）= 自己的 + 开启该类型共享的其他用户的；`all`（admin）= 所有用户的，不论开关；匿名 = 仅始终共享数据 + 已发布笔记。每行返回 `user_id` / `username` / `shared`。
+- **前端展示**：`/notes`、`/qa`、论文详情 User Q&A、参考链接区、高亮（`HighlightScopeToggle`）都有 Mine / All 切换；不属于自己的条目显示属主用户名；`shared: false` 的条目（admin 看到的别人未共享数据，或自己未共享的数据）显示 **Private** 标记。
+- **只读**：可见不代表可写。别人的高亮/笔记/QA/参考链接对普通用户不显示编辑删除入口，后端也只允许 owner（QA 另允许 admin）修改。
+- **笔记发布是特例**：`is_public` 是单篇的 “Published” 状态，提供免登录访问的链接；已发布笔记无论属主笔记开关如何都出现在 All 列表。
 
 - **标签完全按用户隔离**：每个用户拥有自己的标签（名称 / 颜色 / 可见性）与"论文↔标签"关联，唯一性按 `(user_id, name)`。论文列表 / 详情仅展示当前用户的标签，匿名用户看不到任何标签（`papers.tags_json` 全局缓存已弃用，改为按当前用户实时 JOIN 计算）。
-- **free Q&A**：默认只看自己的，登录用户可显式切换 all 阅读所有用户 QA；写操作仍 owner/admin。**高亮、QA 背景 preference、笔记与两类阅读计数**始终只属于当前 viewer。模板问答（template）为公开共享（`user_id` 为空）。
+- **free Q&A**：默认只看自己的，登录用户可切换 all（按上述共享规则）；写操作仍 owner/admin。**QA 背景 preference 与两类阅读计数**始终只属于当前 viewer。模板问答（template）为公开共享（`user_id` 为空）。
 - **迁移**：升级时把库中已有的标签、free Q&A、高亮、API token 一次性归属到新建的 admin。
-- 笔记功能尚未实现，但归属模型已为其预留（未来加 `user_id` 即可）。
 
 ### 5.4 External API Token
 
@@ -1384,7 +1405,7 @@ paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=      // 跳到该页并高亮�
 
 - 论文详情页右栏 `PaperNotesCard`：即思维导图（中心节点 `(root)` + 各 heading）+ 标题栏一个 `ExternalLink` 打开整篇浮窗编辑器；匿名显示「Sign in to take notes」。**Kimi 自动摘要 card 紧贴 notes card 下方**。左侧查看器 `PaperViewerPanel` 的「Note」Tab（始终可用、由 Walk-through 改名）即三模式文档视图。
 - **论文列表 note-status 列**（`views/PaperList.vue`）：按当前用户的 `GET /api/notes`（含 `completed`）建 `paperId → completed` 映射，每行显示三态图标——无笔记 `CircleDashed`（灰）、有笔记 `Circle`、精读完成 `CircleCheck`（primary）；点击 `?view=note` 跳到该论文 Note Tab。
-- 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：每条笔记一行 + 客户端搜索（论文标题 + body + 作者）。**范围切换 Mine / Everyone**（Mine = 自己的；Everyone = 所有人公开的 + 自己的，`GET /api/notes?scope=all`），每行显示作者 `username` + Public/Private 徽章；**管理员**额外有「Include private」开关（`include_private=true`，仅 Everyone 时可见，把别人未公开的也列出）。点击：别人的笔记走 `?note=<id>` 深链（右侧面板自动展开该笔记），自己的笔记直接跳 `/papers/:id`（自己的笔记本就在自己的 Note Tab）。
+- 独立 `/notes` 页（`views/NotesPage.vue`，`requiresAuth`）：每条笔记一行 + 客户端搜索（论文标题 + body + 作者）。**范围切换 Mine / All**（Mine = 自己的；All = 已发布 + 属主开启笔记共享的 + 自己的，admin 为全部，`GET /api/notes?scope=all`），别人的笔记显示作者 `username`；已发布显示 **Published**，`shared: false` 显示 **Private**（`include_private` 参数已废弃并被忽略）。点击：别人的笔记走 `?note=<id>` 深链（右侧面板自动展开该笔记），自己的笔记直接跳 `/papers/:id`（自己的笔记本就在自己的 Note Tab）。
 - 访问控制沿用 auth：owner-scoped 读（匿名 `{ note: null }` 200）、写 `requireUser` + 属主校验；公开笔记的跨用户读是单独的、对匿名开放的路由（见下）。
 
 ### 公开笔记 (Public notes)
@@ -1392,13 +1413,13 @@ paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=      // 跳到该页并高亮�
 属主可把整篇笔记设为公开，供任何人（含未登录）只读查看其思维导图 + 全文。
 
 - **后端跨用户读**（都不需要登录、各自在 handler 内做授权）：
-  - `GET /api/papers/:id/public-notes` → 该论文**其他用户**的公开非空笔记的**无 body** 摘要列表（`{ id, user_id, username, updated_at }`，匿名不排除任何作者）。供右侧面板懒加载用。
-  - `GET /api/notes/:noteId` → 单篇笔记全文 + 作者（`NoteWithAuthor`）。授权：公开 OR 属主 OR 管理员，否则 **404**（不泄露存在性）。
-- **右侧面板「Public notes from others」**（`components/notes/PublicNotesPanel.vue`，挂在 `NoteWalkthrough` render 区底部）：挂载时拉 `public-notes` 列表，每条**默认折叠 + 不渲染**；首次展开才 `GET /api/notes/:noteId` 取 body 并渲染。永不列出自己的笔记。匿名也可见。
+  - `GET /api/papers/:id/public-notes` → 该论文**其他用户**中当前访问者可读的非空笔记的**无 body** 摘要列表（`{ id, user_id, username, is_public, shared, updated_at }`）：已发布（任何人）+ 属主开启笔记共享（登录用户）+ 全部（admin）；匿名只得已发布的、不排除任何作者。供右侧面板懒加载用。
+  - `GET /api/notes/:noteId` → 单篇笔记全文 + 作者（`NoteWithAuthor`，含 `shared`）。授权：已发布 OR 属主 OR 管理员 OR（已登录且属主开启笔记共享），否则 **404**（不泄露存在性）。
+- **右侧面板「Notes from others」**（`components/notes/PublicNotesPanel.vue`，挂在 `NoteWalkthrough` render 区底部）：挂载时拉 `public-notes` 列表，每条显示作者 + Published / Private 标记，**默认折叠 + 不渲染**；首次展开才 `GET /api/notes/:noteId` 取 body 并渲染。永不列出自己的笔记。匿名也可见。
 - **只读渲染**（`components/notes/PublicNoteView.vue`）：**先思维导图、后全文**。思维导图复用 `NoteMindmap` 的 `readonly` + `doc` 模式（传入外部解析的文档树，禁用拖拽/undo/节点操作/点开编辑器；`NoteNode` 同步加 `readonly`）。全文用 `MarkdownContent` 的 `:public-note` 模式渲染——**Q&A/块锚点（`?h=`）失活为普通文本**（`.anchor-inert`，因为它只会对**当前查看者**的 Q&A 寻址、对别人的笔记无意义），**PDF 锚点（`?pdf=`）仍可点**。
-- **属主操作**（`NoteWalkthrough` 顶部功能栏，仅自己的非空笔记可见）：发布/取消发布开关（`Globe`/`Lock`，绑 `store.setPublic`）；公开后出现「复制链接」（`Link2`，复制 `store.shareLink` = `<origin>/papers/<paperId>?note=<noteId>`）。
+- **属主操作**（`NoteWalkthrough` 顶部功能栏，仅自己的非空笔记可见）：发布/取消发布开关（`Globe`「Published」/`GlobeLock`「Publish」，绑 `store.setPublic`；发布 = 生成免登录可读链接，与 Account → Sharing 的笔记共享开关相互独立）；公开后出现「复制链接」（`Link2`，复制 `store.shareLink` = `<origin>/papers/<paperId>?note=<noteId>`）。
 - **分享深链 `?note=<id>`**：`PaperDetail.handleNoteDeepLink` 先 `notesApi.getById` 取该笔记——若是**自己的**笔记则 toast 提示「这是你自己的笔记」并**不自动展开**（它本就在自己的 Note Tab）；否则 `requestPublicNote(noteId)`。模块级 `composables/usePublicNoteOpen.ts` 的 `requestedPublicNote` ref（仿 `usePdfNavigation`）解耦：`PaperViewerPanel` 监听后切到「Note」Tab，`PublicNotesPanel` 监听（`immediate`，兼容「面板在请求之后才挂载」）后展开该条 + 懒取 body + 滚动到它，处理完清空请求。取不到（删了/不可读）→ toast「Note unavailable」并停留在论文页。
 
 ### 后端 API（`api/notes.ts`，owner-scoped + 公开读）
 
-`GET /api/papers/:id/note`（返回 `{ note }` 或 `{ note: null }`；匿名 200 空；含 `completed` + `is_public` 布尔）、`PUT /api/papers/:id/note`（upsert 整篇 body + 乐观 `updated_at`；首次创建无需 `updated_at`，stale → 409 带最新；唯一索引冲突回读胜出者；**保留 `completed`/`is_public` 不动**）、`POST /api/papers/:id/note/completed`（`{ completed }` 切换精读完成；需已存在笔记行，否则 400；匿名 401；内联鉴权）、`PUT /api/papers/:id/note/visibility`（`{ is_public }` 切换公开；需已存在非空笔记，否则 400；匿名 401；内联鉴权）、`GET /api/papers/:id/public-notes`（其他用户公开非空笔记的无 body 摘要；免登录）、`GET /api/notes/:noteId`（单篇全文 + 作者；公开/属主/管理员可读，否则 404；免登录）、`GET /api/notes`（跨论文聚合，每篇一条 + `paper_title` + `username` + `completed` + `is_public`，排除空 body；`?scope=mine|all`（默认 mine；mine 匿名 401）、`?include_private=true` 仅管理员且 scope=all 时生效；**鉴权在 handler 内联判断而非 `requireUser` preHandler**）。`completed`/`is_public` 在 SQLite 为 0/1，API 边界经 `toNote()` 转布尔。已移除旧的 tree 端点（create/move/subtree-delete/`PUT /root`）与 `ensureRoot`。
+`GET /api/papers/:id/note`（返回 `{ note }` 或 `{ note: null }`；匿名 200 空；含 `completed` + `is_public` 布尔）、`PUT /api/papers/:id/note`（upsert 整篇 body + 乐观 `updated_at`；首次创建无需 `updated_at`，stale → 409 带最新；唯一索引冲突回读胜出者；**保留 `completed`/`is_public` 不动**）、`POST /api/papers/:id/note/completed`（`{ completed }` 切换精读完成；需已存在笔记行，否则 400；匿名 401；内联鉴权）、`PUT /api/papers/:id/note/visibility`（`{ is_public }` 切换公开；需已存在非空笔记，否则 400；匿名 401；内联鉴权）、`GET /api/papers/:id/public-notes`（其他用户公开非空笔记的无 body 摘要；免登录）、`GET /api/notes/:noteId`（单篇全文 + 作者；公开/属主/管理员可读，否则 404；免登录）、`GET /api/notes`（跨论文聚合，每篇一条 + `paper_title` + `username` + `completed` + `is_public`，排除空 body；`?scope=mine|all`（默认 mine；mine 匿名 401；all = 已发布 + 共享 + 自己，admin 全部，匿名仅已发布；每条带 `shared`；`include_private` 已废弃被忽略）；**鉴权在 handler 内联判断而非 `requireUser` preHandler**）。`completed`/`is_public` 在 SQLite 为 0/1，API 边界经 `toNote()` 转布尔。已移除旧的 tree 端点（create/move/subtree-delete/`PUT /root`）与 `ensureRoot`。

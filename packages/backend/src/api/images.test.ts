@@ -118,11 +118,10 @@ describe('image routes', () => {
     currentUser = makeUser(db, 'alice')
     const up = await app.inject({ method: 'POST', url: '/api/images', payload: { data: PNG_1x1 } })
     const { hash, url } = up.json().data
-    const paperId = makePaper(db)
     const now = new Date().toISOString()
-    // one note references it twice, one note not at all
-    db.insert(schema.notes).values({ user_id: currentUser.id, paper_id: paperId, kind: 'note', parent_id: null, body: `![](${url}) and again ![](${url})`, sort_order: 0, created_at: now, updated_at: now }).run()
-    db.insert(schema.notes).values({ user_id: currentUser.id, paper_id: paperId, kind: 'note', parent_id: null, body: 'no images here', sort_order: 1, created_at: now, updated_at: now }).run()
+    // one note references it twice, one note not at all (one note per (user, paper), so two papers)
+    db.insert(schema.notes).values({ user_id: currentUser.id, paper_id: makePaper(db), kind: 'note', parent_id: null, body: `![](${url}) and again ![](${url})`, sort_order: 0, created_at: now, updated_at: now }).run()
+    db.insert(schema.notes).values({ user_id: currentUser.id, paper_id: makePaper(db), kind: 'note', parent_id: null, body: 'no images here', sort_order: 0, created_at: now, updated_at: now }).run()
 
     const res = await app.inject({ method: 'GET', url: '/api/images' })
     const body = res.json()

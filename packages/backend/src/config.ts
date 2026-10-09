@@ -7,7 +7,10 @@ import type { AppConfig } from '@paperland/shared'
 const databaseBackupSchema = z.object({
   enabled: z.boolean().default(false),
   dir: z.string().default('./data/backups'),
-  retention_days: z.number().default(30),
+  // Tiered retention: keep every daily backup up to keep_daily_days old, then one per
+  // checkpoint interval (e.g. (7,14] and (14,28]); see db/backup.ts.
+  keep_daily_days: z.number().int().min(0).default(7),
+  keep_checkpoint_days: z.array(z.number().int().positive()).default([14, 28]),
 })
 
 const databaseSchema = z.object({
@@ -174,6 +177,11 @@ const notesSchema = z.object({
   image_width_tiers: notesImageWidthTiersSchema.default({ sm: 240, md: 480, lg: 720 }),
 })
 
+// Default for a user's per-type sharing switch when they have never set it (see user_sharing_settings).
+const sharingSchema = z.object({
+  default_shared: z.boolean().default(true),
+})
+
 const configSchema = z.object({
   database: databaseSchema,
   auth: authSchema,
@@ -192,6 +200,8 @@ const configSchema = z.object({
   reference_links: referenceLinksSchema.default({ fetch_timeout_ms: 8000, max_bytes: 524288, user_agent: DEFAULT_LINK_PREVIEW_UA }),
   // Explicit literal default (not `.default({})`) so inner tier defaults hold when the key is absent.
   notes: notesSchema.default({ image_width_tiers: { sm: 240, md: 480, lg: 720 } }),
+  // Explicit literal default (not `.default({})`) so `default_shared: true` holds when the key is absent.
+  sharing: sharingSchema.default({ default_shared: true }),
 }).superRefine((config, ctx) => {
   if (config.translation.model && !config.models.available.some((model) => model.name === config.translation.model)) {
     ctx.addIssue({

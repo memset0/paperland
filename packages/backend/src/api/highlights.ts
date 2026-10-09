@@ -3,25 +3,38 @@ import { eq, and } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { touchPaperUpdatedAt, parsePaperIdFromPathname } from '../db/utils.js'
 import { requireUser } from '../auth/guards.js'
+import { ownerVisibilityFilter, parseScope, sharedFlagsFor } from '../auth/visibility.js'
 import { markdownContentHash } from '../services/content_hash.js'
 
 export async function highlightsRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/highlights?pathname=/papers/42
-  app.get<{ Querystring: { pathname?: string } }>('/api/highlights', async (request, reply) => {
+  // GET /api/highlights?pathname=/papers/42&scope=mine|all
+  // mine (default) = own; all = own + highlights of users who share highlights (admin: every
+  // user's) — see auth/visibility.ts. Anonymous users get an empty set (HTTP 200, not 401).
+  app.get<{ Querystring: { pathname?: string; scope?: string } }>('/api/highlights', async (request, reply) => {
     const { pathname } = request.query
     if (!pathname) {
       return reply.code(400).send({ error: { message: 'pathname query parameter is required' } })
     }
-    // Owner-scoped: anonymous users get an empty set (HTTP 200, not 401).
-    const userId = request.user?.id
-    if (userId == null) return { data: [] }
+    if (request.user == null) return { data: [] }
 
     const db = getDatabase()
-    const rows = db.select().from(schema.highlights)
-      .where(and(eq(schema.highlights.pathname, pathname), eq(schema.highlights.user_id, userId)))
+    const rows = db.select({ highlight: schema.highlights, username: schema.users.username })
+      .from(schema.highlights)
+      .leftJoin(schema.users, eq(schema.highlights.user_id, schema.users.id))
+      .where(and(
+        eq(schema.highlights.pathname, pathname),
+        ownerVisibilityFilter(request.user, 'highlights', schema.highlights.user_id, parseScope(request.query.scope)),
+      ))
       .all()
+    const sharedByOwner = sharedFlagsFor('highlights', rows.map((r) => r.highlight.user_id))
 
-    return { data: rows }
+    return {
+      data: rows.map(({ highlight, username }) => ({
+        ...highlight,
+        username: username ?? null,
+        shared: highlight.user_id != null ? (sharedByOwner.get(highlight.user_id) ?? false) : false,
+      })),
+    }
   })
 
   // POST /api/highlights

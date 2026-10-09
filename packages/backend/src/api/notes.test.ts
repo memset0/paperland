@@ -273,21 +273,33 @@ describe('notes routes (Fastify inject)', () => {
     expect((await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })).statusCode).toBe(401)
   })
 
-  it('single-note fetch: public to anyone; private to owner/admin only; else 404', async () => {
+  /** Turn off user `uid`'s notes sharing switch (default is shared). */
+  const optOut = (uid: number) =>
+    sqlite.exec(`INSERT INTO user_sharing_settings (user_id, data_type, shared, updated_at) VALUES (${uid}, 'notes', 0, 't')`)
+
+  it('single-note fetch: published to anyone; shared to logged-in; unshared to owner/admin only', async () => {
     currentUser = { id: 1, username: 'u1', role: 'admin' }
     const noteId = ((await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'doc' } })).json().data as Note).id
-    // Owner reads own private note (annotated with paper title + author).
+    // Owner reads own unpublished note (annotated with paper title + author).
     const owner = await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })
     expect(owner.statusCode).toBe(200)
     expect(owner.json().data.username).toBe('u1')
     expect(owner.json().data.paper_title).toBe('P')
-    // A different non-admin user → 404 (existence not revealed).
+    expect(owner.json().data.shared).toBe(true)
+    // Default shared: another logged-in user can read it; anonymous cannot.
+    currentUser = { id: 2, username: 'u2', role: 'user' }
+    expect((await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })).statusCode).toBe(200)
+    currentUser = null
+    expect((await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })).statusCode).toBe(404)
+    // Owner opts out: non-admin → 404 (existence not revealed); admin → 200.
+    optOut(1)
     currentUser = { id: 2, username: 'u2', role: 'user' }
     expect((await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })).statusCode).toBe(404)
-    // An admin (other user) → 200.
     currentUser = { id: 3, username: 'u3', role: 'admin' }
-    expect((await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })).statusCode).toBe(200)
-    // Once public, anonymous can read.
+    const adminRead = await app.inject({ method: 'GET', url: `/api/notes/${noteId}` })
+    expect(adminRead.statusCode).toBe(200)
+    expect(adminRead.json().data.shared).toBe(false)
+    // Once published, anonymous can read despite the switch.
     currentUser = { id: 1, username: 'u1', role: 'admin' }
     await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
     currentUser = null
@@ -296,50 +308,63 @@ describe('notes routes (Fastify inject)', () => {
     expect((await app.inject({ method: 'GET', url: `/api/notes/99999` })).statusCode).toBe(404)
   })
 
-  it('per-paper public list: others public only, excludes own + private, body-less', async () => {
+  it('per-paper others list: published + shared, excludes own + unshared, body-less', async () => {
     currentUser = { id: 1, username: 'u1', role: 'user' }
     await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'one' } })
     await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
     currentUser = { id: 2, username: 'u2', role: 'user' }
-    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'two' } })
-    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'two' } }) // shared (default), unpublished
     currentUser = { id: 3, username: 'u3', role: 'user' }
-    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'three' } }) // private
-    // As user 1: sees only user 2 (public, other), not own, not user 3 (private), and no body.
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'three' } })
+    optOut(3) // unshared, unpublished
+    // As user 1: sees user 2 (shared), not own, not user 3 (unshared), and no body.
     currentUser = { id: 1, username: 'u1', role: 'user' }
     const list = (await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/public-notes` })).json().data as PublicNoteSummary[]
     expect(list.map((n) => n.user_id)).toEqual([2])
-    expect(list[0].username).toBe('u2')
+    expect(list[0]).toMatchObject({ username: 'u2', is_public: false, shared: true })
     expect((list[0] as Record<string, unknown>).body).toBeUndefined()
-    // Anonymous sees both public notes, not the private one.
+    // Anonymous sees only the published note.
     currentUser = null
     const anon = (await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/public-notes` })).json().data as PublicNoteSummary[]
-    expect(anon.map((n) => n.user_id).sort()).toEqual([1, 2])
+    expect(anon.map((n) => n.user_id)).toEqual([1])
+    // Admin sees every other user's note, unshared flagged.
+    currentUser = { id: 1, username: 'u1', role: 'admin' }
+    const admin = (await app.inject({ method: 'GET', url: `/api/papers/${PAPER}/public-notes` })).json().data as PublicNoteSummary[]
+    expect(admin.map((n) => n.user_id).sort()).toEqual([2, 3])
+    expect(admin.find((n) => n.user_id === 3)!.shared).toBe(false)
   })
 
-  it('aggregate scope: mine (own) vs all (public+own); admin include_private adds others private', async () => {
+  it('aggregate scope: mine (own) vs all (published + shared + own); admin sees everything', async () => {
     currentUser = { id: 1, username: 'u1', role: 'user' }
     await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'pub1' } })
     await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note/visibility`, payload: { is_public: true } })
+    optOut(1) // published note still listed despite the switch
     currentUser = { id: 2, username: 'u2', role: 'user' }
-    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'priv2' } }) // private
-    // User 3 owns nothing: scope=mine empty; scope=all sees only user 1's public note.
+    await app.inject({ method: 'PUT', url: `/api/papers/${PAPER}/note`, payload: { body: 'priv2' } })
+    optOut(2)
+    // User 3 owns nothing: scope=mine empty; scope=all sees only user 1's published note.
     currentUser = { id: 3, username: 'u3', role: 'user' }
     expect(((await app.inject({ method: 'GET', url: '/api/notes?scope=mine' })).json().data as Note[]).length).toBe(0)
     const all3 = (await app.inject({ method: 'GET', url: '/api/notes?scope=all' })).json().data as NoteWithAuthor[]
     expect(all3.map((n) => n.user_id)).toEqual([1])
     expect(all3[0].username).toBe('u1')
     expect(all3[0].is_public).toBe(true)
+    expect(all3[0].shared).toBe(true)
     // Non-admin include_private has no effect.
     expect(((await app.inject({ method: 'GET', url: '/api/notes?scope=all&include_private=true' })).json().data as Note[]).map((n) => n.user_id)).toEqual([1])
-    // Anonymous scope=all → public only, HTTP 200.
+    // Anonymous scope=all → published only, HTTP 200.
     currentUser = null
     const anonAll = await app.inject({ method: 'GET', url: '/api/notes?scope=all' })
     expect(anonAll.statusCode).toBe(200)
     expect((anonAll.json().data as Note[]).map((n) => n.user_id)).toEqual([1])
-    // Admin include_private also pulls user 2's private note.
+    // Admin all also pulls user 2's unshared note, flagged shared=false.
     currentUser = { id: 3, username: 'u3', role: 'admin' }
-    const adminAll = (await app.inject({ method: 'GET', url: '/api/notes?scope=all&include_private=true' })).json().data as Note[]
+    const adminAll = (await app.inject({ method: 'GET', url: '/api/notes?scope=all' })).json().data as NoteWithAuthor[]
     expect(adminAll.map((n) => n.user_id).sort()).toEqual([1, 2])
+    expect(adminAll.find((n) => n.user_id === 2)!.shared).toBe(false)
+    // Once user 2 shares again, a non-admin sees it.
+    sqlite.exec(`UPDATE user_sharing_settings SET shared = 1 WHERE user_id = 2`)
+    currentUser = { id: 3, username: 'u3', role: 'user' }
+    expect(((await app.inject({ method: 'GET', url: '/api/notes?scope=all' })).json().data as Note[]).map((n) => n.user_id).sort()).toEqual([1, 2])
   })
 })

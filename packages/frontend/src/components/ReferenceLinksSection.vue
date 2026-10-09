@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { Link2, Plus, Pencil, Trash2, ExternalLink, Loader2 } from '@lucide/vue'
+import { Link2, Plus, Pencil, Trash2, ExternalLink, Loader2, User, Lock } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { referenceLinksApi } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
-import type { PaperReferenceLink } from '@paperland/shared'
+import type { PaperReferenceLink, VisibilityScope } from '@paperland/shared'
 
 const props = defineProps<{ paperId: number }>()
 
@@ -13,6 +13,22 @@ const auth = useAuthStore()
 
 const links = ref<PaperReferenceLink[]>([])
 const loading = ref(false)
+
+// Mine (default) / All: All adds other users' shared links (admins: every user's), read-only.
+// Remembered per browser; storage may be unavailable (private mode), so failures fall back to mine.
+const SCOPE_KEY = 'paperland.referenceLinks.scope'
+function readScope(): VisibilityScope {
+  try { return localStorage.getItem(SCOPE_KEY) === 'all' ? 'all' : 'mine' } catch { return 'mine' }
+}
+const scope = ref<VisibilityScope>(readScope())
+function setScope(next: VisibilityScope) {
+  scope.value = next
+  try { localStorage.setItem(SCOPE_KEY, next) } catch { /* ignore */ }
+}
+
+function isOwn(link: PaperReferenceLink): boolean {
+  return auth.user != null && link.user_id === auth.user.id
+}
 
 // One shared form drives both "add" and "edit": editingId === null while adding,
 // or the link's id while editing. The form is open whenever `adding` or `editingId`.
@@ -50,7 +66,7 @@ function isHttpUrl(u: string): boolean {
 async function load() {
   loading.value = true
   try {
-    const res = await referenceLinksApi.getForPaper(props.paperId)
+    const res = await referenceLinksApi.getForPaper(props.paperId, auth.isAuthenticated ? scope.value : 'mine')
     links.value = res.data
   } finally {
     loading.value = false
@@ -160,13 +176,26 @@ async function remove(link: PaperReferenceLink) {
 
 onMounted(load)
 watch(() => props.paperId, load)
+watch(scope, load)
 </script>
 
 <template>
   <div class="space-y-2">
     <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
       <Link2 class="h-3 w-3" /> 参考链接
-      <Button v-if="auth.isAuthenticated && !showForm" variant="ghost" size="icon-xs" class="ml-auto" @click="startAdd">
+      <div v-if="auth.isAuthenticated" class="ml-auto flex items-center rounded border overflow-hidden normal-case tracking-normal">
+        <button
+          class="px-1.5 py-0.5"
+          :class="scope === 'mine' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'"
+          @click="setScope('mine')"
+        >Mine</button>
+        <button
+          class="px-1.5 py-0.5"
+          :class="scope === 'all' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'"
+          @click="setScope('all')"
+        >All</button>
+      </div>
+      <Button v-if="auth.isAuthenticated && !showForm" variant="ghost" size="icon-xs" @click="startAdd">
         <Plus />
       </Button>
     </div>
@@ -189,8 +218,12 @@ watch(() => props.paperId, load)
             <ExternalLink class="h-3 w-3 shrink-0" />
           </a>
           <p v-if="link.title && link.description" class="text-xs text-muted-foreground leading-snug">{{ link.description }}</p>
+          <p v-if="!isOwn(link)" class="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+            <User class="h-2.5 w-2.5" />{{ link.username }}
+            <template v-if="link.shared === false"> · <Lock class="h-2.5 w-2.5" />Private</template>
+          </p>
         </div>
-        <div v-if="auth.isAuthenticated" class="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity hover:opacity-100 group-hover:opacity-100">
+        <div v-if="isOwn(link)" class="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity hover:opacity-100 group-hover:opacity-100">
           <Button variant="ghost" size="icon-xs" title="编辑" @click="startEdit(link)">
             <Pencil />
           </Button>

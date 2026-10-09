@@ -8,7 +8,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { Trash2, Link2, Copy } from '@lucide/vue'
 import { useHighlightStore } from '@/stores/highlights'
 import { useAuthStore } from '@/stores/auth'
-import { applyHighlights, clearHighlights, getSelectionOffsets } from '@/composables/useHighlight'
+import { applyHighlights, clearHighlights, getSelectionOffsets, isForeignHighlight } from '@/composables/useHighlight'
 import { useBlockAnchor, type AnchorRange } from '@/composables/useBlockAnchor'
 import { usePdfNavigation } from '@/composables/usePdfNavigation'
 import type { HighlightColor } from '@paperland/shared'
@@ -114,7 +114,7 @@ function renderAndHighlight() {
   // Apply highlights after DOM update
   nextTick(() => {
     if (!el || myHighlights.value.length === 0) return
-    applyHighlights(el, myHighlights.value)
+    applyHighlights(el, myHighlights.value, auth.user?.id ?? null)
   })
 }
 
@@ -419,6 +419,8 @@ function onMarkClick(e: MouseEvent | Event) {
   const id = parseInt(mark.dataset.highlightId!, 10)
   const hl = myHighlights.value.find(h => h.id === id)
   if (!hl) return
+  // Another user's highlight is read-only: its owner shows via the mark's title tooltip.
+  if (isForeignHighlight(hl, auth.user?.id ?? null)) return
 
   const containerRect = containerRef.value!.getBoundingClientRect()
   const markRect = mark.getBoundingClientRect()
@@ -636,6 +638,12 @@ onBeforeUnmount(() => {
 .markdown-content :deep(.hl-green) { background-color: rgba(74, 222, 128, 0.35); border-radius: 2px; cursor: pointer; }
 .markdown-content :deep(.hl-blue) { background-color: rgba(96, 165, 250, 0.35); border-radius: 2px; cursor: pointer; }
 .markdown-content :deep(.hl-pink) { background-color: rgba(244, 114, 182, 0.35); border-radius: 2px; cursor: pointer; }
+/* Other users' highlights (All scope): no fill so the viewer's own fill stays readable; read-only. */
+.markdown-content :deep(.hl-foreign) { background-color: transparent; color: inherit; text-decoration-line: underline; text-decoration-style: dashed; text-decoration-thickness: 2px; text-underline-offset: 3px; cursor: help; }
+.markdown-content :deep(.hl-foreign-yellow) { text-decoration-color: rgba(234, 179, 8, 0.8); }
+.markdown-content :deep(.hl-foreign-green) { text-decoration-color: rgba(34, 197, 94, 0.8); }
+.markdown-content :deep(.hl-foreign-blue) { text-decoration-color: rgba(59, 130, 246, 0.8); }
+.markdown-content :deep(.hl-foreign-pink) { text-decoration-color: rgba(236, 72, 153, 0.8); }
 
 /* --- Shared icon size for buttons in toolbar / menu --- */
 .hl-icon {

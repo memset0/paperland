@@ -2,17 +2,23 @@
 
 ## Purpose
 Per-user reference links on papers — each user maintains a private list of named hyperlinks (title, url, optional description) for any paper, with create/update/delete/list API endpoints and a "参考链接" section in the paper detail page.
+
 ## Requirements
+
 ### Requirement: Per-user reference link list per paper
-The system SHALL let each user maintain a private list of reference links for each paper, keyed by `(user_id, paper_id)`. A user's reference links for a paper SHALL be visible only to that user and SHALL NOT be affected by other users' reference links on the same paper. Each link SHALL be stored as its own row carrying a stable `id`, the owning `user_id`, the `paper_id`, and `created_at`/`updated_at` timestamps.
+The system SHALL let each user maintain their own list of reference links for each paper, keyed by `(user_id, paper_id)`. A user's links SHALL be editable only by that user and SHALL NOT be affected by other users' links on the same paper. Visibility of a user's links to others SHALL follow that user's `reference_links` sharing switch (see the `data-sharing-preferences` capability). Each link SHALL be stored as its own row carrying a stable `id`, the owning `user_id`, the `paper_id`, and `created_at`/`updated_at` timestamps.
 
 #### Scenario: Links are private to the owner
-- **WHEN** user A adds a reference link to paper 123 and user B requests paper 123's reference links
+- **WHEN** user A, who does not share reference links, adds a link to paper 123 and non-admin user B requests paper 123's links with `scope=all`
 - **THEN** user B's list SHALL NOT include user A's link
+
+#### Scenario: Shared links visible in all scope
+- **WHEN** user A shares reference links and user B requests paper 123's links with `scope=all`
+- **THEN** user B's list SHALL include user A's link attributed to A, and B SHALL NOT be able to edit or delete it
 
 #### Scenario: Links are scoped per paper
 - **WHEN** a user requests the reference links for a given paper
-- **THEN** the system SHALL return only that user's links for that paper, and no links belonging to other papers
+- **THEN** the system SHALL return only links for that paper, and no links belonging to other papers
 
 #### Scenario: Removing a paper removes its reference links
 - **WHEN** a paper is deleted
@@ -57,7 +63,7 @@ The system SHALL expose authenticated endpoints to create, update, and delete a 
 - **THEN** the system SHALL reject it with an authentication error and SHALL NOT modify any data
 
 ### Requirement: List reference links
-The system SHALL expose `GET /api/papers/:id/reference-links` returning the requesting user's reference links for that paper, ordered by `created_at` ascending (insertion order) with `id` as a tiebreaker. For an unauthenticated request the endpoint SHALL return an empty list rather than an error.
+The system SHALL expose `GET /api/papers/:id/reference-links?scope=mine|all` (default `mine`). `mine` SHALL return the requesting user's links; `all` SHALL follow the uniform all-scope rules. Results SHALL be ordered by `created_at` ascending (insertion order) with `id` as a tiebreaker, and each link SHALL carry `user_id`, `username`, and `shared`. For an unauthenticated request the endpoint SHALL return an empty list rather than an error.
 
 #### Scenario: List in insertion order
 - **WHEN** an authenticated user has added several links to a paper and requests the list
@@ -68,7 +74,7 @@ The system SHALL expose `GET /api/papers/:id/reference-links` returning the requ
 - **THEN** the system SHALL respond with an empty list and no error
 
 ### Requirement: Reference links section in the paper detail page
-The paper detail page SHALL present a "参考链接" section that lists the current user's reference links for the paper. The controls to add, edit, and delete links SHALL be presented only to an authenticated user; an unauthenticated viewer SHALL NOT see add/edit/delete affordances. Each link SHALL render as a hyperlink to its `url` that opens in a new tab with `rel="noopener noreferrer"`, using a display label resolved by the fallback chain `title → description → url` (the `title` when present, otherwise the `description`, otherwise the raw `url`). After a successful add/edit/delete the displayed list SHALL reflect the change without a full page reload.
+The paper detail page SHALL present a "参考链接" section that lists reference links for the paper, with a Mine / All selector for authenticated users (default Mine). The controls to add links SHALL be presented only to an authenticated user, and edit/delete controls SHALL be presented only on the viewer's own links; an unauthenticated viewer SHALL NOT see add/edit/delete affordances. Links owned by someone else SHALL show the owner's username (and, for an admin viewing an unshared link, a "Private" marker). Each link SHALL render as a hyperlink to its `url` that opens in a new tab with `rel="noopener noreferrer"`, using a display label resolved by the fallback chain `title → description → url`. After a successful add/edit/delete the displayed list SHALL reflect the change without a full page reload.
 
 #### Scenario: Link label uses the fallback chain
 - **WHEN** a link has no title but has a description
@@ -77,6 +83,10 @@ The paper detail page SHALL present a "参考链接" section that lists the curr
 #### Scenario: Management controls hidden when unauthenticated
 - **WHEN** an unauthenticated user views the paper detail page
 - **THEN** the 参考链接 section SHALL NOT show add, edit, or delete controls
+
+#### Scenario: Others' links are read-only and attributed
+- **WHEN** a user switches the section to All and another user's link appears
+- **THEN** the link SHALL show its owner's username and SHALL NOT show edit or delete controls
 
 #### Scenario: Add a link from the UI
 - **WHEN** an authenticated user enters a url (and optionally a title) and submits
@@ -87,7 +97,7 @@ The paper detail page SHALL present a "参考链接" section that lists the curr
 - **THEN** the form SHALL present a required url input and an optional title input, and SHALL show the auto-derived description as read-only text (no manual description input)
 
 #### Scenario: Edit and delete from the UI
-- **WHEN** an authenticated user edits a link's url and saves, or deletes a link
+- **WHEN** an authenticated user edits one of their own links' url and saves, or deletes one of their own links
 - **THEN** the list SHALL update in place to reflect the edit or removal
 
 #### Scenario: Deleting a link asks for confirmation
@@ -123,4 +133,3 @@ The system SHALL expose an authenticated endpoint `GET /api/reference-links/prev
 #### Scenario: Failed crawl returns a null description without error
 - **WHEN** an authenticated user previews a url that times out, errors, or has no usable title
 - **THEN** the system SHALL respond `200` with a `null` description rather than a 4xx/5xx error
-

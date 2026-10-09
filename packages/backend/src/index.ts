@@ -8,6 +8,7 @@ import { initDatabase } from './db/index.js'
 import { tokenAuth } from './auth/token_auth.js'
 import { resolveSessionUser, getDevAdmin } from './auth/session_auth.js'
 import { authRoutes } from './api/auth.js'
+import { sharingRoutes } from './api/sharing.js'
 import { userRoutes } from './api/users.js'
 import { settingsRoutes } from './api/settings.js'
 import { paperRoutes } from './api/papers.js'
@@ -146,6 +147,7 @@ async function main() {
 
   // Register routes
   await app.register(authRoutes)
+  await app.register(sharingRoutes)
   await app.register(userRoutes)
   await app.register(settingsRoutes)
   await app.register(paperRoutes)

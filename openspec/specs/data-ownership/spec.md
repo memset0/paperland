@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-user-auth. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Ownership columns on user-private data
 The system SHALL add a `user_id` column referencing `users.id` to the `tags`, `qa_entries`, `highlights`, and `api_tokens` tables. For `qa_entries`, `user_id` SHALL be populated for `free` entries and SHALL be null for `template` entries (which are shared and public).
 
@@ -19,19 +21,23 @@ The system SHALL add a `user_id` column referencing `users.id` to the `tags`, `q
 - **THEN** the corresponding row SHALL have `user_id` set to that user
 
 ### Requirement: Owner-scoped reads
-GET endpoints for user-private data (free QA, highlights, a user's tags) SHALL return only rows owned by the current authenticated user. For anonymous requests these endpoints SHALL return an empty set with HTTP 200 (not 401).
+Reads of user-owned data SHALL follow the visibility class defined in the `data-sharing-preferences` capability. Always-private data (tags, the image-host list, API tokens, Q&A reading preferences) SHALL return only rows owned by the current authenticated user. Optionally-shared data (highlights, notes, free Q&A, reference links) SHALL default to rows owned by the current user (`scope=mine`); with an explicit `scope=all` a non-admin SHALL additionally receive other users' rows whose owner shares that data type (plus published notes), and an admin SHALL receive every user's rows. Anonymous reads SHALL return public preset Q&A and published notes where applicable and an empty set for other user-owned collections, with HTTP 200 (not 401) on public endpoints.
 
 #### Scenario: Owner sees own data
-- **WHEN** an authenticated user reads their free QA, highlights, or tags
-- **THEN** the response SHALL include only rows where `user_id` equals that user's id
+- **WHEN** an authenticated user reads tags, or reads highlights, notes, free Q&A, or reference links with `scope=mine`
+- **THEN** only rows owned by that user SHALL be returned
 
 #### Scenario: Other users do not see it
-- **WHEN** a different authenticated user reads the same endpoints
-- **THEN** the response SHALL NOT include the first user's rows
+- **WHEN** a user reads tags, or reads optionally-shared data with `scope=all` while its owner's switch for that type is off
+- **THEN** a non-admin SHALL NOT receive those rows
+
+#### Scenario: Shared data visible in all scope
+- **WHEN** a non-admin reads free Q&A with `scope=all` and another user shares Q&A
+- **THEN** that user's free Q&A SHALL be returned with `user_id` and `username`
 
 #### Scenario: Anonymous gets empty, not error
-- **WHEN** an anonymous client reads an owner-scoped GET endpoint (e.g., `GET /api/highlights`)
-- **THEN** the response SHALL be HTTP 200 with an empty result set
+- **WHEN** an anonymous client reads a public owner-aware endpoint (e.g. `GET /api/highlights`)
+- **THEN** the response SHALL be HTTP 200 with public preset Q&A or published notes where applicable and empty private/user collections
 
 ### Requirement: Writes record the owner and require login
 When an authenticated user creates user-private data (free QA entry, highlight, tag, or paper-tag assignment), the system SHALL set `user_id` to that user. Anonymous attempts to perform these writes SHALL be rejected with 401.
@@ -89,11 +95,15 @@ Because tags are now per-user, the `papers.tags_json` global cache SHALL no long
 - **THEN** each paper's tags SHALL be computed by joining `paper_tags`→`tags` filtered to the current user, not read from the global `tags_json`
 
 ### Requirement: QA Result streams follow entry visibility
-An authenticated viewer SHALL be allowed to subscribe only to a Result whose parent QA entry is visible to that viewer through the normal QA read rules. Anonymous viewers SHALL NOT open Result SSE streams, and a denied request SHALL NOT disclose whether a private Result exists.
+An authenticated viewer SHALL be allowed to subscribe only to a Result whose parent QA entry is visible to that viewer through the `all`-scope read rules: preset entries, the viewer's own free entries, free entries of users who share Q&A, and — for an admin — every free entry. Anonymous viewers SHALL NOT open Result SSE streams, and a denied request SHALL NOT disclose whether a private Result exists.
 
 #### Scenario: Viewer subscribes to a visible all-scope Result
 - **WHEN** a logged-in viewer can read another user's free QA entry through all scope
 - **THEN** the viewer MAY observe that Result stream but SHALL receive no mutation authority
+
+#### Scenario: Viewer denied a non-shared Result
+- **WHEN** a non-admin requests the stream of a Result whose free entry belongs to a user who does not share Q&A
+- **THEN** the request SHALL be rejected as not found
 
 #### Scenario: Anonymous viewer requests a stream
 - **WHEN** an anonymous viewer requests a Result SSE stream, including for a preset entry
@@ -113,3 +123,14 @@ Cancelling a free-QA Result SHALL require the entry owner or an admin. Cancellin
 #### Scenario: Admin cancels active Result
 - **WHEN** an admin cancels any active Result
 - **THEN** the system SHALL authorize the exact cancellation
+
+### Requirement: All-scope QA remains read-only for non-owners
+Reading another user's QA SHALL NOT grant mutation rights. User QA regeneration/deletion SHALL be limited to its owner or an administrator, and unauthorized mutation SHALL return 404 without changing data.
+
+#### Scenario: Non-owner views another question
+- **WHEN** a non-admin opens another user's QA through all scope
+- **THEN** the question and results SHALL be readable but management actions SHALL be unavailable
+
+#### Scenario: Non-owner calls mutation API
+- **WHEN** that viewer directly calls regenerate or delete
+- **THEN** the backend SHALL return 404 and make no change

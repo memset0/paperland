@@ -12,26 +12,22 @@ import { Loader2, FileText, Globe, Lock } from '@lucide/vue'
 import AppPage from '@/components/AppPage.vue'
 
 // One note per (user, paper). The scope toggle switches between the current user's own notes and
-// everyone's public notes; admins may also include others' unpublished notes. Selecting a note
-// opens its paper — another user's note opens in the right-panel public notes view (via `?note=`),
-// while the user's own note just navigates (it lives in their own Note tab).
+// All: published + shared notes of others (admins: every note, unshared ones marked Private).
+// Selecting a note opens its paper — another user's note opens in the right-panel others' notes
+// view (via `?note=`), while the user's own note just navigates (it lives in their own Note tab).
 const router = useRouter()
 const auth = useAuthStore()
 const all = ref<NoteWithAuthor[]>([])
 const loading = ref(true)
 const query = ref('')
 const scope = ref<'mine' | 'all'>('mine')
-const includePrivate = ref(false)
 
 usePageTitle(() => 'Notes')
 
 async function load() {
   loading.value = true
   try {
-    const res = await notesApi.listAll({
-      scope: scope.value,
-      include_private: scope.value === 'all' && auth.isAdmin ? includePrivate.value : false,
-    })
+    const res = await notesApi.listAll({ scope: scope.value })
     all.value = res.data
   } finally {
     loading.value = false
@@ -39,9 +35,7 @@ async function load() {
 }
 
 onMounted(load)
-// Reloading the moment scope / include-private changes (Everyone resets the private toggle off).
-watch(scope, (s) => { if (s === 'mine') includePrivate.value = false; load() })
-watch(includePrivate, load)
+watch(scope, load)
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -82,13 +76,8 @@ function snippet(body: string): string {
             class="px-3 py-1"
             :class="scope === 'all' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'"
             @click="scope = 'all'"
-          >Everyone</button>
+          >All</button>
         </div>
-        <!-- Admin-only: include others' unpublished notes (Everyone scope) -->
-        <label v-if="scope === 'all' && auth.isAdmin" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer">
-          <input type="checkbox" v-model="includePrivate" class="accent-primary" />
-          Include private
-        </label>
         <Input v-model="query" placeholder="Search notes…" class="flex-1 min-w-[12rem]" />
       </div>
 
@@ -108,9 +97,10 @@ function snippet(body: string): string {
             <div class="text-sm font-medium inline-flex items-center gap-1.5 min-w-0">
               <FileText class="h-3.5 w-3.5 shrink-0" /> <span class="truncate">{{ n.paper_title }}</span>
             </div>
-            <Badge v-if="n.is_public" variant="secondary" class="gap-1 shrink-0"><Globe class="h-3 w-3" /> Public</Badge>
-            <Badge v-else variant="outline" class="gap-1 shrink-0"><Lock class="h-3 w-3" /> Private</Badge>
-            <span v-if="scope === 'all'" class="text-xs text-muted-foreground shrink-0 ml-auto">{{ n.username }}</span>
+            <Badge v-if="n.is_public" variant="secondary" class="gap-1 shrink-0"><Globe class="h-3 w-3" /> Published</Badge>
+            <!-- Not visible to other users (owner's notes switch off): own notes, or admin view of others' -->
+            <Badge v-if="!n.shared" variant="outline" class="gap-1 shrink-0"><Lock class="h-3 w-3" /> Private</Badge>
+            <span v-if="!isOwn(n)" class="text-xs text-muted-foreground shrink-0 ml-auto">{{ n.username }}</span>
           </div>
           <div v-if="snippet(n.body)" class="text-xs text-muted-foreground line-clamp-2 mt-0.5">{{ snippet(n.body) }}</div>
         </button>
