@@ -92,7 +92,6 @@ function onRowClick(paper: any) {
   if (paper.listed) router.push(`/papers/${paper.id}`)
 }
 async function promote(paper: any) {
-  if (paper.listable === false) return
   promotingId.value = paper.id
   try {
     await store.promote(paper.id)
@@ -100,8 +99,8 @@ async function promote(paper: any) {
     if (auth.user) await store.setInLibrary(paper.id, true)
     fetchWithFilters(store.pagination.page)
   } catch {
-    // Backend rejected (e.g. 422 LISTING_NOT_ALLOWED) — the error toast is already shown
-    // by the API client and local state is left unchanged.
+    // Backend rejected — the error toast is already shown by the API client and local
+    // state is left unchanged.
   } finally {
     promotingId.value = null
   }
@@ -283,8 +282,7 @@ async function addPaper() {
                 <Button
                   v-if="!paper.listed"
                   size="xs" variant="secondary" class="shrink-0"
-                  :disabled="promotingId === paper.id || (paper as any).listable === false"
-                  :title="(paper as any).listable === false ? '仅有 OpenReview 链接，缺少 arXiv / Semantic Scholar 来源，无法加入列表' : undefined"
+                  :disabled="promotingId === paper.id"
                   @click.stop="promote(paper)"
                 >
                   {{ promotingId === paper.id ? '抓取中…' : '抓取' }}

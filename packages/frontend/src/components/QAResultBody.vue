@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { QAResult } from '@paperland/shared'
-import { Check, Copy, FileSearch, Link2, Loader2, MessagesSquare, Pin, RefreshCw, Square, Trash2 } from '@lucide/vue'
+import { Check, ChevronRight, Copy, FileSearch, Link2, Loader2, MessagesSquare, Pin, RefreshCw, Square, Telescope, Trash2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import QAModelInputDialog from './QAModelInputDialog.vue'
 import MarkdownContent from './MarkdownContent.vue'
 import QAStreamingMarkdown from './QAStreamingMarkdown.vue'
 import QAThinkingTimer from './QAThinkingTimer.vue'
+import PaperRefList from './PaperRefList.vue'
+import { extractCiteLinks } from '@/lib/cite-links'
 import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -33,6 +36,14 @@ const emit = defineEmits<{
 const auth = useAuthStore()
 const copied = ref(false)
 const showModelInput = ref(false)
+const refsOpen = ref(false)
+
+/** This answer's own `#cite:` papers (distinct, first-appearance order); only for finished answers. */
+const citeItems = computed(() =>
+  props.result.status === 'done'
+    ? extractCiteLinks(props.result.answer).map((link) => ({ id: link.id, fallback_text: link.text }))
+    : [],
+)
 
 /** Copy a `paperland://` link to this answer (`?qa=<entry>&result=<id>`, resolved by ids). */
 async function copyResultLink() {
@@ -113,6 +124,16 @@ function timeAgo(iso: string): string {
     />
     <QAStreamingMarkdown v-else-if="result.answer" :content="result.answer" />
 
+    <Collapsible v-if="citeItems.length" v-model:open="refsOpen" class="mt-3">
+      <CollapsibleTrigger class="flex cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <ChevronRight class="h-3.5 w-3.5 transition-transform" :class="refsOpen ? 'rotate-90' : ''" />
+        References · {{ citeItems.length }}
+      </CollapsibleTrigger>
+      <CollapsibleContent class="pt-2">
+        <PaperRefList v-if="refsOpen" :items="citeItems" />
+      </CollapsibleContent>
+    </Collapsible>
+
     <div v-if="result.status === 'failed' || result.status === 'cancelled'" class="mt-3 rounded-md bg-destructive/5 px-3 py-2 text-xs text-destructive">
       {{ result.error || (result.status === 'cancelled' ? 'Generation stopped' : 'Generation failed') }}
     </div>
@@ -146,6 +167,16 @@ function timeAgo(iso: string): string {
           </Button>
         </TooltipTrigger>
         <TooltipContent>{{ result.status === 'done' ? '追问' : '回答完成后才能追问' }}</TooltipContent>
+      </Tooltip>
+      <Tooltip v-if="auth.isAuthenticated && result.status === 'done'">
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="icon-xs" as-child>
+            <RouterLink :to="{ path: '/research', query: { new: '1', seed_result: String(result.id) } }">
+              <Telescope />
+            </RouterLink>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Deep Research from this answer</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger as-child>

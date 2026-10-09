@@ -18,6 +18,10 @@ const CITE_UNKNOWN = 'ffff000000000000000000000000000000000000'
 let fixtureDir = ''
 let sqlite: Database
 let app: FastifyInstance
+// Finished answers warm the S2 metadata cache in the background; S2 is always mocked here.
+const realFetch = globalThis.fetch
+let s2Mode: 'ok' | 'down' = 'ok'
+let s2Batches: string[][] = []
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3000) {
   const start = Date.now()
@@ -60,6 +64,14 @@ image_host: { dir: ${fixtureDir} }
 `, 'utf8')
   loadConfig(configPath)
   serviceRunner.initialize()
+  s2Mode = 'ok'
+  s2Batches = []
+  globalThis.fetch = (async (_url: unknown, init: any) => {
+    if (s2Mode === 'down') return new Response('unavailable', { status: 403 })
+    const ids: string[] = JSON.parse(init.body).ids
+    s2Batches.push(ids)
+    return new Response(JSON.stringify(ids.map((id) => ({ paperId: id, externalIds: {}, title: `Title ${id.slice(0, 4)}` }))))
+  }) as typeof fetch
 
   sqlite = new Database(':memory:')
   const db = drizzle(sqlite, { schema })
@@ -86,6 +98,7 @@ image_host: { dir: ${fixtureDir} }
 })
 
 afterEach(async () => {
+  globalThis.fetch = realFetch
   await app.close()
   sqlite.close()
 })
@@ -244,10 +257,20 @@ describe('soft delete, links, and citations', () => {
     expect(body.inputs[0].label).toBe('Quote1')
   })
 
-  test('only unknown #cite ids are stored, once per answer', async () => {
+  test('a finished answer warms the S2 cache for all of its #cite ids', async () => {
+    await askAndWait({ question: 'Cite', models: ['vision-qa'] })
+    const cached = () => sqlite.query("SELECT s2_paper_id FROM s2_papers WHERE status = 'ok' ORDER BY s2_paper_id").all()
+    await waitFor(() => cached().length === 2)
+    expect(cached()).toEqual([{ s2_paper_id: CITE_KNOWN }, { s2_paper_id: CITE_UNKNOWN }])
+    expect(s2Batches).toEqual([[CITE_KNOWN, CITE_UNKNOWN]])
+  })
+
+  test('a failing S2 warm-up does not affect the finished answer', async () => {
+    s2Mode = 'down'
     const body = await askAndWait({ question: 'Cite', models: ['vision-qa'] })
-    const rows = sqlite.query('SELECT qa_result_id, cite_id, id_kind, link_text FROM qa_result_cites').all()
-    expect(rows).toEqual([{ qa_result_id: body.runs[0].result_id, cite_id: CITE_UNKNOWN, id_kind: 's2_paper_id', link_text: 'Ghost' }])
+    await Bun.sleep(50)
+    expect(doneCount(body.entry_id)).toBe(1)
+    expect((sqlite.query('SELECT count(*) c FROM s2_papers').get() as any).c).toBe(0)
   })
 
   test('list entries carry contextual fields and follow-up counts', async () => {

@@ -39,16 +39,16 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
 │ Paperland                                                                                │
-├────────┬─────────────┬──────┬─────┬───────┬────────────┬───────────┬──────────┬──────────┤
-│ Papers │ Conferences │ Tags │ Q&A │ Notes │ Extension │ Services │ Settings │
-└────────┴─────────────┴──────┴─────┴───────┴────────────┴───────────┴──────────┴──────────┘
+├────────┬──────────┬──────┬─────┬───────┬────────┬───────────┬──────────┬──────────┤
+│ Papers │ Research │ Tags │ Q&A │ Notes │ Images │ Extension │ Services │ Settings │
+└────────┴──────────┴──────┴─────┴───────┴────────┴───────────┴──────────┴──────────┘
 ```
 
 ### 页面标题（浏览器标签）
 
 每个页面根据内容设置浏览器标签标题，统一格式 `{页面标题} · Paperland`，无标题时回退为 `Paperland`。`index.html` 的静态 `<title>Paperland</title>` 仅作首屏 / 兜底。
 
-- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Papers `/`、Conferences `/conferences`、Tags `/tags`、Q&A `/qa`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Conference Detail `/conferences/:id`）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
+- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Papers `/`、Research `/research`、Tags `/tags`、Q&A `/qa`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Research `/research/:id`，加载后改为会话标题）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
 - **动态标题**：内容驱动的页面在视图内用 `composables/usePageTitle.ts` 的 `usePageTitle(() => …)`（基于 `@vueuse/core` 的 `useTitle`）响应式覆盖占位——论文详情用论文标题（加载前显示「Paper Detail」）。守卫先于视图执行，故占位标题在数据就绪后被组件覆盖；离开页面时视图作用域销毁停止 watcher，由目标页守卫重置标题。
 - **格式来源**：`formatTitle(name?)` 是格式与 ` · Paperland` 后缀的唯一来源，守卫与各视图共用。新增路由只需补 `meta.title`（缺省则回退 `Paperland`）。
 
@@ -81,16 +81,16 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 各「XX 管理」页通过共享组件 `components/AppPage.vue` 统一页面标题与内容宽度，不再各自手写页头 / 宽度容器：
 
 - **标题**：固定置于内容区顶部，统一 `text-xl font-semibold`，左侧带**对应图标**、**无描述副标题**。标题文字默认取 `route.meta.title`（英文，与侧边栏标签、浏览器标签一致），可用 `title` prop 覆盖。
-- **标题图标**：默认取 `route.meta.icon`（在 `router/index.ts` 为每个管理路由声明，与侧边栏导航图标一致：Papers→FileText、Conferences→CalendarDays、Tags→Tag、Q&A→MessageSquare、Notes→NotebookPen、Services→Activity、Settings→Settings），可用 `icon` prop 覆盖。图标只在 `meta` 里定义一处，避免与侧边栏图标漂移。
+- **标题图标**：默认取 `route.meta.icon`（在 `router/index.ts` 为每个管理路由声明，与侧边栏导航图标一致：Papers→FileText、Research→Telescope、Tags→Tag、Q&A→MessageSquare、Notes→NotebookPen、Services→Activity、Settings→Settings），可用 `icon` prop 覆盖。图标只在 `meta` 里定义一处，避免与侧边栏图标漂移。
 - **宽度**：默认居中收窄 `mx-auto max-w-5xl`；传 `full` 则全宽、无最大宽度限制。
 - **`fill` 模式**：用于自管内部滚动的页面（如 Q&A）——外层 `h-full flex flex-col`，标题头 `shrink-0` 不随滚动，内容区为 `flex-1 min-h-0 overflow-hidden`，页面内部的 `overflow-y-auto` 子元素照常滚动。非 `fill` 时页面随 `<main>` 整体滚动。
-- **操作按钮**：经 `#actions` 具名插槽渲染在标题右侧（如「添加论文」「新建会议」「New Project」、服务管理「回填 S2」、会议详情「刷新 / 解析 / 导入」）。
+- **操作按钮**：经 `#actions` 具名插槽渲染在标题右侧（如「添加论文」「New research」、服务管理「回填 S2」）。
 
 各路由归类：
 
 - **全宽（`full`）**：论文管理 `/`（表格需要整页宽）。
-- **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/images`（图床画廊）、`/conferences`、`/conferences/:id`（标题固定为 `Conferences`，会议名 + 返回按钮置于内容区）、`/services`、`/settings`。
-- **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
+- **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/research`、`/images`（图床画廊）、`/services`、`/settings`。
+- **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`、研究详情 `/research/:id`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
 
 - **版本 footer**：`AppPage` 两种模式都以 `components/AppVersion.vue` 结尾（normal 模式在内容之后、内容不满一屏时贴底，`fill` 模式固定在底部一行），显示 `Paperland v<version> · <hash>`，hash 链接到 GitHub 对应 commit（`unknown` 时无链接）；移动端抽屉底部也显示。值来自 Vite `define` 注入的 `__APP_VERSION__` / `__GIT_HASH__`（见 tech-stack.md「版本号」）。论文详情不显示。
 
@@ -108,7 +108,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
   - 搜索栏左侧的 **Mine / All** 切换（仅登录用户，`ScopeToggle size="sm"`）：Mine（默认）= `GET /api/papers?scope=mine`，只列自己的论文；All = `scope=all`，全站论文。选择记在 localStorage `paperland_paper_scope`。匿名访问恒为 All。scope 与搜索、标签、listed 模式、排序叠加。
   - **列表响应是瘦身的**（`GET /api/papers`）：列表项**不含** `contents`（论文全文，平均每篇约 165 KB），`metadata` 只保留列表要渲染的 `citation_count` / `reference_count` / `s2_url`；完整的 `contents` 与 `metadata` 只在详情 `GET /api/papers/:id` 返回（「复制全文」读的是详情）。后端在 SQL 里分页（`count(*)` + `LIMIT`/`OFFSET`，同时间戳按 `id` 兜底排序），不读全文列。改前每页约 4.5 MB。
   - 列表与详情的每篇论文带 `in_library`（当前用户）。All 视图中已在列表里的显示「In my list」，否则显示「+ My list」按钮（`PUT /api/papers/:id/library`）。详情页标题右侧书签按钮可加入 / 移出（`PUT` / `DELETE /api/papers/:id/library`，幂等，需登录，未知论文 404）；移出只清 `in_library`，不删论文，也不动该用户的标签、笔记、Q&A 等数据。
-  - 自动加入：「添加论文」（新建或命中已有论文）、浏览器插件快捷打开、会议一键入库（仅入库后为 listed 的论文）、绑定用户的 External API Token 创建论文，以及在前端「抓取」仅元数据论文，都会把论文加入操作者的列表。打标签、写笔记、提问等不会改变列表。
+  - 自动加入：「添加论文」（新建或命中已有论文）、浏览器插件快捷打开、绑定用户的 External API Token 创建论文，以及在前端「抓取」仅元数据论文，都会把论文加入操作者的列表。打标签、写笔记、提问等不会改变列表。
   - **初始论文**：`config.yml` 的 `library.starter_arxiv_id`（默认 `1706.03762`，Attention Is All You Need，空字符串关闭）。启动时若 `papers` 为空，自动 ingest 这篇并加入所有用户的列表；新建用户（管理员创建或首次启动的 bootstrap admin）自动获得这一篇（`services/user_library.ts`）。
   - Mine 为空时提示可切到 All 添加。
 - 展示论文（按上面的 scope）
@@ -116,7 +116,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
   - **标签列**：使用 `TagBadge` 组件（`components/TagBadge.vue`）渲染中性 `secondary` 圆角徽章（此处不传 `color`，真彩 chip 仅用于标签管理页）
   - **引用指标列**：两个独立列 `Cited` / `Refs`，各用 `CountCell` 组件（`components/CountCell.vue`）渲染一个数字。`Cited`（被引用数）取 `metadata.citation_count`，`Refs`（引用数）取 `metadata.reference_count`（旧数据缺 `reference_count` 时由后端用 references 数组长度补上）。已知值（含 `0`）用 `toLocaleString()` 千分位显示，未富化时显示中性占位符 `–`（区分「未知」与「确为 0」）。两列均 `hidden md:table-cell`（窄屏隐藏）
   - **来源列**：使用 `SourceTag` 组件（`components/SourceTag.vue`），根据 `arxiv_id` 与 `link` 显示可点击的来源标签
-    - arXiv 论文：只要 `arxiv_id` 存在就显示红色标签，格式 `arxiv:{id}`，链接由 id 派生（`arxiv.org/abs/{id}`），**不依赖** `link` 字段（会议导入论文经 S2 解析出 `arxiv_id` 但 `link` 为空，OpenReview 链接另存于 `conference_papers`）
+    - arXiv 论文：只要 `arxiv_id` 存在就显示红色标签，格式 `arxiv:{id}`，链接由 id 派生（`arxiv.org/abs/{id}`），**不依赖** `link` 字段（经 S2 解析出 `arxiv_id` 的论文 `link` 可能为空）
     - 其他来源：若 `link` 为非 arXiv 链接则额外显示灰色标签，显示域名（如 `mem.ac`），点击跳转原始链接
     - 无来源：显示 `-`
 - **搜索**：按 title 和 abstract（arxiv 抓取的摘要字段）进行模糊匹配
@@ -330,7 +330,8 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 - **选区 → 按需流式翻译**：不再自动翻译（旧的 500ms stable-intent 已移除）。选区捕获约 60ms 落定后只显示工具栏；登录用户点击工具栏「翻译」才对当前 page/`ts`/`te`/text identity 挂载 `StreamingTranslationText` 调 `/api/translate/stream`（同一 identity 已打开时再次点击为 no-op）。浮层优先居中放在选区上方，空间不足时放到下方并为工具栏预留位置；宽度/x/y 都 clamp 在 viewer 内，内容增长由 ResizeObserver 重算。请求开始但尚无译文时，结果区直接显示原文，不显示“加载翻译”类占位文字；首个非空 delta 或 cache result 到达后，真实译文立即替换原文预览。每个真实 delta 整段追加后让出一帧，cache hit 直接完成。面板与工具栏内的 pointer interaction 拥有其引发的临时 selection collapse：浮层/source snapshot 保留并在 pointer-up 尝试恢复 Range；普通外部点击才关闭。选中不同的有效选区会立即 abort 旧请求并关闭旧浮层，新选区只显示工具栏。scroll Range 失效、zoom/theme text-layer 重渲染、PDF 切换、截图模式、Escape 或卸载会关闭工具栏/abort 请求/关闭浮层，late event 不得覆盖新选区；scroll 保持 Range 有效时按 rAF 重定位。匿名用户不显示「翻译」按钮、不调用 API、不弹登录。
 - **跳转 + 高亮**：监听 `requestedPdfTarget`，`{page}` 滚动到该页；`{page,ts,te}` 先确保该页渲染，再用 `buildTextSegments` 把偏移映射为 `Range.getClientRects()`，在页面上叠加临时高亮 div（`pdf-region-flash`，2.2s 淡出，不落库）并滚动到选区中心；`{page,rect}` 则把归一化 `[0,1]` 矩形直接换算到页面像素框画同款临时高亮（`highlightRect`）。`rect` 优先于 `ts/te`；偏移越界 / 矩形非法则退化为仅跳页 + toast 提示。
 - **失败兜底**：pdf.js 加载/解析失败时显示错误态并给出原始文件链接 `/api/files/<pdf_path>`；无 `pdf_path` 时保留「暂无 PDF」占位。
-- **框选截图 → 图床**：工具栏 `Crop` 图标进入截图模式（仅在传入 `paperId` 时显示，激活态高亮）。模式下滚动区 `cursor:crosshair`、文本层 `pointer-events:none` + `user-select:none`，从而拖拽画出橡皮筋矩形而非选中文字（`mousedown`→`mousemove`→`mouseup`，`Esc` 或再次点击取消）。松手后把该矩形钳制到所在 `.pdf-page`、归一化为 `{page,x,y,w,h}`，在框选处弹出操作菜单（`.pdf-capture-menu`）：「复制图片链接」/「复制 Markdown」/「加入提问框」/「截图提问」（后两项仅登录用户，见下文「上下文提问」），`Esc`、点 × 或开始新的拖拽都会丢弃这次截图且不上传。两个复制项都先调 `cropRegionToImage(region, dpi)` 渲成 PNG，经 `utils/uploadImage` 上传图床；「复制图片链接」只写入图床 URL，「复制 Markdown」写入 `[![](<image_url>)](paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=)`（坐标保留 4 位小数）并 toast 提示；上传期间 `capturing` 置位、忽略后续拖拽。
+- **PDF 高亮（按用户，持久化）**：复用 `highlights` 表与 `/api/highlights`（后端零改动）：`pathname = /papers/<id>`（PaperDetail 已把它加载进 `stores/highlights.ts`），`content_hash = pdf:<pdf.js 指纹 fingerprints[0]>:<页码>`，`start_offset/end_offset` 即该页文本层的 `ts/te`。指纹把偏移绑定到具体文件，PDF 被替换后旧高亮不再绘制；Markdown 块的 hash 从不以 `pdf:` 开头，互不干扰。每个已渲染页在 canvas 之上、文本层之下有一层 `.pdf-hl-layer`（`pointer-events:none`），用 `offsetsToRects` 算矩形并按页面百分比定位，故缩放/CSS 缩放期间保持对齐；页面重渲染完成和高亮列表/范围变化时重建。自己的高亮为实心填充，他人的为虚线下划线（配色与 `MarkdownContent` 的 `.hl-*`/`.hl-foreign-*` 一致），悬停时滚动区 `title` 显示主人名（命中测试，因覆盖层不接收指针）。选区工具栏对登录用户的单页选区显示 4 个颜色圆点：新建高亮；若选区与自己的某条高亮完全相同（同页同 `ts/te`），则改色并显示删除。**点击高亮**（无拖拽、非截图模式，重叠时取最新一条）会用 `offsetsToRange` 把该段设为原生选区，于是复用常规选区工具栏的翻译/提问/加入提问框/复制链接。工具栏的 `HighlightScopeToggle`（Mine/All）与 Markdown/QA 高亮共用同一设置。
+- **框选截图 → 图床**：工具栏 `Crop` 图标进入截图模式（仅在传入 `paperId` 时显示，激活态高亮）。模式下滚动区 `cursor:crosshair`、文本层 `pointer-events:none` + `user-select:none`，从而拖拽画出橡皮筋矩形而非选中文字（`mousedown`→`mousemove`→`mouseup`，`Esc` 或再次点击取消）。松手后把该矩形钳制到所在 `.pdf-page`、归一化为 `{page,x,y,w,h}`，该区域保持高亮（`.pdf-capture-sel`，以百分比定位在所属 `.pdf-page` 内，随页面滚动/缩放），并在其正下方居中弹出操作菜单（`.pdf-capture-menu`，是高亮框的子元素；在菜单上按下鼠标不会开始新的拖拽）：「复制图片链接」/「复制 Markdown」/「加入提问框」/「截图提问」（后两项仅登录用户，见下文「上下文提问」），`Esc`、点 ×、开始新的拖拽或退出截图模式都会丢弃这次截图（不上传）并清除高亮；上传进行中高亮与菜单保留（按钮禁用），上传失败也保留以便重试，成功后清除。两个复制项都先调 `cropRegionToImage(region, dpi)` 渲成 PNG，经 `utils/uploadImage` 上传图床；「复制图片链接」只写入图床 URL，「复制 Markdown」写入 `[![](<image_url>)](paperland://paper/<id>?pdf=<page>&rx=&ry=&rw=&rh=)`（坐标保留 4 位小数）并 toast 提示；上传期间 `capturing` 置位、忽略后续拖拽。
 - **DPI 可配置（不硬编码）**：`cropRegionToImage(region, dpi)` 按 `scale = dpi/72` **只渲染选区**（平移 transform `[1,0,0,-sx,-sy]`，避免高 DPI 下整页栅格化）。默认 DPI 来自 `config.yml` 的 `pdf_viewer.screenshot_dpi`，挂载时经 `GET /api/config/pdf`（`configApi.pdf()`）拉取存入 `screenshotDpi` ref，请求失败回退 300。
 
 #### 窄屏布局
@@ -353,9 +354,9 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 - **追问**：每个回答下的 `MessagesSquare` 按钮（只有 done 的回答可用）、回答里模型给出的 `[💬 …](#moonlight)` 链接（`MarkdownContent` 以 `qa-answer` 渲染时拦截，预填问题）都会调 `composer.startFollowup(...)`；它先取 `GET /api/qa/entries/:id/tree` 收集祖先链 inputs 供 `@` 菜单使用。`/qa` 页没有提问框，追问跳到论文页 `?qa=<entry>&result=<id>&followup=1[&fq=<预填>]`，由 `PaperDetail.handleAnchorFromRoute` 打开。
 - **列表展示**：`QAList`/`QAFeedPanel` 折叠标题栏用 `QAInputSummary` 只显示 inputs 类别图标 + 数量（选段 `TextQuote`、截图 `Image`、历史 `MessagesSquare`），不展开内容；标题栏的 `QA-<id>` 点击复制 `[QA-<id>](paperland://paper/<pid>?qa=<id>)`；`QAList` 的折叠标题栏不再显示模型名/回答数 badge，`QA-<id>` 放在最右侧；追问展开后有「接续 QA-x 的回答」，父回答不可见/已删除时只 toast「当前不可见」/「已删除」。
 - **回答操作**：`QAResultBody` 新增「追问」「复制回答链接」（`[QA-<id> · 模型](paperland://paper/<pid>?qa=<id>&result=<rid>)`）、「查看模型输入」（`QAModelInputDialog`，打开时才请求 `GET /api/qa/results/:id/model-input`，显示按当前配置重建的 system prompt、全文摘要（来源 + 字符数，不展开全文）、references、inputs（截图缩略图）、history、question）。
-- **引用链接**：`MarkdownContent` 的 `qa-answer` 模式把 `#cite:<id>`（40 位 S2 paperId，或纯数字 CorpusId）换成引用标签 `.qa-cite-chip`（文字不变，不影响高亮偏移）——前提是 id 在本论文的参考文献里（`usePaperReferences` 按论文缓存 `GET /api/papers/:id/citations?direction=reference`）；悬停/点击弹出卡片（标题、作者、年份、venue、Semantic Scholar 链接，库内论文可「打开论文」）。不在列表里的 id（后端已把它们存进 `qa_result_cites`）在参考文献加载完后经 `useS2Paper` 走 `POST /api/s2/papers/resolve`：解析为 `resolved` 时同样升级为 chip，卡片用解析结果（标题、作者、年份、venue、库内链接）；解析不到（`not_found` / `unavailable` / 匿名未缓存）保持纯文本 `.qa-cite-unknown`。列表内的 id 不发解析请求。卡片统一使用展示模型 `{title, authors, year, venue, library_paper_id}`。回答完成后后端会把回答中所有 `#cite:` id 的 S2 元数据预热进缓存表 `s2_papers`（见下方「S2 论文元数据缓存」）。
+- **引用链接**：`MarkdownContent` 的 `qa-answer` 模式把 `#cite:<id>`（40 位 S2 paperId，或纯数字 CorpusId）统一经 `useS2Paper` 走 `POST /api/s2/papers/resolve` 解析，**不依赖回答所属的论文**（不再读取本论文参考文献）；解析为 `resolved` 时换成引用标签 `.qa-cite-chip`（文字不变，不影响高亮偏移），悬停/点击弹出卡片（标题、作者、年份、venue、Semantic Scholar 链接，库内论文可「打开论文」）；解析不到（`not_found` / `unavailable` / 匿名未缓存）保持纯文本 `.qa-cite-unknown`。卡片展示模型 `{title, authors, year, venue, library_paper_id}`。因此该模式可用于任何 Markdown（如 Deep Research 报告），无需 `paperId`。回答完成后后端会把回答中所有 `#cite:` id 的 S2 元数据预热进缓存表 `s2_papers`（见下方「S2 论文元数据缓存」）。
 - **回答引用列表**：每个 done 且含有效 `#cite:` 的 Result 在正文下方显示默认折叠的「References · N」（`QAResultBody` 内的 `Collapsible`），只含该回答自己引用的论文（`lib/cite-links.ts` 的 `extractCiteLinks` 提取，按规范化 id 去重、按首次出现排序）；展开时才挂载 `PaperRefList`，此时才发解析请求。每行：标题（解析不到时用链接文字）、作者（前 3 位 + et al.）· 年份 · venue · 被引数，库内论文显示「In library」并链接 `/papers/:id`，所有行带 Semantic Scholar 外链；加载中 / Not found / Unavailable 各有状态。**不提供导入论文库的操作**（无一键全部导入，也无单篇加入）。
-- **`PaperRefList` 组件**（可复用）：props `items?: PaperRefItem[]`（`{ id, fallback_text?, comment? }`，id 为规范化 S2 id）或 `sections?: { title, items }[]`；给了 sections 时按段渲染标题，item 有 comment 时在行下显示。QA 引用列表只用平铺形态，分段与 comment 留给 Deep Research。
+- **`PaperRefList` 组件**（可复用）：props `items?: RefItem[]` 或 `sections?: { title, description?, items, removed? }[]`。`RefItem` 为论文行 `{ id, fallback_text?, comment?, unverified?, added? }`（id 为规范化 S2 id）或链接行 `{ kind: 'link', url, citation, comment?, added? }`；comment / description 为 Markdown（qa-answer 模式渲染，可含 `#cite` chip），`removed` 渲染为段下折叠的「Removed · N」。QA 引用列表只用平铺论文形态；分段、comment、链接、版本对比标记由 Deep Research 使用（见文末「Deep Research」）。
 - **前端批量解析**：`composables/useS2Papers.ts` 的 `useS2Paper(id)` 返回按 id 共享的 ref（页面会话级缓存）；同一 tick 内所有列表与 chip 请求的 id 通过 `queueMicrotask` 合并成一次 `POST /api/s2/papers/resolve`（按 200 分块）。`unavailable` 和请求失败的结果不进永久缓存，下次挂载（如登录后）会重试。
 - **图床不再支持删除**：`/images` 去掉删除按钮（后端也没有删除接口），每张图同时显示「被笔记引用次数」和「被 QA 引用次数」（`qa_reference_count`，统计所有 `qa_entries.inputs` 中的 image input），保证追问和重新生成时截图一直可用。
 - **默认选中的回答**：`lib/qa-result-selection.ts` 对所有状态按 `created_at`（缺失回退 `completed_at`）+ id 判定最新；多模型提交时后端按模型列表逆序创建，所以排在前面的模型默认被选中。
@@ -376,6 +377,17 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 - **拖动 / 缩放分工（桌面端）**：面板**右下角有缩放手柄**（对角线 SVG，`@pointerdown.stop`，改 `width/height`）；**移动**则在卡片**空白处**（非输入框 / 非按钮 / 非手柄，`onCardDown` 用 `closest(...)` 排除）按下拖动，改 `left/top`。移动端全屏，二者均不提供。
 - **提交按钮**：图标 + "Submit" 文字（不再仅图标）。
 - 切换论文 / 组件卸载时 `qaWin.close()`，避免浮动面板跨论文残留。
+- **单模型**：模型按钮为单选（`selectModel` 直接把 `selectedModels` 设为 `[name]`）；`stores/qa.ts` 读取旧的多模型缓存时只保留第一个。重新生成弹窗仍可多选。
+- **对话视图打开时**：浮动面板不渲染（`PaperDetail` 只挂载一个 `QAInput`），`openQA()` 与 `composer.openRequests` 都不再弹浮窗，内容进入对话栏底部停靠的同一个提问框。
+
+#### 对话视图（QAConversationPanel）与树视图（QATreeView）
+
+- **对话栏**：宽屏双栏布局（且已登录）时，在 Q&A 栏右侧再加第三栏，左边分隔线可拖动调宽（`CONVERSATION_MIN_WIDTH` 320px ~ 容器 60%，宽度存 `localStorage` `paperland_qa_conv_width`）。功能入口新增「对话视图 / 关闭对话视图」切换；窄屏/移动端不提供。
+- **状态（`composables/useQAConversation.ts`）**：模块级单例，`open`、`width`、`available`（由 `PaperDetail` 按 `showSplitView && 已登录` 设置）、`tabs` + `active`。tab 只记 thread 的尾回答 `{ entry_id, result_id }`，`entry_id: null` 为「新对话」tab；按「用户 + 论文」存 `localStorage`（`paperland_qa_conv_<user>_<paper>`，try/catch）。`openThread(entry, result)`：已有同尾 tab 则激活，当前是空白「新对话」tab 则复用，否则新开 tab，并打开视图。
+- **thread（`QAThreadView.vue`）**：不落库，由尾回答推导。调 `GET /api/qa/entries/:id/tree` 找根 → 尾的路径，每个祖先取其子节点的 `parent_result_id` 对应的回答、尾节点取选中的回答；内容优先用 `useQAStore().qaData` 里的实时 entry（流式回答实时增长），不在当前 scope 的祖先用树快照。不可见/已删除的祖先显示占位。问题渲染为右侧气泡（附件可点击跳回 PDF 位置，`QA-<id>` 点击在列表中定位），回答复用 `QAResultBody`（`in-conversation`、不显示管理按钮）。尾回答流式时贴底自动滚动。
+- **停靠提问框**：`QAInput` 的 `docked` 模式（非 fixed、无移动/缩放/关闭，模型改为下拉框），与浮动框共用 `useQAComposer` 草稿，切 tab、开关视图都保留内容。`QAConversationPanel` 让追问目标跟随活动 tab：尾回答 `done` 时 `composer.startFollowup(尾回答)`，「新对话」tab 清空追问；尾回答未完成时传 `blocked` 提示并禁用提交。提交成功后 `setActiveTail(entry_id, runs[0].result_id)`，活动 tab 自动跳到新回答。
+- **入口**：每个回答操作栏新增「在对话视图中打开」（`PanelRightOpen`，任意状态包括排队/流式，仅 `available` 时显示）。对话视图打开时，`useQAComposer.startFollowup`（回答的追问按钮、`#moonlight`、`?followup=1`）会先 `openThread` 到该回答。
+- **树视图（`QATreeView.vue` + 递归 `QATreeNode.vue`）**：`QAList` 的 Preset / User Q&A 标题栏有「树视图」按钮，切换后用一张「Q&A Tree」卡片替代两份列表（模式存 `composables/useQAViewMode.ts` 的 `qaViewMode`，`localStorage` `paperland_qa_view_mode`）。由 `qaData`（模板 + 当前 mine/all scope 的用户提问）按 `parent_entry_id` 建森林，追问挂在父**问题**下（与接续的是父问题哪个回答无关），父问题不在当前数据中的作为根；中心节点为论文标题。布局同笔记思维导图：嵌套 flex + 由 DOM 实测位置画 SVG 贝塞尔连线（ResizeObserver 重算）。点节点打开该问题的首选回答（置顶模型，否则最近请求的）所在 thread；对话视图不可用时改为在列表中定位。`revealQAEntry` / 锚点跳转会先把模式切回列表。
 
 #### QA 快速导航（QAPanelNav）
 
@@ -420,72 +432,9 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 
 ---
 
-## 一（附）、会议管理
+## 一（附）、两层论文（已列出 vs 仅元数据）
 
-「会议」是与「论文管理」**同级**的顶级导航入口（侧栏 `/conferences`，`CalendarDays` 图标）。用于以「会议」为单位组织和浏览候选论文：先把抓取到的论文进**候选池**，按主题分组、确认后再「一键入库」到正式 `papers`。
-
-### 1A.1 数据模型与候选池
-
-新增两张表（数据库 schema 详见 `docs/tech-stack.md`）：
-
-- `conferences` — 会议实体（`name`、可选 `year`/`start_date`/`end_date`/`location`/`description`/`link`）。
-- `conference_papers` — 候选池，外键 `conference_id` → `conferences.id`；可选 `topic`（按主题分组的自由文本）、`source`（`arxiv` / `openreview` / `semantic_scholar` / null）、`external_id`、`status`（`pending` / `candidate` / `ingested`）、`paper_id`（入库后写入，FK → `papers.id`）。索引 `(conference_id, status)`。
-
-### 1A.2 三态生命周期
-
-| 状态 | 含义 | 操作 |
-|---|---|---|
-| `pending`（待确认） | 刚导入候选池的默认状态 | 「确认」→ `candidate`；可单删 |
-| `candidate`（候选中） | 已确认，将被一键入库 | 「退回」→ `pending`；可单删 |
-| `ingested`（已入库） | 已经在 `papers` 表里，`paper_id` 指向具体论文 | 终态，UI 提供「打开论文」入口 |
-
-「本次会议一键添加」只处理 `candidate` 状态，**不**会动 `pending`。
-
-### 1A.3 页面
-
-- **`/conferences`（ConferenceList.vue）**：会议列表。支持按 name 模糊搜索 + 按 `year` 筛选。每张卡片显示 `paper_count` + 各状态计数。「新建会议」按钮弹出对话框（仅 `name` 必填）。
-- **`/conferences/:id`（ConferenceDetail.vue）**：会议详情。按 `topic` 分组展示候选论文（`null` topic 归入「未分类」）。每条候选是一张**筛选卡片**：标题 → 元信息行（作者 · 引用数 · 领域）→ S2 **TL;DR** → **abstract**（`line-clamp` 截断 + 展开/收起）→ **统一外链行**（按源着色、与论文详情页一致：arXiv 红色 `Badge`（`destructive`）+ 蓝色 `S2Badge` + OpenReview/原文 灰色 `Badge`（`secondary`），只显示存在的）。候选已按 `topic` 分组，**行内不再重复 `#主题` 标签**；改主题走 `⋯` 菜单的「编辑主题」（点开后在外链行就地显示输入框 + 确认）。右侧为**状态药丸**（待添加 / 仅元数据 / 已在库）+ 主操作（仅元数据 → 加入；已在库 → 打开）+ `⋯` 菜单（编辑主题、删除）。顶栏「导入」对话框支持上传 JSON 文件或粘贴 JSON（接受 `{ papers: [...] }` 或裸数组）。
-  - **三态生命周期（派生）**：`待添加`（无 `paper_id`）→ `仅元数据`（有 `paper_id` 且 `paper_listed === false`）→ `已在库`（`paper_listed === true` 或 `status === 'ingested'`）。UI **不再**呈现 `pending/candidate` 的「确认 / 退回」工作流与「本次会议一键添加」（DB `status` 列保留但前端不用）。
-  - **复选框 = 选择以「加入列表」**：`仅元数据` 行可勾选；`已在库` 行默认勾选且锁定（不计入选择集合）；`待添加` 行禁用（需先「解析」）。「全选本组」只选 `仅元数据` 行。批量栏「加入选中到列表 (N)」→ `POST /api/conferences/:id/papers/promote { ids }`（对每条关联论文翻 `listed=1` 并触发完整管线，返回 `{ promoted, skipped, errors }`）。
-  - **筛选字段 & 外链**：卡片的 abstract / TL;DR / 引用数 / 领域来自关联论文（`GET /api/conferences/:id/papers` 附带 `paper_abstract` / `paper_tldr` / `paper_citation_count` / `paper_fields_of_study`）。外链 id 取值优先级：关联论文 `paper_arxiv_id` / `paper_corpus_id` > 候选自身 `source`/`external_id` > 缓存 `metadata.s2_match`；arXiv / OpenReview 用显式 `Badge`（按源着色——arXiv 红 `destructive`、OpenReview/原文 灰 `secondary`、S2 蓝 `S2Badge`），**不走 `SourceTag`**（避免无 link 时渲染成 `-`，并保留 `OpenReview`/`原文` 友好标签而非主机名）。**配图暂不显示**（S2 Graph API 不提供论文 figures）。
-
-### 1A.4 入库链路（复用 `papers` ingest pipeline）
-
-后端把原 `POST /api/papers` 的核心逻辑抽成可复用函数 `ingestPaper({ arxiv_id?, corpus_id?, s2_paper_id?, title?, authors?, link?, content? })`（位于 `services/ingest_paper.ts`），负责 dedup 检查（`findExistingPaperByIds` 依次按 `arxiv_id`/`corpus_id`/`s2_paper_id` 命中已有论文时直接关联，互补缺失的 ID；External API 的创建/批量创建复用同一函数）+ insert + 异步 `serviceRunner.triggerForPaper(...)`。
-
-会议一键入库的来源映射：
-- `source='arxiv'` → `arxiv_id = external_id`
-- `source='semantic_scholar'` → `corpus_id = external_id`
-- `source='openreview'` 或 未知 → manual（仅 `title` + `authors` + `link`）
-
-入库成功后把 `conference_papers.status` 置为 `ingested`，`paper_id` 写入新建或匹配到的 `papers.id`。已存在的论文按 ID 幂等关联，**不**会重复创建。
-
-### 1A.5 Internal API（`/api/conferences/*`，会话认证）
-
-| 方法 + 路径 | 说明 |
-|---|---|
-| `GET /api/conferences?search=&year=&page=` | 列表 + 分页 + 名称/年份筛选；每项附 `paper_count` + 状态计数 |
-| `POST /api/conferences` | 创建（`name` 必填） |
-| `GET /api/conferences/:id` | 详情 |
-| `PATCH /api/conferences/:id` | 编辑 |
-| `DELETE /api/conferences/:id` | 删除（事务级联 `conference_papers`，**绝不**删 `papers`） |
-| `GET /api/conferences/:id/papers?topic=&status=` | 候选池列表 |
-| `POST /api/conferences/:id/papers/import` | 批量导入候选（事务原子，默认 `pending`） |
-| `PATCH /api/conferences/:id/papers/:cpId` | 单条更新（topic / status `pending↔candidate`） |
-| `PATCH /api/conferences/:id/papers` | 批量更新（body `{ ids, status?, topic? }`） |
-| `DELETE /api/conferences/:id/papers/:cpId` | 删除候选 |
-| `POST /api/conferences/:id/ingest` | 一键入库所有 `candidate`，返回 `{ ingested, skipped, errors }` |
-| `POST /api/conferences/:id/papers/:cpId/ingest` | 单条入库 |
-
-### 1A.6 前端 store
-
-`stores/conferences.ts`（Pinia）暴露：`fetchConferences` / `fetchConference` / `createConference` / `updateConference` / `deleteConference` / `fetchCandidates` / `importPapers` / `updateCandidate(s)` / `deleteCandidate` / `ingestConference` / `ingestCandidate` / `resolveConference` / `promotePaper`。
-
----
-
-## 一（附2）、两层论文（已列出 vs 仅元数据）与会议解析
-
-为了批量导入外部论文列表（如 OpenReview 会议列表）并用 Semantic Scholar 富集而不污染阅读列表、也不触发 arxiv 限流，论文分两层（由 `papers.listed` 全局布尔区分，默认 `1`）：
+为了导入外部论文并用 Semantic Scholar 富集而不污染阅读列表、也不触发 arxiv 限流，论文分两层（由 `papers.listed` 全局布尔区分，默认 `1`）：
 
 | | 已列出 `listed=1` | 仅元数据 `listed=0` |
 |---|---|---|
@@ -495,10 +444,8 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 
 - **服务门禁**：paper-bound 服务可声明 `requires_listed`；调度器对 `listed=0` 论文把这些服务记为 `deferred`、不执行。**提升**（`listed:0→1`）时 `triggerForPaper` 重跑，deferred 服务执行、已完成的 S2 跳过。
 - **S2 优先元数据**：basic fields + abstract 优先取自 S2；arxiv metadata 退为补缺/PDF。
-- **会议候选解析**：`POST /api/conferences/:id/resolve`（后台、~1 RPS）对未关联候选用 S2 `search/match` 把标题解析为 corpus/arxiv id，`ingestPaper(listed:false)` 建/并出隐藏论文并回填 `conference_papers.paper_id`，缓存 matchScore 供复核；未命中留"待添加"。会议候选状态由 `paper_id` + 关联论文的 `listed` **派生**（待添加 / 仅元数据 / 已加入），不再用 pending/candidate。`GET /api/conferences/:id/papers` 会附加关联论文的 `paper_listed`、`paper_arxiv_id`、`paper_corpus_id`，以及用于就地筛选的 `paper_abstract`、`paper_tldr`、`paper_citation_count`、`paper_fields_of_study`（均派生自关联论文、零冗余）。批量「加入列表」用 `POST /api/conferences/:id/papers/promote { ids }`（对每条关联论文翻 `listed=1` + 触发完整管线）。
-- **前端**：论文列表页有 已列出 / 仅元数据 / 全部 三态切换；仅元数据行显示"仅元数据"徽章 + 行内"抓取"按钮（提升）。会议详情页有"解析"按钮与逐条"加入列表"按钮。论文详情页对 `listed=0` 论文显示"加入列表"。提升经 `PATCH /api/papers/:id { listed: true }`。
-- **列表资格门禁**：仅有 OpenReview 链接、且无 `arxiv_id`/`corpus_id` 的"OpenReview-only"论文不可加入列表。API 响应（列表 `GET /api/papers` 与详情 `GET /api/papers/:id`）含派生布尔 `listable`；前端对 `listable === false` 的行**禁用**"抓取"/"加入列表"按钮并加 tooltip 说明。若后端仍拒绝（`422 LISTING_NOT_ALLOWED`），API client 弹出错误提示且本地状态不变（`promote` 仅在 await 成功后才改本地 `listed`）。**后端约定**：凡把 `listed` 置为 `true` 的路径（`PATCH /api/papers/:id`、`PATCH /external-api/v1/papers/:id`、会议批量 ingest / 候选关联、`ingestPaper` 自动提升）都必须经 `utils/listing.ts` 的 `canList` 判定。
-- **列表过滤**：论文列表（按模式）、External API 默认只含 `listed=1`；`GET /api/papers/:id` 直链与会议详情页可访问隐藏论文。
+- **前端**：论文列表页有 已列出 / 仅元数据 / 全部 三态切换；仅元数据行显示"仅元数据"徽章 + 行内"抓取"按钮（提升）。论文详情页对 `listed=0` 论文显示"加入列表"。提升经 `PATCH /api/papers/:id { listed: true }`。
+- **列表过滤**：论文列表（按模式）、External API 默认只含 `listed=1`；`GET /api/papers/:id` 直链可访问隐藏论文。
 
 ---
 
@@ -541,8 +488,8 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 ### 2.3 自由提问
 
 - 用户在输入框中输入问题并提交
-- 通过复选框选择一个或多个模型（前端记忆上次选择）
-- 每个选中的模型各自产生一个 result
+- 提问框一次只选一个模型（单选，前端记忆上次选择）；后端接口仍接受多个模型
+- 每个模型产生一个 result
 - 支持重新生成（同一问题，不可更改问题文本）
 - 新结果追加到 results 数组末尾
 
@@ -1021,11 +968,11 @@ models:
 
 | 类别 | 数据 | 规则 |
 |---|---|---|
-| **始终全站共享** | 论文（任何人添加都进全站列表，避免重复抓取）、Preset Q&A、会议、翻译缓存 | 不受任何开关影响 |
+| **始终全站共享** | 论文（任何人添加都进全站列表，避免重复抓取）、Preset Q&A、翻译缓存 | 不受任何开关影响 |
 | **纯私有** | 标签及论文↔标签、图床图片列表、API token、QA 背景色/阅读偏好 | 只返回给属主 |
-| **用户可选共享** | 高亮、笔记、Free Q&A（含未来划线/截图提问）、参考链接 | 由属主每类一个开关决定 |
+| **用户可选共享** | 高亮、笔记、Free Q&A（含未来划线/截图提问）、参考链接、Deep Research 会话 | 由属主每类一个开关决定 |
 
-- **共享开关**：每用户每类型一个全局开关（表 `user_sharing_settings`，稀疏存储；无行 = `config.yml` 的 `sharing.default_shared`，默认 `true`，因此存量数据迁移后即为共享）。开关作用于该类型全部已有与新建数据，无单条覆盖。账户对话框（`AccountDialog.vue`）的 **Sharing** 区块四个复选框，`GET/PUT /api/auth/me/sharing`（`sharingApi`，后端 `api/sharing.ts`）。
+- **共享开关**：每用户每类型一个全局开关（表 `user_sharing_settings`，稀疏存储；无行 = `config.yml` 的 `sharing.default_shared`，默认 `true`，因此存量数据迁移后即为共享）。开关作用于该类型全部已有与新建数据，无单条覆盖。例外：`research` 开关未设置时默认**关闭**（私有），不受 `sharing.default_shared` 影响（`visibility.ts` 的 `defaultSharedFor`）。账户对话框（`AccountDialog.vue`）的 **Sharing** 区块五个复选框（Highlights / Notes / Q&A / Reference links / Research），`GET/PUT /api/auth/me/sharing`（`sharingApi`，后端 `api/sharing.ts`）。
 - **统一 mine/all 语义**（后端 `auth/visibility.ts` 的 `ownerVisibilityFilter` 在 SQL 层过滤，分页 total 正确）：`mine` = 自己的；`all`（普通用户）= 自己的 + 开启该类型共享的其他用户的；`all`（admin）= 所有用户的，不论开关；匿名 = 仅始终共享数据 + 已发布笔记。每行返回 `user_id` / `username` / `display_name` / `shared`。
 - **统一的 Mine / All 切换组件**：所有 Mine / All 切换（论文列表、`/notes`、`/qa` feed、论文详情 User Q&A、参考链接区、高亮）都用同一个 `components/ScopeToggle.vue`（`v-model: 'mine' | 'all'`）。
   - 文案固定为英文 "Mine" / "All"。
@@ -1187,7 +1134,7 @@ papers 表新增 `tags_json` (text, nullable) 字段，存储 `[{"id":1,"name":"
 | created_at / started_at / first_chunk_at / finished_at / updated_at | datetime | 排队、Thinking 开始、首输出、终态及最后持久化时间 |
 | deleted_at | datetime (nullable) | 软删除时间：删除回答只写这一列，所有面向用户的读取（列表、详情、SSE、计数）都排除；后端拼追问历史时仍读取 |
 
-`qa_result_cites`：回答完成时解析答案里的 `#cite:<id>`，不在本论文参考文献中的 id（`cite_id`、`id_kind` = `s2_paper_id`/`corpus_id`、`link_text`）每个回答每个 id 存一行，留待以后处理；删除论文时一并删除。
+`#cite:<id>` 引用不单独建表：引用关系以回答 Markdown 为唯一来源，元数据由 `s2_papers` 缓存提供（回答完成时预热）；原 `qa_result_cites` 表已删除（迁移 0033）。
 
 **S2 论文元数据缓存**（`s2_papers`，与论文库无关，删除论文不影响）：`POST /api/s2/papers/resolve`，body `{ "ids": string[] }`（paperId / CorpusId / `CorpusId:<n>` / S2 URL，上限 `s2_cache.max_ids_per_request`，超出或格式错误 400），返回 `{ results: S2ResolveResult[] }`，与请求一一对应、同序，重复 id 只解析一次。每项：`id`（原样）、`status`（`resolved` | `not_found` | `unavailable` | `invalid`）、`source`（`library` | `cache` | `s2` | `stale_cache` | null）、`paper`（`S2PaperMeta`：s2_paper_id、corpus_id、arxiv_id、doi、title、authors、year、venue、abstract、tldr、citation_count、influential_citation_count、url、open_access_pdf_url、fetched_at）、`library_paper_id`（按 paperId/CorpusId/arXiv id 匹配到的站内论文）。解析顺序：论文库 → 新鲜缓存（`ttl_days`，`not_found` 用 `not_found_ttl_days`）→ 合并成一次 S2 batch 请求。接口公开：匿名只读论文库与缓存（过期数据返回 `stale_cache`），需要抓取的 id 返回 `unavailable`；登录用户会抓取缺失项。
 
@@ -1472,3 +1419,31 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 ### 后端 API（`api/notes.ts`，owner-scoped + 公开读）
 
 `GET /api/papers/:id/note`（返回 `{ note }` 或 `{ note: null }`；匿名 200 空；含 `completed` + `is_public` 布尔）、`PUT /api/papers/:id/note`（upsert 整篇 body + 乐观 `updated_at`；首次创建无需 `updated_at`，stale → 409 带最新；唯一索引冲突回读胜出者；**保留 `completed`/`is_public` 不动**）、`POST /api/papers/:id/note/completed`（`{ completed }` 切换精读完成；需已存在笔记行，否则 400；匿名 401；内联鉴权）、`PUT /api/papers/:id/note/visibility`（`{ is_public }` 切换公开；需已存在非空笔记，否则 400；匿名 401；内联鉴权）、`GET /api/papers/:id/public-notes`（其他用户公开非空笔记的无 body 摘要；免登录）、`GET /api/notes/:noteId`（单篇全文 + 作者；公开/属主/管理员可读，否则 404；免登录）、`GET /api/notes`（跨论文聚合，每篇一条 + `paper_title` + `username` + `completed` + `is_public`，排除空 body；`?scope=mine|all`（默认 mine；mine 匿名 401；all = 已发布 + 共享 + 自己，admin 全部，匿名仅已发布；每条带 `shared`；`include_private` 已废弃被忽略）；**鉴权在 handler 内联判断而非 `requireUser` preHandler**）。`completed`/`is_public` 在 SQLite 为 0/1，API 边界经 `toNote()` 转布尔。已移除旧的 tree 端点（create/move/subtree-delete/`PUT /root`）与 `ensureRoot`。
+
+## Deep Research（`/research`）
+
+独立的迭代式文献调研：agent（仅 Codex 模型，开启联网搜索）每轮输出一份完整的 Markdown **报告** + 一个分段的**论文列表**，二者构成一个**版本**；用户用自由文本反馈，agent 产出新的完整版本。openspec `deep-research`。
+
+### 页面
+
+- **`/research`**（`views/ResearchList.vue`，`AppPage` 收窄布局，侧边栏 Research / `Telescope`，需登录）：会话卡片（标题 = 当前版本的列表标题，未有版本时为截断的 topic；topic 摘要、步骤数、版本数、最新状态、更新时间；All 视图显示属主），右上 `ScopeToggle` + 「New research」。新建对话框：Topic + Codex 模型下拉（`/api/config/models` 中 `type: codex` 的模型，默认取 `models.default`，否则第一个）。
+- **从 QA 回答起步**：`QAResultBody` 操作栏（done 且已登录）有 `Telescope`「Deep Research from this answer」链接 → `/research?new=1&seed_result=<resultId>`；列表页读取 query，调 `GET /api/research/seed-preview` 预填（topic 默认为原问题），对话框里显示来源论文与问题，并注明「回答会复制进会话，之后修改 QA 不影响」。创建时后端再校验可见性并保存快照（`seed`：论文 id/标题、问题、回答、模型、result id）。
+- **`/research/:id`**（`views/ResearchDetail.vue`，自管布局，标题经 `usePageTitle` 设为会话标题）：
+  - 桌面（≥900px）两栏：左侧为**步骤时间线** + 下一轮输入框（owner 可见；Textarea + Codex 模型下拉，默认沿用最近一轮的模型，⌘/Ctrl+Enter 发送；有进行中回合时禁用），右侧为**版本视图**。窄屏单栏，版本视图在前。
+  - 时间线：agent 回合显示序号、状态、模型、`Repaired` 标记（列表来自自动修复）、用户文本、`changes` 说明、「Version n」跳转；进行中回合流式渲染报告（`QAStreamingMarkdown`），`paperlist` 块开始后隐藏原始 JSON，显示「Generating paper list…」（自动修复期间为「Fixing paper list…」）；未产出版本的回合显示原因与可展开的原始回答；最新 agent 回合可 **Retry**（对话框可改文本和模型，替换该回合）、进行中可 **Cancel**。标题编辑步骤显示为一行虚线记录（改了哪些标题）。
+  - 版本视图：版本下拉（所有历史版本可查看，默认当前版本）、Report / Papers 两个 tab。Report 以 `MarkdownContent` 的 qa-answer 模式渲染（`#cite` 一律经 S2 解析接口成 chip + 卡片，不依赖所属论文），下方折叠「References · N」（`PaperRefList`）。Papers 用 `ResearchPaperList.vue` → `PaperRefList` 的 sections 形态。
+  - **从历史版本继续**：查看非当前版本时，owner 可点「Continue from this version」，确认框写明将**永久删除**的版本号范围与步骤数（不可撤销），确认后 `POST /api/research/:id/truncate`。在历史版本上点「Edit titles」也先走同一确认框。
+  - **编辑标题**：只能改当前版本的列表总标题与各段标题（对话框），保存为一个新版本（`title_edit` 步骤，条目、comment、报告原样复制）；论文条目的增删改完全交给 agent。
+  - 非 owner（他人共享的会话）只读：无输入框、重试、编辑、继续；admin 可删除。
+
+### 论文列表的展示
+
+- `PaperRefList`（与 QA 引用列表共用）支持：论文行（元数据由 `useS2Papers` 按 S2 id 解析）、**链接行**（agent 按 BibTeX @misc 填写的 `citation`：标题 + 作者 · 年月 · howpublished 或域名，新标签页打开，`Link` 标记）、`Unverified` 标记（id 解析不到时显示 id 与 S2 链接）、`New` 标记，以及每段下方折叠的「Removed · N」。comment 与 section description 是 Markdown，用 `MarkdownContent` qa-answer 模式渲染（可含 `#cite` chip）。
+- **版本对比**（`lib/research-list.ts` 的 `sectionsForDisplay`）：与上一版本**逐段**比较——section 依次按「同位置同标题 → 同标题 → 同位置（改名）」匹配；条目键为论文 `s2_id`、链接规范化 URL；新条目标 `New`，该段消失的条目进入 Removed。同一条目可出现在多个 section。
+- 列表格式相关的前端逻辑集中在 `lib/research-list.ts`（流式时拆分报告与 `paperlist` 块、版本对比、条目映射），视图不直接解析格式。
+
+### 数据流
+
+- `stores/research.ts`：会话列表（scope）、当前会话详情、Codex 模型列表；对当前会话中每个进行中的步骤开 SSE（`researchApi.stream`，`start` / `delta` / `repairing` / `done` / `error`，断线最多重连 5 次），步骤结束后重新拉取会话以更新标题与版本。
+- Internal API（会话认证，全部需登录）：`GET/POST /api/research`、`GET /api/research/seed-preview`、`GET/DELETE /api/research/:id`、`POST /api/research/:id/steps`、`POST /api/research/:id/steps/:stepId/retry|cancel`、`PUT /api/research/:id/titles`、`POST /api/research/:id/truncate`、`GET /api/research/steps/:stepId/stream`（SSE）。409：有进行中回合时提交/编辑/回退、重试非最新步骤；400：非 Codex 模型、标题编辑带了标题以外的字段或空标题。
+

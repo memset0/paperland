@@ -125,6 +125,60 @@ describe('fetchS2', () => {
   })
 })
 
+describe('s2PostBatch', () => {
+  it('POSTs ids in chunks of 500 and keeps null positions in input order', async () => {
+    const bodies: string[][] = []
+    let captured: { url: string; method?: string; headers: Record<string, string> } | null = null
+    globalThis.fetch = (async (url: unknown, init: any) => {
+      captured = { url: String(url), method: init?.method, headers: init?.headers ?? {} }
+      const ids: string[] = JSON.parse(init.body).ids
+      bodies.push(ids)
+      // S2 returns null for unknown ids; mark every 3rd id unknown.
+      return makeResponse(200, ids.map((id, i) => (i % 3 === 2 ? null : { paperId: id })))
+    }) as typeof fetch
+
+    const ids = Array.from({ length: 501 }, (_, i) => `CorpusId:${i}`)
+    const rows = await __test__.s2PostBatch(ids, 'paperId,title')
+    expect(bodies.map((b) => b.length)).toEqual([500, 1])
+    expect(captured!.method).toBe('POST')
+    expect(captured!.url).toContain('/paper/batch?fields=paperId%2Ctitle')
+    expect(captured!.headers['content-type']).toBe('application/json')
+    expect(captured!.headers['x-api-key']).toBeTruthy()
+    expect(rows).toHaveLength(501)
+    expect(rows[0]).toEqual({ paperId: 'CorpusId:0' })
+    expect(rows[2]).toBeNull()
+    expect(rows[500]).toEqual({ paperId: 'CorpusId:500' })
+  }, 10000)
+
+  it('retries a batch on HTTP 429', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) return makeResponse(429, { message: 'slow down' }, { 'retry-after': '1' })
+      return makeResponse(200, [{ paperId: 'a' }])
+    }) as typeof fetch
+
+    const rows = await __test__.s2PostBatch(['a'], 'paperId', 3)
+    expect(calls).toBe(2)
+    expect(rows).toEqual([{ paperId: 'a' }])
+  }, 10000)
+
+  it('falls back to per-id lookups when the batch is rejected with 400 (no valid ids)', async () => {
+    const urls: string[] = []
+    globalThis.fetch = (async (url: unknown, init: any) => {
+      urls.push(String(url))
+      if (init?.method === 'POST') return makeResponse(400, { error: 'No valid paper ids given' })
+      if (String(url).includes('/paper/known')) return makeResponse(200, { paperId: 'known' })
+      return makeResponse(404, { error: 'Paper not found' })
+    }) as typeof fetch
+
+    const rows = await __test__.s2PostBatch(['missing', 'known'], 'paperId', 0)
+    expect(rows).toEqual([null, { paperId: 'known' }])
+    expect(urls.filter((u) => u.includes('/paper/batch'))).toHaveLength(1)
+    expect(urls.filter((u) => !u.includes('/paper/batch'))).toHaveLength(2)
+  }, 10000)
+})
+
 describe('mapEdge', () => {
   const now = '2026-01-01T00:00:00Z'
 

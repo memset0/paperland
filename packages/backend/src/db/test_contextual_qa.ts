@@ -18,11 +18,6 @@ export function addContextualQATestSchema(sqlite: Database): void {
   const results = columns('qa_results')
   if (results.size > 0 && !results.has('deleted_at')) sqlite.exec('ALTER TABLE qa_results ADD deleted_at TEXT')
   sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS qa_result_cites (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, qa_result_id INTEGER NOT NULL, paper_id INTEGER NOT NULL,
-      cite_id TEXT NOT NULL, id_kind TEXT NOT NULL, link_text TEXT NOT NULL, created_at TEXT NOT NULL,
-      UNIQUE (qa_result_id, cite_id)
-    );
     CREATE TABLE IF NOT EXISTS paper_citations (
       id INTEGER PRIMARY KEY AUTOINCREMENT, paper_id INTEGER NOT NULL, direction TEXT NOT NULL,
       s2_paper_id TEXT, corpus_id TEXT, arxiv_id TEXT, doi TEXT, title TEXT, authors TEXT, year INTEGER,

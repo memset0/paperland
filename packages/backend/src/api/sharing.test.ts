@@ -104,13 +104,13 @@ describe('sharing preferences API', () => {
   test('GET returns defaults', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/auth/me/sharing', headers: { 'x-test-user': '1' } })
     expect(res.statusCode).toBe(200)
-    expect(res.json().data).toEqual({ highlights: true, notes: true, qa: true, reference_links: true })
+    expect(res.json().data).toEqual({ highlights: true, notes: true, qa: true, reference_links: true, research: false })
   })
 
   test('PUT updates a subset', async () => {
     const res = await app.inject({ method: 'PUT', url: '/api/auth/me/sharing', headers: { 'x-test-user': '1' }, payload: { notes: false } })
     expect(res.statusCode).toBe(200)
-    expect(res.json().data).toEqual({ highlights: true, notes: false, qa: true, reference_links: true })
+    expect(res.json().data).toEqual({ highlights: true, notes: false, qa: true, reference_links: true, research: false })
     const again = await app.inject({ method: 'GET', url: '/api/auth/me/sharing', headers: { 'x-test-user': '1' } })
     expect(again.json().data.notes).toBe(false)
     const other = await app.inject({ method: 'GET', url: '/api/auth/me/sharing', headers: { 'x-test-user': '2' } })
@@ -124,6 +124,17 @@ describe('sharing preferences API', () => {
     }
     const res = await app.inject({ method: 'GET', url: '/api/auth/me/sharing', headers: { 'x-test-user': '1' } })
     expect(res.json().data.notes).toBe(true)
+  })
+
+  test('research is private by default and can be switched on', async () => {
+    expect(sharedFlagsFor('research', [1]).get(1)).toBe(false)
+    expect(canViewOwnedRow(bob, 1, 'research')).toBe(false)
+    const res = await app.inject({ method: 'PUT', url: '/api/auth/me/sharing', headers: { 'x-test-user': '1' }, payload: { research: true } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.research).toBe(true)
+    expect(canViewOwnedRow(bob, 1, 'research')).toBe(true)
+    // Unaffected by a shared site default for the other types.
+    expect(sharedFlagsFor('research', [2]).get(2)).toBe(false)
   })
 
   test('anonymous rejected', async () => {

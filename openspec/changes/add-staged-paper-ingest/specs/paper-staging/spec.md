@@ -8,7 +8,7 @@ A paper SHALL have a global `listed` boolean (default `true`). `listed=true` mea
 - **THEN** it SHALL have `listed=true`
 
 #### Scenario: Metadata-only paper is unlisted
-- **WHEN** a paper is ingested as metadata-only (e.g. from conference resolution)
+- **WHEN** a paper is ingested as metadata-only (`listed=false` passed explicitly)
 - **THEN** it SHALL have `listed=false`
 
 ### Requirement: Paper list supports listed / unlisted / all view modes
@@ -45,7 +45,7 @@ The External API `GET /papers` (and `/papers/full`, `/papers/batch` listings) an
 - **THEN** metadata-only (`listed=false`) papers SHALL NOT be returned
 
 ### Requirement: Metadata-only papers remain reachable
-Metadata-only papers SHALL keep a real `id` and be reachable directly (`GET /api/papers/:id`) and via the conference detail view (which lists its linked papers regardless of `listed`). Deduplication SHALL still match them by `arxiv_id`/`corpus_id`.
+Metadata-only papers SHALL keep a real `id` and be reachable directly (`GET /api/papers/:id`). Deduplication SHALL still match them by `arxiv_id`/`corpus_id`.
 
 #### Scenario: Direct access to a metadata-only paper
 - **WHEN** `GET /api/papers/:id` targets a `listed=false` paper

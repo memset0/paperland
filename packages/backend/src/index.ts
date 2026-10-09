@@ -38,7 +38,9 @@ import { pdfParseService } from './services/pdf_parse_service.js'
 import { doc2xParseService } from './services/doc2x_parse_service.js'
 import { doc2xTranslateService } from './services/doc2x_translate_service.js'
 import { papersCoolService } from './services/papers_cool_service.js'
-import { conferenceRoutes } from './api/conferences.js'
+import { s2Routes } from './api/s2.js'
+import { researchRoutes } from './api/research.js'
+import { recoverInterruptedResearchSteps } from './services/research_runtime.js'
 import { registerFrontendHosting } from './frontend_hosting.js'
 
 async function main() {
@@ -62,7 +64,8 @@ async function main() {
       .where(inArray(schema.serviceExecutions.status, staleStatuses))
       .run()
     const recoveredQA = recoverInterruptedQAResults(db, now)
-    console.log(`Cleaned up stale service executions and ${recoveredQA.resultCount} QA results`)
+    const recoveredResearch = recoverInterruptedResearchSteps(db, now)
+    console.log(`Cleaned up stale service executions, ${recoveredQA.resultCount} QA results and ${recoveredResearch} research steps`)
   }
 
   // Start backup scheduler
@@ -171,8 +174,8 @@ async function main() {
   await app.register(extensionRoutes)
   await app.register(tagRoutes)
 
-  // Register conferences routes
-  await app.register(conferenceRoutes)
+  await app.register(s2Routes)
+  await app.register(researchRoutes)
 
   // Register external API routes
   await app.register(externalPaperRoutes)

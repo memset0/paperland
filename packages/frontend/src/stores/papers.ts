@@ -68,9 +68,9 @@ export const usePapersStore = defineStore('papers', () => {
 
   /**
    * Promote a metadata-only paper into the library (listed=true → full pipeline).
-   * On rejection (e.g. HTTP 422 LISTING_NOT_ALLOWED for an OpenReview-only paper) the
-   * API client surfaces the error message and this throws BEFORE mutating any local
-   * state, so the paper stays unlisted. Callers should catch to suppress the rethrow.
+   * On rejection the API client surfaces the error message and this throws BEFORE
+   * mutating any local state, so the paper stays unlisted. Callers should catch to
+   * suppress the rethrow.
    */
   async function promote(id: number) {
     const updated = await api.patch<Paper>(`/api/papers/${id}`, { listed: true })

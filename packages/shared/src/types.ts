@@ -15,8 +15,6 @@ export interface Paper {
   link: string | null
   tags_json: string | null
   listed: boolean
-  /** Derived (not stored): false for OpenReview-only papers that cannot be promoted to listed=true. */
-  listable?: boolean
   /** Derived per caller: the paper is in the caller's personal library (Mine list). False for anonymous. */
   in_library?: boolean
   /** Derived (detail only): whether a PDF is available, being fetched, or must be uploaded. */
@@ -254,6 +252,8 @@ export interface ApiToken {
 
 // User accounts (stored in the DB; not in config.yml)
 export type UserRole = 'admin' | 'user'
+/** 'pending' = self-registered, awaiting admin approval (cannot log in). */
+export type UserStatus = 'active' | 'pending'
 
 export interface User {
   id: number
@@ -261,6 +261,7 @@ export interface User {
   /** Optional, non-unique public display name; owner attribution falls back to username. */
   nickname: string | null
   role: UserRole
+  status: UserStatus
   created_at: string
 }
 
@@ -653,67 +654,6 @@ export interface ReferenceLinkPreview {
   description: string | null
 }
 
-// Conferences
-export interface Conference {
-  id: number
-  name: string
-  year: number | null
-  start_date: string | null
-  end_date: string | null
-  location: string | null
-  description: string | null
-  link: string | null
-  created_at: string
-  updated_at: string
-}
-
-/** Conference list item: a Conference plus aggregate counts of its candidate pool. */
-export interface ConferenceListItem extends Conference {
-  paper_count: number
-  status_counts: { pending: number; candidate: number; ingested: number }
-}
-
-export type ConferencePaperStatus = 'pending' | 'candidate' | 'ingested'
-export type ConferencePaperSource = 'arxiv' | 'openreview' | 'semantic_scholar' | null
-
-export interface ConferencePaper {
-  id: number
-  conference_id: number
-  title: string
-  topic: string | null
-  authors: string[]
-  abstract: string | null
-  source: ConferencePaperSource
-  external_id: string | null
-  link: string | null
-  status: ConferencePaperStatus
-  paper_id: number | null
-  metadata: Record<string, unknown> | null
-  created_at: string
-  updated_at: string
-}
-
-/** Payload accepted by POST /api/conferences/:id/papers/import. */
-export interface ConferenceImportPayload {
-  papers: Array<{
-    title: string
-    topic?: string | null
-    source?: string | null
-    external_id?: string | null
-    link?: string | null
-    authors?: string[] | null
-    abstract?: string | null
-    metadata?: Record<string, unknown> | null
-  }>
-}
-
-/** Summary returned by POST /api/conferences/:id/ingest. */
-export interface ConferenceIngestSummary {
-  ingested: number
-  skipped: number
-  errors: Array<{ candidate_id: number; message: string }>
-}
-
 // Semantic Scholar metadata cache (POST /api/s2/papers/resolve)
 export interface S2PaperMeta {
   s2_paper_id: string | null
@@ -763,16 +703,20 @@ export interface ResearchCitation {
 export type ResearchListItem =
   | { kind: 'paper'; s2_id: string; comment?: string; verification: 'verified' | 'unverified' }
   | { kind: 'link'; url: string; citation: ResearchCitation; comment?: string }
+// `comment` is Markdown and may cite papers with `[short title](#cite:<s2_id>)`.
 
 export interface ResearchListSection {
   title: string
+  /** Markdown; may cite papers with `[short title](#cite:<s2_id>)`. */
   description?: string
   items: ResearchListItem[]
 }
 
-/** One list version. */
+/** One list version (the version's report is stored next to it on the step). */
 export interface ResearchPaperList {
   title: string
+  /** Agent's optional note on what this round changed. */
+  changes?: string
   sections: ResearchListSection[]
 }
 
@@ -796,9 +740,14 @@ export interface ResearchStep {
   model_name: string | null
   status: ResearchStepStatus
   answer: string
-  explanation: string | null
+  /** Report of the version this step produced (null when it produced none). */
+  report: string | null
+  /** Agent's short note on what this round changed. */
+  changes_note: string | null
   paper_list: ResearchPaperList | null
   parse_error: string | null
+  /** The version came from the automatic repair request. */
+  repaired: boolean
   error: string | null
   created_at: string
   started_at: string | null

@@ -97,21 +97,6 @@ export const qaResults = sqliteTable('qa_results', {
   deleted_at: text('deleted_at'),
 })
 
-// `#cite:<id>` links in finished answers whose id is not among the paper's stored references,
-// kept for later resolution (one row per answer and id).
-export const qaResultCites = sqliteTable('qa_result_cites', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  qa_result_id: integer('qa_result_id').notNull().references(() => qaResults.id),
-  paper_id: integer('paper_id').notNull().references(() => papers.id),
-  cite_id: text('cite_id').notNull(),
-  id_kind: text('id_kind').notNull(), // 's2_paper_id' | 'corpus_id'
-  link_text: text('link_text').notNull(),
-  created_at: text('created_at').notNull(),
-}, (table) => [
-  unique('qa_result_cites_result_cite_unique').on(table.qa_result_id, table.cite_id),
-  index('qa_result_cites_paper_idx').on(table.paper_id),
-])
-
 export const qaUserPreferences = sqliteTable('qa_user_preferences', {
   user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   qa_entry_id: integer('qa_entry_id').notNull().references(() => qaEntries.id, { onDelete: 'cascade' }),
@@ -211,42 +196,6 @@ export const apiTokens = sqliteTable('api_tokens', {
   revoked_at: text('revoked_at'),
 })
 
-// Conferences: top-level entity grouping a set of candidate papers (see conferencePapers).
-export const conferences = sqliteTable('conferences', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  name: text('name').notNull(),
-  year: integer('year'),
-  start_date: text('start_date'), // ISO 8601 date
-  end_date: text('end_date'),     // ISO 8601 date
-  location: text('location'),
-  description: text('description'),
-  link: text('link'),
-  created_at: text('created_at').notNull(),
-  updated_at: text('updated_at').notNull(),
-})
-
-// Conference candidate pool. Papers live here BEFORE being ingested into `papers`.
-// status: 'pending' (待确认) → 'candidate' (候选中) → 'ingested' (已入库).
-// When ingested, `paper_id` is set to the matching/created papers row.
-export const conferencePapers = sqliteTable('conference_papers', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  conference_id: integer('conference_id').notNull().references(() => conferences.id),
-  title: text('title').notNull(),
-  topic: text('topic'),
-  authors: text('authors'),      // JSON array
-  abstract: text('abstract'),
-  source: text('source'),        // 'arxiv' | 'openreview' | 'semantic_scholar' | null
-  external_id: text('external_id'),
-  link: text('link'),
-  status: text('status').notNull().default('pending'),
-  paper_id: integer('paper_id').references(() => papers.id),
-  metadata: text('metadata'),    // JSON: raw pre-scraped data
-  created_at: text('created_at').notNull(),
-  updated_at: text('updated_at').notNull(),
-}, (table) => [
-  index('conference_papers_conf_status_idx').on(table.conference_id, table.status),
-])
-
 // Image host: one row per uploaded image, content-addressed by the SHA-256 hash of its
 // bytes (the primary key). Identical bytes dedupe to a single row/file/URL. The file lives
 // on disk at `<image_host.dir>/<path>` and is served publicly at `/image/<path>`.
@@ -290,6 +239,32 @@ export const paperCitations = sqliteTable('paper_citations', {
 
 // Translation cache: one row per (source-text content hash, target language). The English→Chinese
 // translation of a piece of text is cached here and shared across ALL users (no user_id), so the
+// Semantic Scholar metadata cache for papers referenced anywhere (e.g. `#cite:` links), independent
+// of the library. status = 'ok' (metadata present) | 'not_found' (negative entry: S2 has no record).
+// A row has at least one of s2_paper_id / corpus_id; not_found rows keep only the id that was asked.
+export const s2Papers = sqliteTable('s2_papers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  s2_paper_id: text('s2_paper_id').unique(), // 40-hex, lowercase
+  corpus_id: text('corpus_id').unique(),
+  arxiv_id: text('arxiv_id'),
+  doi: text('doi'),
+  title: text('title'),
+  authors: text('authors'), // JSON array of author names
+  year: integer('year'),
+  venue: text('venue'),
+  abstract: text('abstract'),
+  tldr: text('tldr'),
+  citation_count: integer('citation_count'),
+  influential_citation_count: integer('influential_citation_count'),
+  reference_count: integer('reference_count'),
+  publication_date: text('publication_date'),
+  url: text('url'),
+  open_access_pdf_url: text('open_access_pdf_url'),
+  status: text('status').notNull(),
+  fetched_at: text('fetched_at').notNull(),
+  created_at: text('created_at').notNull(),
+})
+
 // same text is never translated twice. "Re-translate" overwrites the existing row in place.
 export const translations = sqliteTable('translations', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -319,4 +294,41 @@ export const userPapers = sqliteTable('user_papers', {
 }, (table) => [
   primaryKey({ columns: [table.user_id, table.paper_id] }),
   index('user_papers_paper_idx').on(table.paper_id),
+])
+
+// Deep Research: a session is an owner's research topic (optionally seeded from a QA answer
+// snapshot); its history is a linear sequence of steps (agent rounds and owner title edits).
+export const researchSessions = sqliteTable('research_sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  topic: text('topic').notNull(),
+  seed: text('seed'), // JSON snapshot of the source QA answer, or null
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+}, (table) => [
+  index('research_sessions_user_idx').on(table.user_id),
+])
+
+export const researchSteps = sqliteTable('research_steps', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  session_id: integer('session_id').notNull().references(() => researchSessions.id, { onDelete: 'cascade' }),
+  step_index: integer('step_index').notNull(), // 1-based, contiguous within a session
+  kind: text('kind').notNull(), // agent | title_edit
+  user_text: text('user_text'),
+  model_name: text('model_name'),
+  status: text('status').notNull(), // queued | awaiting_output | streaming | done | failed | cancelled
+  answer: text('answer').notNull().default(''),
+  report: text('report'), // Markdown report of the version this step produced (null = no version)
+  changes_note: text('changes_note'), // agent's short note on what this round changed
+  paper_list: text('paper_list'), // JSON list of the version this step produced (null = no version)
+  parse_error: text('parse_error'),
+  repaired: integer('repaired').notNull().default(0), // 1 = version came from the automatic repair request
+  error: text('error'),
+  created_at: text('created_at').notNull(),
+  started_at: text('started_at'),
+  first_chunk_at: text('first_chunk_at'),
+  finished_at: text('finished_at'),
+  updated_at: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('research_steps_session_step_unq').on(table.session_id, table.step_index),
 ])

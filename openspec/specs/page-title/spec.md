@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-page-title. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Per-page browser title
 应用 SHALL 根据当前显示的页面内容设置浏览器标签标题（`document.title`），而非对所有页面使用同一个固定标题。
 
@@ -36,17 +38,6 @@ TBD - created by archiving change add-page-title. Update Purpose after archive.
 - **WHEN** 用户打开 `/qa`
 - **THEN** `document.title` SHALL 为 `Q&A · Paperland`
 
-### Requirement: Conference page titles
-会议列表页（`/conferences`）的标题 SHALL 为 `Conferences`。会议详情页（`/conferences/:id`）SHALL 使用占位标题 `Conference Detail`（由会议名驱动的动态标题留待会议视图相关改动补充）。
-
-#### Scenario: Open conference list
-- **WHEN** 用户打开 `/conferences`
-- **THEN** `document.title` SHALL 为 `Conferences · Paperland`
-
-#### Scenario: Open a conference
-- **WHEN** 用户打开某个会议详情页 `/conferences/:id`
-- **THEN** `document.title` SHALL 为 `Conference Detail · Paperland`
-
 ### Requirement: Paper detail title from paper title
 论文详情页（`/papers/:id`）SHALL 在论文数据加载完成后，将页面标题设置为该论文的标题。在论文数据可用之前，SHALL 显示占位标题 `Paper Detail`。论文标题在页面内被修改后，页面标题 SHALL 同步更新。
 
@@ -64,4 +55,3 @@ TBD - created by archiving change add-page-title. Update Purpose after archive.
 #### Scenario: Leave paper detail
 - **WHEN** 用户从某论文详情页导航到 `/settings`
 - **THEN** `document.title` SHALL 为 `Settings · Paperland`，不再包含上一篇论文的标题
-

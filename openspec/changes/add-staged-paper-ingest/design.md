@@ -10,7 +10,7 @@
 | `papers_cool` | `arxiv_id` | `papers_cool_summary` |
 | `pdf_parse_service` | `pdf_path` | `contents.pdf_parsed` |
 
-basic fields（title/abstract/authors）"任何 fetch 服务为空则补"。`ingestPaper({arxiv_id?,corpus_id?,title?,authors?,link?,content?})` 按 `arxiv_id`/`corpus_id` 去重，命中即合并、否则插入，并 `triggerForPaper`。S2 已核实可用 `search/match`（title→best match，返回 `corpusId`+`externalIds.ArXiv`+`matchScore`），且 S2 限流（~1 RPS）已由 service runner 的 `rate_limit_interval` 管理；arxiv 限流更紧。会议候选 `conference_papers`（`title/topic/authors/abstract/source/external_id/link/status/paper_id/metadata`）当前用 `pending/candidate/ingested` 三态。
+basic fields（title/abstract/authors）"任何 fetch 服务为空则补"。`ingestPaper({arxiv_id?,corpus_id?,title?,authors?,link?,content?})` 按 `arxiv_id`/`corpus_id` 去重，命中即合并、否则插入，并 `triggerForPaper`。S2 已核实可用 `search/match`（title→best match，返回 `corpusId`+`externalIds.ArXiv`+`matchScore`），且 S2 限流（~1 RPS）已由 service runner 的 `rate_limit_interval` 管理；arxiv 限流更紧。
 
 用户已确认：可见性**全局**；`listed=false` 的论文**只走 S2、不抓 arxiv pdf/metadata**，直到被"加入"；要兼容旧 spec 流程。
 
@@ -20,7 +20,6 @@ basic fields（title/abstract/authors）"任何 fetch 服务为空则补"。`ing
 - `papers.listed` 全局可见性；两层论文：仅元数据（`listed=false`，S2 来源、隐藏）vs 已列出（`listed=true`，完整管线、显示）。
 - `listed=false` 时只跑 `semantic_scholar_service`；arxiv/pdf/papers.cool 延后；提升为 `listed=true` 触发完整管线。
 - S2 优先供给 basic fields + abstract，arxiv 退兜底/仅 PDF，降低 arxiv 限流压力。
-- 会议候选经 S2 题名匹配解析为 id 并 `ingestPaper(listed:false)`，缓存元数据、去重合并、回填 `paper_id`；状态派生。
 - **向后兼容**：默认 `listed=true`，存量与常规添加流程行为不变。
 
 **Non-Goals:**
@@ -32,7 +31,7 @@ basic fields（title/abstract/authors）"任何 fetch 服务为空则补"。`ing
 ## Decisions
 
 ### D1. `papers.listed` 全局布尔，默认 true
-`ALTER TABLE papers ADD COLUMN listed INTEGER NOT NULL DEFAULT 1` —— SQLite 对存量行回填为 1（已列出），常规新增也默认 1。**只有会议解析等显式传 `listed=false` 才进仅元数据层。** 所有"列表"出口加 `WHERE listed=1`；会议详情页按 `conference_papers.paper_id` JOIN 展示（忽略 listed）；`GET /api/papers/:id` 直链仍可访问隐藏论文（论文本就公开）。
+`ALTER TABLE papers ADD COLUMN listed INTEGER NOT NULL DEFAULT 1` —— SQLite 对存量行回填为 1（已列出），常规新增也默认 1。**只有显式传 `listed=false` 才进仅元数据层。** 所有"列表"出口加 `WHERE listed=1`；`GET /api/papers/:id` 直链仍可访问隐藏论文（论文本就公开）。
 
 ### D2. `requires_listed` 服务门禁（挂在依赖图上，旧流程零变更）
 在 paper-bound 服务定义加可选 `requires_listed: boolean`。标记 `arxiv_metadata_service`、`arxiv_pdf_service`、`papers_cool`、`pdf_parse_service` 为 `requires_listed: true`；`semantic_scholar_service` 不标（始终可跑）。
@@ -47,19 +46,10 @@ basic fields（title/abstract/authors）"任何 fetch 服务为空则补"。`ing
 
 ### D4. S2 优先元数据，arxiv 退兜底
 `semantic_scholar_service` 在富集时**顺手填 basic fields（title/authors）+ abstract（为空才填）**——这样仅元数据论文无需 arxiv 即有完整文本信息。`arxiv_metadata_service` 仍产出 `link` 并作为 abstract/字段的**补缺**（S2 偶尔 `abstract=null` 时），且 `listed` 后才跑。PDF：优先用 S2 `openAccessPdf.url` 作为来源，`arxiv_pdf_service` 兜底——二者均 `requires_listed`。
-- S2 现以 `arxiv_id` 为 key；会议 `search/match` 通常返回 `arxiv_id`，故 ingest 先 seed `arxiv_id` 再跑 S2。**边角**：仅有 `corpus_id`（无 arxiv）的论文，需让 S2 支持以 `corpus_id` 取数（小改）或暂留待手动；本列表绝大多数有 arxiv。
-
-### D5. 会议候选解析任务（限速、可重入）
-对某会议下 `paper_id IS NULL` 的候选，逐条经**现有 service runner 限速通道**调用 S2 `search/match?query=title&fields=title,externalIds,corpusId,matchScore`：
-- 命中且 `matchScore ≥ 阈值` → `ingestPaper({ arxiv_id, corpus_id, title, authors, link, listed:false })` → 拿到（新建或去重合并出的）paper → 回填 `conference_papers.paper_id`；把 `matchScore` + 匹配到的标题/年份写入 `conference_papers.metadata` 供复核。
-- 未命中 / 低分 → 保持 `paper_id=NULL`（待添加），`metadata` 标注低分以便人工。
-- 触发：`POST /api/conferences/:id/resolve`（整会议）或单条；幂等（已有 `paper_id` 跳过）。
-
-### D6. 会议状态派生，去掉"待确认"
-删 `pending/candidate`。读取时派生：`paper_id IS NULL` → **待添加**；`paper_id` 有值且 `paper.listed=false` → **已索引（仅元数据）**；`paper.listed=true` → **已加入**。`conference_papers.status` 列可弃用或仅作冗余缓存；推荐读时 JOIN `papers.listed` 派生。"加入"动作 = 对其 `paper_id` 的论文 promote（D3）。
+- S2 现以 `arxiv_id` 为 key，故 ingest 先 seed `arxiv_id` 再跑 S2。**边角**：仅有 `corpus_id`（无 arxiv）的论文，需让 S2 支持以 `corpus_id` 取数（小改）或暂留待手动；本列表绝大多数有 arxiv。
 
 ### D7. 列表过滤的波及面（务必逐个覆盖）
-加 `listed=1` 过滤：`api/papers.ts` 列表 + 搜索 + 标签筛选计数；`external-api/papers.ts` 的 `GET /papers`、`/papers/full`、`/papers/batch` 查询；idea-forge paper dump 的候选选取。**不**过滤：会议详情页论文、`GET /api/papers/:id` 直链、去重查询（按 id 命中即可，含隐藏）。
+加 `listed=1` 过滤：`api/papers.ts` 列表 + 搜索 + 标签筛选计数；`external-api/papers.ts` 的 `GET /papers`、`/papers/full`、`/papers/batch` 查询；idea-forge paper dump 的候选选取。**不**过滤：`GET /api/papers/:id` 直链、去重查询（按 id 命中即可，含隐藏）。
 
 ## Risks / Trade-offs
 
@@ -79,13 +69,11 @@ basic fields（title/abstract/authors）"任何 fetch 服务为空则补"。`ing
 4. `ingestPaper`：新增 `listed` 入参（默认 true）。
 5. `semantic_scholar_service`：填 basic fields + abstract。
 6. 列表查询按 `listed` 过滤（papers / external / idea-forge）。
-7. promote 端点；会议 resolve 任务 + 状态派生 + 前端动作。
+7. promote 端点 + 前端动作。
 8. docs。
-回滚：`listed` 列与 `requires_listed`/`deferred` 保留无害；移除过滤与 resolve 任务即恢复旧行为。
+回滚：`listed` 列与 `requires_listed`/`deferred` 保留无害；移除过滤即恢复旧行为。
 
 ## Open Questions
 
-- `matchScore` 阈值取值（先用 S2 默认 match 即接受、仅记录分数供人工？还是设硬阈值）。
-- `conference_papers.status` 列是弃用还是保留为派生缓存？倾向读时派生。
 - 是否支持 `corpus_id`-only 的 S2 取数（扩 S2 seed），还是这类暂留手动？
 - promote 是否在某些动作上自动发生（如用户对隐藏论文发起问答时自动加入）？倾向仅显式。

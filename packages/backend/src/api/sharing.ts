@@ -12,7 +12,7 @@ export async function sharingRoutes(app: FastifyInstance): Promise<void> {
     return { data: getSharingPrefs(request.user.id) }
   })
 
-  // PUT /api/auth/me/sharing — update any subset of { highlights, notes, qa, reference_links }
+  // PUT /api/auth/me/sharing — update any subset of { highlights, notes, qa, reference_links, research }
   app.put<{ Body: Record<string, unknown> }>('/api/auth/me/sharing', async (request, reply) => {
     if (!request.user) return reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Login required' } })
     const body = request.body

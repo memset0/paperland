@@ -13,7 +13,6 @@ import { requireUser } from '../auth/guards.js'
 import { verifyOpenToken } from '../auth/open_token.js'
 import { normalizeArxivId } from '../utils/arxiv_id.js'
 import { userTagsByPapers, userTagsForPaper, findOrCreateUserTag, findUserTagByName, clearUserPaperTags } from '../utils/user-tags.js'
-import { canList, openreviewLinkCount, openreviewLinkCountsByPapers } from '../utils/listing.js'
 import { normalizeS2Ids, S2IdError } from '../utils/s2_ids.js'
 import { derivePdfStatus } from '../utils/pdf_status.js'
 import { getConfig } from '../config.js'
@@ -98,8 +97,6 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
 
       // Parse JSON fields + attach the current user's tags (none for anonymous)
       const tagsByPaper = userTagsByPapers(db, data.map(p => p.id), request.user?.id ?? null)
-      // Batch-derive listability: OpenReview-only papers (only conference links, no arxiv/S2) cannot be listed.
-      const orCounts = openreviewLinkCountsByPapers(db, data.map(p => p.id))
       const inLibrary = libraryIds(userId, data.map(p => p.id))
       const parsed = data.map(p => ({
         ...p,
@@ -107,7 +104,6 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         metadata: slimListMetadata(p.metadata),
         listed: !!p.listed,
         tags: tagsByPaper.get(p.id) ?? [],
-        listable: canList(p, orCounts.get(p.id) ?? 0),
         in_library: inLibrary.has(p.id),
       }))
 
@@ -137,16 +133,6 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
     // The current user's tags for this paper (none for anonymous)
     const tags = userTagsForPaper(db, id, request.user?.id ?? null)
 
-    // OpenReview links live on conference_papers rows (one per submission/venue) —
-    // a paper can have several (resubmissions). Derive the list here.
-    const openreview_links = db.select({
-      link: schema.conferencePapers.link,
-      conference_id: schema.conferencePapers.conference_id,
-    }).from(schema.conferencePapers)
-      .where(eq(schema.conferencePapers.paper_id, id))
-      .all()
-      .filter(r => !!r.link)
-
     // PDF availability for the viewer (available / fetching / upload_required + reason).
     const executions = db.select({
       id: schema.serviceExecutions.id,
@@ -158,9 +144,6 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
     return {
       ...parsePaper(paper),
       tags,
-      openreview_links,
-      // OpenReview-only papers (links present, no arxiv/S2 source) are not promotable to listed=true.
-      listable: canList(paper, openreview_links.length),
       in_library: libraryIds(request.user?.id ?? null, [id]).has(id),
       ...derivePdfStatus(paper, executions),
     }
@@ -289,20 +272,6 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       // Promote/demote visibility (加入列表 = listed:true)
       if (listed !== undefined) updates.listed = listed ? 1 : 0
 
-      // Listing eligibility: an OpenReview-only paper (only conference links, no arxiv/S2 source)
-      // cannot be promoted to listed=true. Demotion (listed=false) is always allowed.
-      if (listed === true) {
-        const effective = {
-          arxiv_id: paper.arxiv_id,
-          corpus_id: paper.corpus_id,
-          link: link !== undefined ? (link || null) : paper.link,
-        }
-        if (!canList(effective, openreviewLinkCount(db, id))) {
-          reply.code(422).send({ error: { code: 'LISTING_NOT_ALLOWED', message: '该论文仅有 OpenReview 链接、缺少 arXiv / Semantic Scholar 来源，无法加入列表' } })
-          return
-        }
-      }
-
       if (Object.keys(updates).length === 0) {
         return parsePaper(paper)
       }
@@ -342,7 +311,6 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
           db.update(schema.highlights).set({ qa_result_id: null })
             .where(inArray(schema.highlights.qa_result_id, resultIds)).run()
         }
-        db.delete(schema.qaResultCites).where(eq(schema.qaResultCites.paper_id, id)).run()
         db.delete(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, entryIds)).run()
       }
       // 2. Delete qa_entries

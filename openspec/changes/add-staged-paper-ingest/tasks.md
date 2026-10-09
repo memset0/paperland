@@ -39,23 +39,15 @@
 
 - [x] 7.1 `api/papers.ts`：支持 `PATCH /api/papers/:id { listed: true }`（或新增 `POST /api/papers/:id/list`），`requireUser`，置 `listed=1` 并 `triggerForPaper`；幂等
 
-## 8. 会议候选解析
+## 9. 前端（论文列表 + 论文详情）
 
-- [x] 8.1 `services/`：新增按标题调用 S2 `paper/search/match?query=&fields=title,externalIds,corpusId,matchScore` 的解析函数，复用 S2 的 `x-api-key` 与限速（经 service runner 限速通道，避免 429）
-- [x] 8.2 `api/conferences.ts`：新增 `POST /api/conferences/:id/resolve`（`requireUser`）——对 `paper_id IS NULL` 的候选逐条解析；命中且分数达标 → `ingestPaper({arxiv_id,corpus_id,title,authors,link,listed:false})` → 回填 `conference_papers.paper_id`、把 `matchScore`/匹配标题写入 `metadata`；未命中保持 `paper_id` NULL
-- [x] 8.3 会议候选状态改为派生（读 `GET /api/conferences/:id/papers` 时 JOIN `papers.listed`）：`paper_id` NULL→待添加；`listed=0`→已索引（仅元数据）；`listed=1`→已加入。弃用/停写 `pending/candidate`
-- [x] 8.4 "加入列表"动作：对候选的 `paper_id` 论文走第 7 步 promote
-
-## 9. 前端（会议页 + 论文详情）
-
-- [x] 9.1 `views/ConferenceDetail.vue` + `stores/conferences.ts`：候选列表展示派生状态（待添加 / 仅元数据 / 已加入）、匹配分数/标题；"解析"按钮（触发 resolve）、单条/批量"加入列表"按钮
 - [x] 9.2 `views/PaperList.vue`：新增视图模式切换（listed 默认 / unlisted / 全部，传 `listed` 参数）；`listed=false` 行**不可点击进详情**，改为行内"抓取"按钮（调 promote → 抓取后可进详情）；`listed=true` 行行为不变
-- [x] 9.3 `views/PaperDetail.vue`：对经直链/会议进入的 `listed=false` 论文显示"加入列表/抓取"动作（promote）
+- [x] 9.3 `views/PaperDetail.vue`：对经直链进入的 `listed=false` 论文显示"加入列表/抓取"动作（promote）
 
 ## 10. 文档
 
 - [x] 10.1 `docs/tech-stack.md`：Drizzle schema 概览 `papers` 增 `listed` 列说明
-- [x] 10.2 `docs/frontend-architecture.md`：新增"两层论文（已列出 vs 仅元数据）/ 会议候选 S2 解析 / 全局可见性 / 服务按 listed 门禁与提升"章节
+- [x] 10.2 `docs/frontend-architecture.md`：新增"两层论文（已列出 vs 仅元数据）/ 全局可见性 / 服务按 listed 门禁与提升"章节
 - [x] 10.3 `docs/external-api.md`：注明 `GET /papers` 等列表仅返回 `listed=true` 论文
 
 ## 11. 验证
@@ -64,6 +56,5 @@
 - [x] 11.2 兼容性：常规添加一篇 arxiv 论文（默认 listed=1）→ 完整管线照常跑、出现在列表；现有论文行为不变
 - [x] 11.3 metadata-only：以 `listed:false` ingest 一篇 → 只跑 S2（basic fields/abstract/引用图就位）、arxiv/pdf/papers.cool 为 `deferred`、不在论文列表出现、可直链访问
 - [x] 11.4 提升：对该隐藏论文 promote → deferred 服务触发、PDF/解析就位、进入列表；S2 不重复跑
-- [x] 11.5 会议解析：对已导入的 "MLSys 2026"（id=1，77 条候选）跑 `resolve`，确认大部分命中并建出 `listed=false` 论文 + 回填 `paper_id` + 缓存 matchScore；相同论文去重合并；未命中留待添加（限速无 429）
 - [x] 11.6 列表过滤核对：External API `GET /papers`、idea-forge dump、标签筛选均不返回 `listed=0` 论文
 - [x] 11.7 仅运行本次涉及且不烧外部额度的后端单测；**不要盲跑全部测试**（部分会调用真实 arxiv/S2/OpenAI）

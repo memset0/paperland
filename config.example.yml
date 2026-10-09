@@ -212,3 +212,4 @@ s2_cache:
 research:
   system_prompt: research       # prompts/system/research.md (same directory as qa_prompt system prompts)
   history_char_budget: 20000    # characters of earlier steps replayed to the agent each round
+  abstract_char_limit: 1500     # per-paper abstract characters shown to the agent in the current list

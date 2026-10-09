@@ -2,11 +2,13 @@ export type QAResultStreamEvent =
   | { event: 'start'; result: any }
   | { event: 'delta'; result_id: number; delta: string; answer_length: number; first_chunk_at: string | null; thinking_duration_ms: number | null }
   | { event: 'done'; result: any }
+  // Deep Research only: the round's output was invalid and an automatic repair request is running.
+  | { event: 'repairing'; result: any }
   | { event: 'error'; result: any }
 
 export type QAResultStreamSubscriber = (event: QAResultStreamEvent) => void
 
-class QAResultStreamBroker {
+export class QAResultStreamBroker {
   private subscribers = new Map<number, Set<QAResultStreamSubscriber>>()
 
   subscribe(resultId: number, subscriber: QAResultStreamSubscriber): () => void {

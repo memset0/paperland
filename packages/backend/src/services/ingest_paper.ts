@@ -2,7 +2,6 @@ import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { withDedup, getDedupKey } from './paper_dedup.js'
 import { serviceRunner } from './service_runner.js'
-import { canList, openreviewLinkCount } from '../utils/listing.js'
 
 export interface IngestPaperInput {
   arxiv_id?: string | null
@@ -69,8 +68,7 @@ export interface IngestPaperResult {
 }
 
 /**
- * Core paper-ingest pipeline shared by `POST /api/papers` and by the conference
- * one-click ingest flow. Returns the existing paper (with cross-id backfilled if
+ * Core paper-ingest pipeline shared by the paper-creating routes. Returns the existing paper (with cross-id backfilled if
  * applicable) when an `arxiv_id`/`corpus_id`/`s2_paper_id` already exists; otherwise inserts a
  * new row and asynchronously triggers the service dependency graph for it.
  *
@@ -80,12 +78,10 @@ export interface IngestPaperResult {
 export async function ingestPaper(input: IngestPaperInput): Promise<IngestPaperResult> {
   const { arxiv_id, corpus_id, s2_paper_id, title, authors, link, content, listed } = input
 
-  // Promote an existing metadata-only paper when a normal (listed) ingest matches it —
-  // but never list an OpenReview-only paper (only conference links, no arxiv/S2 source).
+  // Promote an existing metadata-only paper when a normal (listed) ingest matches it.
   const maybePromote = (existing: typeof schema.papers.$inferSelect): void => {
     if (listed !== false && existing.listed === 0) {
       const db = getDatabase()
-      if (!canList(existing, openreviewLinkCount(db, existing.id))) return
       db.update(schema.papers).set({ listed: 1 }).where(eq(schema.papers.id, existing.id)).run()
       serviceRunner.triggerForPaper(existing.id).catch(() => {})
     }

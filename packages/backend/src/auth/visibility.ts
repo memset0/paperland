@@ -3,8 +3,9 @@ import type { SharingDataType, SharingPreferences, VisibilityScope } from '@pape
 import { getConfig } from '../config.js'
 import { getDatabase, schema } from '../db/index.js'
 
-// Multi-user visibility for OPTIONALLY-SHARED data (highlights, notes, free Q&A, reference links).
-// Always-shared data (papers, preset Q&A, conferences, translations) and always-private data
+// Multi-user visibility for OPTIONALLY-SHARED data (highlights, notes, free Q&A, reference links,
+// research sessions).
+// Always-shared data (papers, preset Q&A, translations) and always-private data
 // (tags, images list, tokens, reading prefs) never go through this module.
 //
 // Rules (see openspec `data-sharing-preferences`):
@@ -13,7 +14,10 @@ import { getDatabase, schema } from '../db/index.js'
 //   all, admin      → every row
 //   anonymous       → nothing (callers add their own public exceptions, e.g. published notes)
 
-export const SHARING_DATA_TYPES: SharingDataType[] = ['highlights', 'notes', 'qa', 'reference_links']
+export const SHARING_DATA_TYPES: SharingDataType[] = ['highlights', 'notes', 'qa', 'reference_links', 'research']
+
+// Types that stay private until the owner opts in, regardless of `sharing.default_shared`.
+const PRIVATE_BY_DEFAULT: SharingDataType[] = ['research']
 
 export interface Viewer {
   id: number
@@ -40,10 +44,14 @@ export function defaultShared(): boolean {
   }
 }
 
+/** Default for one type's switch when the user never set it (research is private by default). */
+export function defaultSharedFor(type: SharingDataType): boolean {
+  return PRIVATE_BY_DEFAULT.includes(type) ? false : defaultShared()
+}
+
 /** Effective switches for one user. */
 export function getSharingPrefs(userId: number): SharingPreferences {
-  const fallback = defaultShared()
-  const prefs = Object.fromEntries(SHARING_DATA_TYPES.map((t) => [t, fallback])) as SharingPreferences
+  const prefs = Object.fromEntries(SHARING_DATA_TYPES.map((t) => [t, defaultSharedFor(t)])) as SharingPreferences
   const rows = getDatabase().select().from(schema.userSharingSettings)
     .where(eq(schema.userSharingSettings.user_id, userId)).all()
   for (const row of rows) {
@@ -83,7 +91,7 @@ function usersWithExplicit(type: SharingDataType, shared: boolean) {
 /** SQL condition: the owner column belongs to a user who shares `type`. */
 export function ownerSharesCondition(type: SharingDataType, ownerColumn: SQLWrapper): SQL {
   // Default shared → everyone except explicit opt-outs; default private → only explicit opt-ins.
-  return defaultShared()
+  return defaultSharedFor(type)
     ? notInArray(ownerColumn as any, usersWithExplicit(type, false))
     : inArray(ownerColumn as any, usersWithExplicit(type, true))
 }
@@ -107,7 +115,7 @@ export function ownerVisibilityFilter(
 /** Batch: for each owner id, whether they share `type`. */
 export function sharedFlagsFor(type: SharingDataType, ownerIds: Array<number | null | undefined>): Map<number, boolean> {
   const ids = [...new Set(ownerIds.filter((id): id is number => id != null))]
-  const fallback = defaultShared()
+  const fallback = defaultSharedFor(type)
   const flags = new Map<number, boolean>(ids.map((id) => [id, fallback]))
   if (ids.length === 0) return flags
   const rows = getDatabase().select().from(schema.userSharingSettings)
@@ -121,7 +129,7 @@ export function sharedFlagsFor(type: SharingDataType, ownerIds: Array<number | n
 
 export function isSharedByOwner(ownerId: number | null | undefined, type: SharingDataType): boolean {
   if (ownerId == null) return false
-  return sharedFlagsFor(type, [ownerId]).get(ownerId) ?? defaultShared()
+  return sharedFlagsFor(type, [ownerId]).get(ownerId) ?? defaultSharedFor(type)
 }
 
 /** Single-row read check for an optionally-shared row (owner, admin, or logged-in + owner shares). */

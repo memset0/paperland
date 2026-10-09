@@ -10,8 +10,8 @@ const props = defineProps<{
 type BadgeInfo = { label: string; href: string; variant: 'destructive' | 'secondary' }
 
 // The arXiv id is a first-class field on the paper — it must show whenever it's
-// set, regardless of `link` (conference-imported papers resolve an arxiv_id via
-// S2 but keep no arxiv URL in `papers.link`). A separate non-arxiv `link`
+// set, regardless of `link` (papers whose arxiv_id was resolved via S2 may
+// keep no arxiv URL in `papers.link`). A separate non-arxiv `link`
 // (project page, etc.) is shown alongside.
 const badges = computed<BadgeInfo[]>(() => {
   const out: BadgeInfo[] = []

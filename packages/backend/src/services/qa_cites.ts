@@ -1,9 +1,3 @@
-import { and, eq } from 'drizzle-orm'
-import type { getDatabase } from '../db/index.js'
-import * as schema from '../db/schema.js'
-
-type Database = ReturnType<typeof getDatabase>
-
 export interface CiteLink {
   cite_id: string
   id_kind: 's2_paper_id' | 'corpus_id'
@@ -23,26 +17,4 @@ export function extractCiteLinks(answer: string): CiteLink[] {
     seen.set(id, { cite_id: id, id_kind: kind, link_text: match[1].trim() })
   }
   return [...seen.values()]
-}
-
-/**
- * Record a finished answer's `#cite:` ids that are not among the paper's stored references, for
- * later resolution. Ids found in the paper's references need nothing stored (the UI uses them).
- */
-export function recordUnknownCites(db: Database, paperId: number, resultId: number, answer: string): number {
-  const links = extractCiteLinks(answer)
-  if (links.length === 0) return 0
-  const references = db.select({ s2: schema.paperCitations.s2_paper_id, corpus: schema.paperCitations.corpus_id })
-    .from(schema.paperCitations)
-    .where(and(eq(schema.paperCitations.paper_id, paperId), eq(schema.paperCitations.direction, 'reference')))
-    .all()
-  const known = new Set(references.flatMap((row) => [row.s2?.toLowerCase(), row.corpus].filter(Boolean) as string[]))
-  const unknown = links.filter((link) => !known.has(link.cite_id))
-  const now = new Date().toISOString()
-  for (const link of unknown) {
-    db.insert(schema.qaResultCites).values({
-      qa_result_id: resultId, paper_id: paperId, ...link, created_at: now,
-    }).onConflictDoNothing().run()
-  }
-  return unknown.length
 }

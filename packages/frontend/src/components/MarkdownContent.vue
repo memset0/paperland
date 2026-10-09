@@ -6,7 +6,9 @@ import { gfm } from 'turndown-plugin-gfm'
 import { toast } from 'vue-sonner'
 import { useRouter, useRoute } from 'vue-router'
 import { Trash2, Link2, Copy, ExternalLink, BookOpen } from '@lucide/vue'
-import { usePaperReferences, findReference, s2Url, type PaperReference } from '@/composables/usePaperReferences'
+import { useS2Paper } from '@/composables/useS2Papers'
+import { normalizeCiteId, s2Url } from '@/lib/cite-links'
+import type { S2ResolveResult } from '@paperland/shared'
 import { useQAStore } from '@/stores/qa'
 import { useHighlightStore } from '@/stores/highlights'
 import { useAuthStore } from '@/stores/auth'
@@ -29,15 +31,18 @@ import { renderMarkdown } from '@/lib/markdown-renderer'
 // cast to `false` by Vue (not `undefined`), so without this default the directive would be
 // disabled everywhere it isn't explicitly passed (walkthrough, notes card, public notes, FAQ).
 // `qaAnswer` marks a Q&A answer: `#moonlight` links emit `moonlight` (open a pre-filled follow-up)
-// and `#cite:<id>` links become citation chips when the id is in the paper's references (else plain text).
+// and `#cite:<id>` links become citation chips when the id resolves through the S2 paper cache (else plain text).
 const props = withDefaults(
   defineProps<{ content: string; highlightPathname?: string; paperId?: number; qaResultId?: number; disableHighlights?: boolean; publicNote?: boolean; applyImageWidth?: boolean; qaAnswer?: boolean }>(),
   { applyImageWidth: true },
 )
 const emit = defineEmits<{ moonlight: [question: string] }>()
 const qaStore = useQAStore()
-const references = props.qaAnswer && props.paperId ? usePaperReferences(props.paperId) : ref<PaperReference[] | null>(null)
-const activeCite = ref<{ ref: PaperReference; citeId: string; x: number; y: number } | null>(null)
+/** What a citation card shows, from the S2 paper resolver (independent of the answer's paper). */
+interface CiteCardModel { title: string | null; authors: string[]; year: number | null; venue: string | null; library_paper_id: number | null }
+const activeCite = ref<{ ref: CiteCardModel; citeId: string; x: number; y: number } | null>(null)
+// Resolver refs for `#cite:` ids (keyed by normalized id).
+const resolvedCites = ref(new Map<string, { value: S2ResolveResult | null }>())
 
 const highlightStore = useHighlightStore()
 const auth = useAuthStore()
@@ -134,8 +139,11 @@ watch(() => props.content, () => {
   renderAndHighlight()
 }, { immediate: false })
 
-// Citation chips depend on the paper's reference list, which loads asynchronously.
-watch(references, () => { if (props.qaAnswer) renderAndHighlight() })
+// Citation chips depend on resolver results, which arrive asynchronously: re-render once one resolves.
+watch(
+  () => [...resolvedCites.value.values()].filter((r) => r.value?.status === 'resolved').length,
+  (resolved, before) => { if (props.qaAnswer && resolved > (before ?? 0)) renderAndHighlight() },
+)
 
 // Watch highlight changes (e.g., after create/delete)
 watch(myHighlights, () => {
@@ -297,16 +305,17 @@ function deactivateBlockAnchors(el: HTMLElement) {
 }
 
 /**
- * Q&A answers: `#cite:<id>` links whose id is in this paper's references become citation chips
- * (same text, so highlight offsets are unchanged); unknown ids become plain text. `#moonlight`
- * follow-up suggestions stay links and are intercepted on click.
+ * Q&A answers: every `#cite:<id>` link is resolved through the S2 paper cache (no dependency on the
+ * answer's paper); resolved ids become citation chips (same text, so highlight offsets are
+ * unchanged), the rest stay plain text. `#moonlight` follow-up suggestions stay links and are
+ * intercepted on click.
  */
 function decorateQALinks(el: HTMLElement) {
   for (const a of Array.from(el.querySelectorAll<HTMLAnchorElement>('a[href^="#cite:"]'))) {
     const citeId = decodeURIComponent((a.getAttribute('href') || '').slice('#cite:'.length))
     const span = document.createElement('span')
     span.textContent = a.textContent || ''
-    if (findReference(references.value, citeId)) {
+    if (resolvedCite(citeId)) {
       span.className = 'qa-cite-chip'
       span.dataset.citeId = citeId
       span.setAttribute('role', 'button')
@@ -321,8 +330,24 @@ function decorateQALinks(el: HTMLElement) {
   }
 }
 
+/** Resolver metadata for a cited id (requests it on first sight). */
+function resolvedCite(citeId: string): CiteCardModel | null {
+  const id = normalizeCiteId(citeId)
+  if (!id) return null
+  let entry = resolvedCites.value.get(id)
+  if (!entry) {
+    entry = useS2Paper(id)
+    resolvedCites.value.set(id, entry)
+  }
+  const result = entry.value
+  if (result?.status !== 'resolved' || !result.paper) return null
+  const { title, authors, year, venue } = result.paper
+  return { title, authors, year, venue, library_paper_id: result.library_paper_id }
+}
+
 function openCiteCard(chip: HTMLElement) {
-  const ref = findReference(references.value, chip.dataset.citeId || '')
+  const citeId = chip.dataset.citeId || ''
+  const ref = resolvedCite(citeId)
   const host = containerRef.value?.parentElement
   if (!ref || !host) return
   const cr = chip.getBoundingClientRect()
@@ -631,7 +656,7 @@ onBeforeUnmount(() => {
       @mouseover="qaAnswer && onCiteHover($event)"
     />
 
-    <!-- Citation card for a `#cite:` chip (reference data comes from the paper's S2 references) -->
+    <!-- Citation card for a `#cite:` chip (S2 paper cache) -->
     <div
       v-if="activeCite"
       class="qa-cite-card"
@@ -710,7 +735,7 @@ onBeforeUnmount(() => {
    overflow-wrap is inherited, so this covers p / li / headings too. Code blocks
    (<pre>) keep white-space:pre + their own overflow-x:auto and are unaffected. */
 .markdown-content { overflow-wrap: anywhere; }
-/* Q&A answers: citation chips (`#cite:` ids found in the paper's references), unknown ids as
+/* Q&A answers: citation chips (`#cite:` ids resolved via the S2 paper cache), unknown ids as
    plain text, and suggested follow-up links. Chip text equals the link text so highlight offsets hold. */
 .markdown-content :deep(.qa-cite-chip) {
   display: inline; cursor: pointer; border-radius: 0.25rem; padding: 0 0.3em;

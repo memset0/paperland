@@ -24,7 +24,7 @@ import { qaResultStreamBroker } from '../services/qa_result_stream.js'
 import { modelSupportsVision } from '../services/model_invoke.js'
 import { buildQAInput, chainContentInputs, loadAncestorChain, QANoContentError, resolvePaperContent } from '../services/qa_formatter.js'
 import { assignLabels, contentInputs, parseStoredInputs, qaInputRequestSchema, type QAInputRequestParsed } from '../services/qa_inputs.js'
-import { recordUnknownCites } from '../services/qa_cites.js'
+import { warmCites } from '../services/s2_paper_cache.js'
 import { existsSync } from 'fs'
 import { systemPromptPath } from '../config.js'
 import type { QAInput } from '@paperland/shared'
@@ -384,11 +384,10 @@ export async function runQA(
       })
       if (completed) {
         qaResultStreamBroker.publish(result.id, { event: 'done', result: completed })
-        try {
-          recordUnknownCites(db, paperId, result.id, res.answer)
-        } catch (error) {
-          console.error(`Failed to record #cite links (result ${result.id}):`, error)
-        }
+        // Cache S2 metadata for the cited papers in the background; never affects completion.
+        warmCites(res.answer).catch((error) => {
+          console.warn(`Failed to warm S2 cache for #cite links (result ${result.id}):`, error)
+        })
       }
       recomputeQAEntryState(db, entryId)
     } catch (reason: unknown) {

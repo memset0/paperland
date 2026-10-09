@@ -12,6 +12,8 @@ External API 是独立于前端 Internal API 的第三方接口，主要用于 Z
 
 S2 论文元数据缓存的解析接口 `POST /api/s2/papers/resolve` 同样属于 Internal API，**不在** `/external-api/v1` 下、不接受 Bearer API Token；新增的 `s2_papers` 缓存表不改变任何 External API 请求或响应契约。
 
+Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回退与 SSE）同样只是 Internal API（会话认证），External API 不暴露 research 数据；新增的 `research_sessions` / `research_steps` 表与 `research` 共享类型不改变任何 External API 契约。
+
 ---
 
 ## 认证
@@ -127,13 +129,12 @@ Base URL: `/external-api/v1`
 - `content` 为空字符串时清除 `user_input`
 - 成功更新后 `updated_at` 自动刷新
 - `listed: true` 时把论文加入列表并触发完整抓取管线；`listed: false` 始终允许（降为仅元数据）
-- **列表资格**：仅有 OpenReview 链接、且无 `arxiv_id`/`corpus_id`（也无 arxiv.org 链接）的"OpenReview-only"论文不能被设为 `listed: true`，此时返回 `422`，错误码 `LISTING_NOT_ALLOWED`，`listed` 不变、不触发管线
 
-**Response:** 返回更新后的论文对象（同 GET /papers/:id 格式）。响应含派生字段 `listable`（布尔）：`false` 表示该论文为 OpenReview-only、不可加入列表。
+**Response:** 返回更新后的论文对象（同 GET /papers/:id 格式）。
 
 #### DELETE /papers/:id
 
-彻底删除论文及所有关联数据。在单个事务中级联删除：qa_result_cites → qa_results（含已软删除的回答）→ qa_entries → service_executions → paper_tags → highlights → paper。
+彻底删除论文及所有关联数据。在单个事务中级联删除：qa_results（含已软删除的回答）→ qa_entries → service_executions → paper_tags → highlights → paper。
 
 **Response:**
 
@@ -164,7 +165,7 @@ Base URL: `/external-api/v1`
 
 未找到时返回 `404`。
 
-> 注：本 API 无"全量列表"端点，仅按 ID 精确查询。通过会议解析创建的"仅元数据"论文（`listed=0`，尚未加入阅读列表）也会被 lookup 命中（它们确已在库中、用于去重），但不会出现在站内论文列表里，直到被显式"加入列表"。
+> 注：本 API 无"全量列表"端点，仅按 ID 精确查询。"仅元数据"论文（`listed=0`，尚未加入阅读列表）也会被 lookup 命中（它们确已在库中、用于去重），但不会出现在站内论文列表里，直到被显式"加入列表"。
 
 #### GET /papers/full
 

@@ -11,7 +11,6 @@ import { resolveContent } from '../services/qa_service.js'
 import { loadTemplates } from '../services/template_loader.js'
 import { getConfig } from '../config.js'
 import { findOrCreateUserTag, userTagsForPaper } from '../utils/user-tags.js'
-import { canList, openreviewLinkCount } from '../utils/listing.js'
 import { runQA } from '../api/qa.js'
 
 async function waitForQARuns(resultIds: number[], timeoutMs = 30 * 60 * 1000): Promise<void> {
@@ -151,19 +150,6 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
       // Promote/demote visibility, mirroring the internal API.
       if (listed !== undefined) updates.listed = listed ? 1 : 0
 
-      // Listing eligibility: an OpenReview-only paper cannot be promoted to listed=true (demotion always allowed).
-      if (listed === true) {
-        const effective = {
-          arxiv_id: paper.arxiv_id,
-          corpus_id: paper.corpus_id,
-          link: link !== undefined ? (link || null) : paper.link,
-        }
-        if (!canList(effective, openreviewLinkCount(db, id))) {
-          reply.code(422).send({ error: { code: 'LISTING_NOT_ALLOWED', message: '该论文仅有 OpenReview 链接、缺少 arXiv / Semantic Scholar 来源，无法加入列表' } })
-          return
-        }
-      }
-
       if (Object.keys(updates).length === 0) {
         return { ...parsePaper(paper), tags: getTags(db, paper.id, request.user?.id ?? null) }
       }
@@ -198,7 +184,6 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
           db.update(schema.highlights).set({ qa_result_id: null })
             .where(inArray(schema.highlights.qa_result_id, resultIds)).run()
         }
-        db.delete(schema.qaResultCites).where(eq(schema.qaResultCites.paper_id, id)).run()
         db.delete(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, entryIds)).run()
       }
       db.delete(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).run()

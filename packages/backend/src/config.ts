@@ -27,6 +27,8 @@ const authUserSchema = z.object({
 
 const authSchema = z.object({
   enabled: z.boolean().default(true),
+  // Self-registration (POST /api/auth/register → pending account, admin approves).
+  registration_enabled: z.boolean().default(true),
   // Deprecated: website credentials now live in the `users` DB table.
   // Kept optional for backward-compatible parsing of existing config.yml files.
   users: z.array(authUserSchema).optional(),
@@ -284,12 +286,13 @@ const s2CacheSchema = z.object({
   max_ids_per_request: z.number().int().positive().default(S2_CACHE_DEFAULTS.max_ids_per_request),
 })
 
-// Deep Research: system prompt name (a file in qa_prompt.system_prompts_dir) and how many characters of
-// earlier steps (user texts + agent explanations) are replayed to the agent each round.
-const RESEARCH_DEFAULTS = { system_prompt: 'research', history_char_budget: 20000 }
+// Deep Research: system prompt name (a file in qa_prompt.system_prompts_dir), how many characters of
+// earlier steps are replayed to the agent each round, and the per-paper abstract length shown to it.
+const RESEARCH_DEFAULTS = { system_prompt: 'research', history_char_budget: 20000, abstract_char_limit: 1500 }
 const researchSchema = z.object({
   system_prompt: z.string().default(RESEARCH_DEFAULTS.system_prompt),
   history_char_budget: z.number().int().positive().default(RESEARCH_DEFAULTS.history_char_budget),
+  abstract_char_limit: z.number().int().positive().default(RESEARCH_DEFAULTS.abstract_char_limit),
 })
 
 const configSchema = z.object({

@@ -31,7 +31,6 @@ The system SHALL store per-user, per-paper relationship state in a `user_papers`
 Each of the following actions SHALL put the paper in the acting user's library (`in_library = 1`), whether the paper was newly created or already existed site-wide:
 - `POST /api/papers`
 - `POST /api/papers/open-arxiv`
-- the one-click conference ingest of a listed paper
 - `POST /external-api/papers` with a token bound to a user
 
 `PUT /api/papers/:id/library` SHALL add an existing paper to the caller's library. `DELETE /api/papers/:id/library` SHALL remove it. Both SHALL require a logged-in user, SHALL return 404 for an unknown paper, SHALL be idempotent, and SHALL return `{ paper_id, in_library }`. Tagging, notes, Q&A, highlights and reference links SHALL NOT change library membership.

@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, Tag, CalendarDays, NotebookPen, Image as ImageIcon, Languages, Puzzle } from '@lucide/vue'
+import { FileText, MessageSquare, Activity, Settings, Tag, NotebookPen, Image as ImageIcon, Languages, Puzzle, Telescope } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
@@ -41,6 +41,19 @@ const routes = [
     meta: { requiresAuth: true, title: 'Notes', icon: NotebookPen },
   },
   {
+    path: '/research',
+    name: 'research',
+    component: () => import('@/views/ResearchList.vue'),
+    meta: { requiresAuth: true, title: 'Research', icon: Telescope },
+  },
+  {
+    path: '/research/:id',
+    name: 'research-detail',
+    component: () => import('@/views/ResearchDetail.vue'),
+    // Placeholder until the session loads; ResearchDetail overrides with the session title.
+    meta: { requiresAuth: true, title: 'Research' },
+  },
+  {
     path: '/images',
     name: 'image-host',
     component: () => import('@/views/ImageHostPage.vue'),
@@ -76,18 +89,6 @@ const routes = [
     component: () => import('@/views/TranslationTest.vue'),
     meta: { requiresAdmin: true, title: 'Translation Stream Test', icon: Languages },
   },
-  {
-    path: '/conferences',
-    name: 'conferences',
-    component: () => import('@/views/ConferenceList.vue'),
-    meta: { title: 'Conferences', icon: CalendarDays },
-  },
-  {
-    path: '/conferences/:id',
-    name: 'conference-detail',
-    component: () => import('@/views/ConferenceDetail.vue'),
-    meta: { title: 'Conference Detail', icon: CalendarDays },
-  },
 ]
 
 export const router = createRouter({
@@ -95,8 +96,8 @@ export const router = createRouter({
   routes,
 })
 
-// Guard restricted routes. Anonymous users are prompted to log in (and kept on a
-// public page); authenticated non-admins are turned away from admin-only pages.
+// Guard restricted routes. Every route needs login, which App enforces by showing the login
+// screen to anonymous visitors; here authenticated non-admins are turned away from admin-only pages.
 router.beforeEach(async (to) => {
   const meta = to.meta as { requiresAuth?: boolean; requiresAdmin?: boolean }
   if (!meta.requiresAuth && !meta.requiresAdmin) return true
@@ -104,10 +105,9 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (!auth.loaded) await auth.fetchMe()
 
-  if (!auth.isAuthenticated) {
-    useLoginPrompt().openLogin()
-    return to.path === '/' ? false : '/'
-  }
+  // Anonymous: let the navigation through — App renders the login screen instead of the route,
+  // and the requested route appears once they log in.
+  if (!auth.isAuthenticated) return true
   if (meta.requiresAdmin && !auth.isAdmin) {
     toast.error('Admin access required')
     return to.path === '/' ? false : '/'

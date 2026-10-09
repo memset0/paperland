@@ -81,28 +81,31 @@ async function rateGate(): Promise<void> {
 }
 
 /**
- * GET a Semantic Scholar Graph API endpoint. Sends the API key as `x-api-key`,
- * spaces every call through the shared rate gate, and retries 429/5xx with
- * exponential backoff + jitter (honoring Retry-After). 403/404 are non-retriable.
+ * Issue one Semantic Scholar Graph API request. Sends the API key as `x-api-key`, spaces every
+ * call through the shared rate gate, and retries 429/5xx with exponential backoff + jitter
+ * (honoring Retry-After). 403/404 are non-retriable.
  */
-async function s2Get(path: string, fields: string, params: Record<string, string> = {}, maxRetries = 5): Promise<any> {
+/** An S2 request error carrying the HTTP status, so callers can tell 400/404 from outages. */
+function s2Error(status: number, message: string): Error & { status: number } {
+  return Object.assign(new Error(message), { status })
+}
+
+async function s2Request(path: string, url: string, init: RequestInit = {}, maxRetries = 5): Promise<any> {
   const apiKey = getApiKey()
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) }
   if (apiKey) headers['x-api-key'] = apiKey
-  const qs = new URLSearchParams({ fields, ...params }).toString()
-  const url = `${S2_BASE}${path}?${qs}`
 
   for (let attempt = 0; ; attempt++) {
     await rateGate()
-    const response = await fetch(url, { headers })
+    const response = await fetch(url, { ...init, headers })
     if (response.ok) return response.json()
 
-    if (response.status === 403) throw new Error('Semantic Scholar API returned 403 (invalid API key)')
-    if (response.status === 404) throw new Error(`Semantic Scholar has no record for ${path}`)
+    if (response.status === 403) throw s2Error(403, 'Semantic Scholar API returned 403 (invalid API key)')
+    if (response.status === 404) throw s2Error(404, `Semantic Scholar has no record for ${path}`)
 
     const retriable = response.status === 429 || response.status >= 500
     if (!retriable || attempt >= maxRetries) {
-      throw new Error(`Semantic Scholar API returned ${response.status}`)
+      throw s2Error(response.status, `Semantic Scholar API returned ${response.status}`)
     }
     const retryAfter = Number(response.headers.get('retry-after'))
     const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0
@@ -113,46 +116,55 @@ async function s2Get(path: string, fields: string, params: Record<string, string
   }
 }
 
+/** GET a Semantic Scholar Graph API endpoint (shared rate gate + backoff, see s2Request). */
+async function s2Get(path: string, fields: string, params: Record<string, string> = {}, maxRetries = 5): Promise<any> {
+  const qs = new URLSearchParams({ fields, ...params }).toString()
+  return s2Request(path, `${S2_BASE}${path}?${qs}`, {}, maxRetries)
+}
+
+// S2 accepts at most 500 ids per `POST /paper/batch` call.
+const BATCH_MAX_IDS = 500
+
+/**
+ * Look up many papers with `POST /paper/batch` (chunks of 500), through the same rate gate, key and
+ * backoff as every other S2 call. Ids are S2 id expressions (40-hex paperId or `CorpusId:<n>`).
+ * Returns one entry per input id, in order; `null` where S2 has no record.
+ */
+export async function s2PostBatch(ids: string[], fields: string, maxRetries = 5): Promise<Array<any | null>> {
+  const out: Array<any | null> = []
+  for (let i = 0; i < ids.length; i += BATCH_MAX_IDS) {
+    const chunk = ids.slice(i, i + BATCH_MAX_IDS)
+    const url = `${S2_BASE}/paper/batch?${new URLSearchParams({ fields }).toString()}`
+    let data: any
+    try {
+      data = await s2Request('/paper/batch', url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids: chunk }),
+      }, maxRetries)
+    } catch (err: any) {
+      // S2 answers 400 ("No valid paper ids given") when no id in the chunk exists; look each one up
+      // individually so unknown ids become `null` (404) instead of failing the whole chunk.
+      if (err?.status !== 400) throw err
+      data = []
+      for (const id of chunk) {
+        try {
+          data.push(await s2Get(`/paper/${id}`, fields, {}, maxRetries))
+        } catch (inner: any) {
+          if (inner?.status !== 404 && inner?.status !== 400) throw inner
+          data.push(null)
+        }
+      }
+    }
+    const rows = Array.isArray(data) ? data : []
+    for (let j = 0; j < chunk.length; j++) out.push(rows[j] ?? null)
+  }
+  return out
+}
+
 /** Single-paper lookup by id expression (e.g. `ARXIV:1706.03762`). */
 async function fetchS2(idExpr: string): Promise<S2Response> {
   return s2Get(`/paper/${idExpr}`, S2_FIELDS) as Promise<S2Response>
-}
-
-export interface S2Match {
-  corpus_id: string | null
-  arxiv_id: string | null
-  matched_title: string | null
-  match_score: number | null
-}
-
-/**
- * Resolve a paper title to its Semantic Scholar ids via the title-match endpoint.
- * Returns null when there is no acceptable match. Goes through the shared S2 rate
- * gate + 429 backoff (so it is safe to call in a batch loop).
- */
-export async function matchPaperByTitle(title: string): Promise<S2Match | null> {
-  try {
-    // Note: `matchScore` is returned automatically by the match endpoint and is NOT a
-    // valid `fields` value (requesting it yields 400).
-    const res = await s2Get('/paper/search/match', 'title,externalIds', { query: title })
-    const m = res?.data?.[0]
-    if (!m) return null
-    const ext = m.externalIds || {}
-    const corpus_id = ext.CorpusId != null ? String(ext.CorpusId)
-      : (m.corpusId != null ? String(m.corpusId) : null)
-    const arxiv_id = ext.ArXiv || null
-    if (!corpus_id && !arxiv_id) return null
-    return {
-      corpus_id,
-      arxiv_id,
-      matched_title: m.title || null,
-      match_score: typeof m.matchScore === 'number' ? m.matchScore : null,
-    }
-  } catch (e: any) {
-    // The match endpoint returns 404 when nothing matches → treat as "no match".
-    if (/no record/i.test(e?.message || '')) return null
-    throw e
-  }
 }
 
 /**
@@ -309,4 +321,4 @@ export const semanticScholarService: PaperBoundServiceDef = {
 }
 
 // Exported for unit testing (mocked fetch).
-export const __test__ = { fetchS2, mapS2ToPaperFields, mapEdge, getApiKey, s2Get, S2_FIELDS }
+export const __test__ = { fetchS2, mapS2ToPaperFields, mapEdge, getApiKey, s2Get, s2PostBatch, S2_FIELDS }

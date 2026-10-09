@@ -225,6 +225,34 @@
       "when": 1791553643081,
       "tag": "0031_user_papers",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1791567558297,
+      "tag": "0032_s2_paper_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1791570379305,
+      "tag": "0033_drop_qa_result_cites",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1791570419802,
+      "tag": "0034_deep_research",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1791587681054,
+      "tag": "0035_drop_conferences",
+      "breakpoints": true
     }
   ]
 }

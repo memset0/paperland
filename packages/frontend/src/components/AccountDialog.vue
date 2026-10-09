@@ -46,6 +46,7 @@ const SHARING_ITEMS: Array<{ key: SharingDataType; label: string }> = [
   { key: 'notes', label: 'Notes' },
   { key: 'qa', label: 'Q&A' },
   { key: 'reference_links', label: 'Reference links' },
+  { key: 'research', label: 'Research' },
 ]
 const sharing = ref<SharingPreferences | null>(null)
 

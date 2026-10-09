@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, LogIn, CircleUser, CalendarDays, NotebookPen, Image as ImageIcon, Sun, Moon, Monitor, Puzzle } from '@lucide/vue'
+import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, LogIn, CircleUser, NotebookPen, Image as ImageIcon, Sun, Moon, Monitor, Puzzle, Telescope } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
@@ -75,7 +75,7 @@ onUnmounted(() => {
 interface NavItem { path: string; label: string; icon: any; requiresAuth?: boolean; requiresAdmin?: boolean }
 const navItems: NavItem[] = [
   { path: '/', label: 'Papers', icon: FileText },
-  { path: '/conferences', label: 'Conferences', icon: CalendarDays },
+  { path: '/research', label: 'Research', icon: Telescope, requiresAuth: true },
   { path: '/tags', label: 'Tags', icon: Tag, requiresAuth: true },
   { path: '/qa', label: 'Q&A', icon: MessageSquare, requiresAuth: true },
   { path: '/notes', label: 'Notes', icon: NotebookPen, requiresAuth: true },

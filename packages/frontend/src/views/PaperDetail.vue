@@ -429,15 +429,15 @@ async function toggleInLibrary() {
 
 const promoting = ref(false)
 async function promote() {
-  if (!store.currentPaper || store.currentPaper.listable === false) return
+  if (!store.currentPaper) return
   promoting.value = true
   try {
     await store.promote(store.currentPaper.id)
     // Fetching a metadata-only paper is an add: put it in the user's own list too.
     if (auth.user) await store.setInLibrary(store.currentPaper.id, true)
   } catch {
-    // Backend rejected (e.g. 422 LISTING_NOT_ALLOWED) — the API client already showed the
-    // error toast and the paper stays unlisted.
+    // Backend rejected — the API client already showed the error toast and the paper
+    // stays unlisted.
   } finally {
     promoting.value = false
   }
@@ -546,8 +546,7 @@ async function promote() {
                   <Button
                     v-if="store.currentPaper.listed === false"
                     size="sm"
-                    :disabled="promoting || store.currentPaper.listable === false"
-                    :title="store.currentPaper.listable === false ? '仅有 OpenReview 链接，缺少 arXiv / Semantic Scholar 来源，无法加入列表' : undefined"
+                    :disabled="promoting"
                     @click="promote"
                   >
                     {{ promoting ? '加入中…' : '加入列表' }}
@@ -574,7 +573,6 @@ async function promote() {
               <div class="flex flex-wrap gap-1.5">
                 <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
                 <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
-                <a v-for="(o, i) in ((store.currentPaper as any).openreview_links || [])" :key="'or' + i" :href="o.link" target="_blank" rel="noopener" class="inline-flex items-center rounded-md border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground">OpenReview<span v-if="((store.currentPaper as any).openreview_links || []).length > 1" class="ml-0.5">{{ i + 1 }}</span></a>
                 <Badge variant="outline" class="gap-1">
                   <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
                 </Badge>
@@ -724,7 +722,6 @@ async function promote() {
             <div class="flex flex-wrap gap-1.5">
               <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
               <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
-                <a v-for="(o, i) in ((store.currentPaper as any).openreview_links || [])" :key="'or' + i" :href="o.link" target="_blank" rel="noopener" class="inline-flex items-center rounded-md border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground">OpenReview<span v-if="((store.currentPaper as any).openreview_links || []).length > 1" class="ml-0.5">{{ i + 1 }}</span></a>
               <Badge variant="outline" class="gap-1">
                 <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
               </Badge>

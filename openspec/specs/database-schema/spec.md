@@ -8,7 +8,7 @@ TBD - created by archiving change project-init. Update Purpose after archive.
 ### Requirement: Papers table
 The database SHALL have a `papers` table with columns: `id` (integer, primary key, autoincrement), `arxiv_id` (text, nullable, unique), `corpus_id` (text, nullable, unique), `title` (text, not null), `authors` (text, not null, JSON array), `abstract` (text, nullable), `contents` (text, nullable, JSON object), `pdf_path` (text, nullable), `metadata` (text, nullable, JSON), `link` (text, nullable), `created_at` (text, not null, ISO 8601), `updated_at` (text, not null, ISO 8601).
 
-Deletion of a paper SHALL be performed via application-level cascade within a single database transaction. The application SHALL delete all related records from `qa_result_cites` and `qa_results` (via `qa_entries`, including soft-deleted results), `qa_entries`, `service_executions`, `paper_tags`, and `highlights` (matched by `pdf_path`) before deleting the paper record. No database-level ON DELETE CASCADE constraints are required.
+Deletion of a paper SHALL be performed via application-level cascade within a single database transaction. The application SHALL delete all related records from `qa_results` (via `qa_entries`, including soft-deleted results), `qa_entries`, `service_executions`, `paper_tags`, and `highlights` (matched by `pdf_path`) before deleting the paper record. No database-level ON DELETE CASCADE constraints are required.
 
 #### Scenario: Create paper with arxiv_id
 - **WHEN** a paper is inserted with arxiv_id "2401.12345" and title "Test Paper"
@@ -23,7 +23,7 @@ Deletion of a paper SHALL be performed via application-level cascade within a si
 - **THEN** the contents field SHALL store the JSON string and it SHALL be parseable back to the original object
 
 #### Scenario: Cascade delete paper and all associations
-- **WHEN** a paper with id 5 is deleted and it has qa_entries, qa_results, qa_result_cites, service_executions, paper_tags, and highlights
+- **WHEN** a paper with id 5 is deleted and it has qa_entries, qa_results, service_executions, paper_tags, and highlights
 - **THEN** all associated records SHALL be deleted within the same transaction before the paper record is removed
 - **AND** the transaction SHALL either fully complete or fully roll back on error
 
@@ -166,9 +166,24 @@ The database SHALL use `started_at`, `first_chunk_at`, and `finished_at` as the 
 - **WHEN** a Result is still awaiting its first output
 - **THEN** its serialized elapsed thinking duration SHALL advance without writing a new database value each second
 
-### Requirement: QA result citations table
-The database SHALL have a `qa_result_cites` table with columns: `id` (integer, primary key, autoincrement), `qa_result_id` (integer, foreign key to qa_results.id, not null), `paper_id` (integer, foreign key to papers.id, not null), `cite_id` (text, not null), `id_kind` (text, not null, `s2_paper_id` or `corpus_id`), `link_text` (text, not null), and `created_at` (text, not null, ISO 8601), with a unique constraint on `(qa_result_id, cite_id)`. It SHALL record `#cite:` ids found in finished answers that are not among the paper's stored references.
+### Requirement: S2 paper cache table
+The database SHALL have an `s2_papers` table caching Semantic Scholar metadata independently of the `papers` table, with columns: `id` (integer primary key), `s2_paper_id` (text, unique, nullable), `corpus_id` (text, unique, nullable), `arxiv_id`, `doi`, `title`, `authors` (JSON array of names), `year`, `venue`, `abstract`, `tldr`, `citation_count`, `influential_citation_count`, `reference_count`, `publication_date`, `url`, `open_access_pdf_url` (all nullable), `status` (`ok` | `not_found`, not null), `fetched_at` (not null), `created_at` (not null). A row SHALL have at least one of `s2_paper_id` or `corpus_id`. Deleting papers SHALL NOT affect this table. The table SHALL be created by an additive migration.
 
-#### Scenario: One row per id per answer
-- **WHEN** a finished answer links the same unknown id twice
-- **THEN** exactly one row SHALL exist for that answer and id
+#### Scenario: Cache row for an unlisted paper
+- **WHEN** metadata for a paper not in the library is fetched from S2
+- **THEN** an `s2_papers` row with `status = ok` and both ids SHALL exist, and no `papers` row SHALL be created
+
+#### Scenario: Paper deletion leaves cache intact
+- **WHEN** a library paper is deleted
+- **THEN** `s2_papers` rows SHALL remain unchanged
+
+### Requirement: Research tables
+The database SHALL have a `research_sessions` table (`id`, `user_id` → users, `topic`, `seed` JSON nullable, `created_at`, `updated_at`) and a `research_steps` table (`id`, `session_id` → research_sessions with cascade delete, `step_index` unique per session, `kind` (`agent` | `title_edit`), `user_text` nullable, `model_name` nullable, `status`, `answer`, `report` nullable, `changes_note` nullable, `repaired` (integer 0/1, default 0), `paper_list` JSON nullable, `parse_error` nullable, `error` nullable, `created_at`, `started_at`, `first_chunk_at`, `finished_at`, `updated_at`). `paper_list` and `report` SHALL be null when an agent round produced no valid version; title-edit steps SHALL have `status = done`, no model, and non-null `paper_list` and `report`. Both tables SHALL be created by an additive migration.
+
+#### Scenario: Deleting a session removes its steps
+- **WHEN** a research session is deleted
+- **THEN** all of its `research_steps` rows SHALL be deleted
+
+#### Scenario: Step order is unique
+- **WHEN** a second step with an existing `step_index` is inserted for the same session
+- **THEN** the insert SHALL fail

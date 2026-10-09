@@ -165,6 +165,20 @@ doc2x:
     expect(loadConfig(file).pdf_upload.max_file_size_mb).toBe(20)
   })
 
+  test('s2_cache uses explicit defaults when absent and keeps inner defaults on partial override', () => {
+    const file = configFile(oneModel)
+    expect(loadConfig(file).s2_cache).toEqual({ ttl_days: 30, not_found_ttl_days: 7, max_ids_per_request: 200 })
+    writeFileSync(file, require('fs').readFileSync(file, 'utf8') + '\ns2_cache:\n  ttl_days: 5\n', 'utf8')
+    expect(loadConfig(file).s2_cache).toEqual({ ttl_days: 5, not_found_ttl_days: 7, max_ids_per_request: 200 })
+  })
+
+  test('research uses explicit defaults when absent and keeps inner defaults on partial override', () => {
+    const file = configFile(oneModel)
+    expect(loadConfig(file).research).toEqual({ system_prompt: 'research', history_char_budget: 20000, abstract_char_limit: 1500 })
+    writeFileSync(file, require('fs').readFileSync(file, 'utf8') + '\nresearch:\n  history_char_budget: 5000\n', 'utf8')
+    expect(loadConfig(file).research).toEqual({ system_prompt: 'research', history_char_budget: 5000, abstract_char_limit: 1500 })
+  })
+
   test('services accept download_timeout and max_file_size_mb', () => {
     const file = configFile(oneModel)
     writeFileSync(file, require('fs').readFileSync(file, 'utf8').replace('services: {}',

@@ -189,7 +189,21 @@ export const translationApi = {
 import type { SessionUser, User, UserRole } from '@paperland/shared'
 
 export const authApi = {
-  me: () => api.get<{ user: SessionUser | null }>('/api/auth/me'),
+  me: () => api.get<{ user: SessionUser | null; registration_enabled: boolean }>('/api/auth/me'),
+
+  // Raw fetch: errors (409 taken, 403 disabled) surface inline on the register form.
+  async register(payload: { username: string; password: string; nickname?: string | null }): Promise<void> {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({} as any))
+      throw new Error(body?.error?.message || 'Registration failed')
+    }
+  },
 
   // Raw fetch so a failed login surfaces inline (no global toast / login-prompt loop).
   async login(username: string, password: string): Promise<{ user: SessionUser }> {
@@ -249,6 +263,10 @@ export const usersApi = {
     api.post<{ data: User }>('/api/users', payload),
   update: (id: number, payload: { role?: UserRole; nickname?: string | null; password?: string }) =>
     api.patch<{ data: User }>(`/api/users/${id}`, payload),
+  /** Activate a pending (self-registered) account. */
+  approve: (id: number) => api.post<{ data: User }>(`/api/users/${id}/approve`),
+  /** Reject a pending registration (deletes it; active accounts can't be deleted). */
+  reject: (id: number) => api.delete<{ success: boolean }>(`/api/users/${id}`),
 }
 
 // Notes API
@@ -382,4 +400,63 @@ export const imagesApi = {
 export const configApi = {
   pdf: () => api.get<{ screenshot_dpi: number }>('/api/config/pdf'),
   notes: () => api.get<{ image_width_tiers: { sm: number; md: number; lg: number } }>('/api/config/notes'),
+}
+
+// Deep Research API (/research)
+import type { ResearchSeed, ResearchSessionDetail, ResearchSessionSummary, ResearchStep } from '@paperland/shared'
+import { consumeNamedEventStream } from '@/lib/named-event-stream'
+
+export const researchApi = {
+  list: (scope: VisibilityScope = 'mine') =>
+    api.get<{ data: ResearchSessionSummary[] }>(`/api/research?scope=${scope}`),
+  get: (id: number) => api.get<{ data: ResearchSessionDetail }>(`/api/research/${id}`),
+  seedPreview: (resultId: number) => api.get<{ data: ResearchSeed }>(`/api/research/seed-preview?result_id=${resultId}`),
+  create: (body: { topic: string; model_name: string; seed_result_id?: number }) =>
+    api.post<{ data: ResearchSessionDetail }>('/api/research', body),
+  remove: (id: number) => api.delete<{ success: boolean }>(`/api/research/${id}`),
+  submit: (id: number, body: { user_text: string; model_name: string }) =>
+    api.post<{ data: ResearchSessionDetail }>(`/api/research/${id}/steps`, body),
+  retry: (id: number, stepId: number, body: { user_text?: string; model_name?: string } = {}) =>
+    api.post<{ data: ResearchSessionDetail }>(`/api/research/${id}/steps/${stepId}/retry`, body),
+  cancel: (id: number, stepId: number) => api.post<{ success: boolean }>(`/api/research/${id}/steps/${stepId}/cancel`),
+  editTitles: (id: number, body: { title: string; section_titles: string[] }) =>
+    api.put<{ data: ResearchSessionDetail }>(`/api/research/${id}/titles`, body),
+  truncate: (id: number, afterStepIndex: number) =>
+    api.post<{ data: ResearchSessionDetail; removed_steps: number }>(`/api/research/${id}/truncate`, { after_step_index: afterStepIndex }),
+
+  /** Observe one step over SSE until it ends; resolves with the terminal step. */
+  async stream(
+    stepId: number,
+    options: {
+      signal?: AbortSignal
+      onStart?: (step: ResearchStep) => void
+      onDelta?: (delta: { step_id: number; delta: string; answer_length: number; first_chunk_at: string | null }) => void
+      /** The output was invalid; the automatic repair request is running. */
+      onRepairing?: (step: ResearchStep) => void
+    } = {},
+  ): Promise<ResearchStep> {
+    const response = await fetch(`/api/research/steps/${stepId}/stream`, {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { Accept: 'text/event-stream' },
+      signal: options.signal,
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ message: response.statusText }))
+      const message = body.error?.message || body.message || 'Research stream failed'
+      if (response.status === 401) dispatchUnauthorized()
+      throw new Error(message)
+    }
+    if (!response.body) throw new Error('Research stream returned no response body')
+    let terminal: ResearchStep | null = null
+    await consumeNamedEventStream(response.body, (event) => {
+      const payload = JSON.parse(event.data)
+      if (event.event === 'start') options.onStart?.(payload.step)
+      else if (event.event === 'delta') options.onDelta?.(payload)
+      else if (event.event === 'repairing') options.onRepairing?.(payload.step)
+      else if (event.event === 'done' || event.event === 'error') terminal = payload.step
+    })
+    if (!terminal) throw new Error('Research stream ended before a terminal event')
+    return terminal
+  },
 }

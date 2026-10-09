@@ -20,13 +20,13 @@ The frontend SHALL provide a shared `AppPage` layout component (`packages/fronte
 
 #### Scenario: Management view uses AppPage
 
-- **WHEN** a management view (Papers, Tags, Q&A, Notes, Conferences list, Conference detail, Services, Settings) renders
+- **WHEN** a management view (Papers, Research list, Tags, Q&A, Notes, Services, Settings) renders
 - **THEN** its outermost element SHALL be `AppPage`
 - **AND** the view SHALL NOT render its own page-level width wrapper, `<h1>` title, leading title icon, or description paragraph
 
 #### Scenario: Action controls projected into the header
 
-- **WHEN** a view provides an `actions` slot (e.g. an "Add paper" or "New conference" button)
+- **WHEN** a view provides an `actions` slot (e.g. an "Add paper" or "New research" button)
 - **THEN** `AppPage` SHALL render those controls right-aligned on the same row as the title
 
 ### Requirement: Unified title rendering
@@ -42,7 +42,7 @@ The frontend SHALL provide a shared `AppPage` layout component (`packages/fronte
 
 - **WHEN** a management page renders inside `AppPage`
 - **THEN** its title SHALL be preceded, on its left, by the icon defined for that route (`meta.icon`)
-- **AND** that icon SHALL be the same one the sidebar navigation uses for that page (e.g. `Tag` for Tags, `CalendarDays` for Conferences, `FileText` for Papers)
+- **AND** that icon SHALL be the same one the sidebar navigation uses for that page (e.g. `Tag` for Tags, `Telescope` for Research, `FileText` for Papers)
 
 #### Scenario: Consistent title across pages
 
@@ -56,7 +56,7 @@ The frontend SHALL provide a shared `AppPage` layout component (`packages/fronte
 
 #### Scenario: Constrained management page
 
-- **WHEN** a constrained management page (e.g. Tags, Settings, Services, Notes, Conferences list, Conference detail) renders on a wide viewport
+- **WHEN** a constrained management page (e.g. Tags, Settings, Services, Notes) renders on a wide viewport
 - **THEN** its content SHALL be centered and capped at `max-w-5xl`
 
 #### Scenario: Full-width management page

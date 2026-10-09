@@ -42,13 +42,15 @@ paperland/
 │   │   │   │   ├── PaperList.vue
 │   │   │   │   ├── PaperDetail.vue
 │   │   │   │   ├── QAPage.vue
+│   │   │   │   ├── ResearchList.vue    # /research：Deep Research 会话列表 + 新建（可从 QA 回答起步）
+│   │   │   │   ├── ResearchDetail.vue  # /research/:id：步骤时间线、版本视图（Report / Papers）、标题编辑、从历史版本继续
 │   │   │   │   ├── ServiceDashboard.vue
 │   │   │   │   └── Settings.vue
-│   │   │   ├── components/         # 通用组件（含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板；PaperRefList.vue：可复用论文列表，QA 引用列表 / Deep Research 共用）
+│   │   │   ├── components/         # 通用组件（含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板；PaperRefList.vue：可复用论文列表，QA 引用列表 / Deep Research 共用（论文 / 链接行、Markdown comment、New / Unverified / Removed）；ResearchPaperList.vue：一个研究列表版本 + 与上一版本逐段对比）
 │   │   │   ├── composables/        # Vue composables（含 useS2Papers.ts：S2 id 批量解析与会话缓存）
-│   │   │   ├── lib/                # 纯函数工具（含 cite-links.ts：`#cite:` 提取与 id 规范化）
+│   │   │   ├── lib/                # 纯函数工具（含 cite-links.ts：`#cite:` 提取与 id 规范化；research-list.ts：研究列表格式边界——流式拆分报告/列表块、逐段版本对比）
 │   │   │   ├── router/
-│   │   │   ├── stores/             # Pinia stores
+│   │   │   ├── stores/             # Pinia stores（含 research.ts：研究会话、步骤 SSE 订阅）
 │   │   │   ├── api/                # API 请求封装
 │   │   │   └── App.vue
 │   │   ├── index.html
@@ -62,6 +64,7 @@ paperland/
 │   │   │   │   ├── papers.ts
 │   │   │   │   ├── qa.ts
 │   │   │   │   ├── s2.ts             # POST /api/s2/papers/resolve（S2 id → 缓存元数据）
+│   │   │   │   ├── research.ts       # /api/research/*：会话、步骤（提交/重试/取消）、标题编辑、回退、SSE
 │   │   │   │   ├── services.ts
 │   │   │   │   └── settings.ts
 │   │   │   ├── external-api/       # External API routes (/external-api/v1/...)
@@ -73,6 +76,10 @@ paperland/
 │   │   │   │   ├── semantic_scholar_service.ts
 │   │   │   │   ├── semantic_scholar_service.test.ts
 │   │   │   │   ├── s2_paper_cache.ts        # S2 元数据缓存：论文库 → 缓存 → batch 抓取，负缓存，回答完成后预热
+│   │   │   │   ├── research_runtime.ts      # Deep Research 回合调度（services.research 的 Semaphore/RateLimiter）、状态机、流式、自动修复、重启恢复
+│   │   │   │   ├── research_prompt.ts       # 回合输入组装（<topic>/<seed>/<history>/<current_version>/<request>）与修复请求
+│   │   │   │   ├── research_list.ts         # 列表格式边界：解析回答、带 S2 元数据的 <paper_list> XML、标题编辑、修复合并
+│   │   │   │   ├── paperlist.ts             # paperlist 块解析与校验（zod、批量解析 s2_id、段内去重）
 │   │   │   │   ├── s2_paper_cache.test.ts
 │   │   │   │   ├── s2_pdf_service.ts        # 无 arxiv_id 时经 S2 openAccessPdf 下载 PDF
 │   │   │   │   ├── s2_pdf_service.test.ts
@@ -218,16 +225,6 @@ qa_results
   updated_at      text      not null          // 最近一次局部 answer 持久化
   deleted_at      text      nullable          // 软删除：所有用户读取排除，追问历史仍读取
 
-qa_result_cites                               // 回答里不在本论文参考文献中的 #cite: id，留待以后处理
-  id              integer   primary key autoincrement
-  qa_result_id    integer   → qa_results.id, not null
-  paper_id        integer   → papers.id, not null
-  cite_id         text      not null          // 40 位 S2 paperId 或纯数字 CorpusId
-  id_kind         text      not null          // s2_paper_id | corpus_id
-  link_text       text      not null
-  created_at      text      not null
-  unique (qa_result_id, cite_id)
-
 s2_papers                                     // S2 论文元数据缓存（与论文库无关；#cite 等引用到的论文），迁移 0032
   id              integer   primary key autoincrement
   s2_paper_id     text      unique, nullable  // 40 位小写 paperId
@@ -238,6 +235,30 @@ s2_papers                                     // S2 论文元数据缓存（与�
   status          text      not null          // ok | not_found（负缓存，只存被请求的那种 id）
   fetched_at      text      not null          // 新鲜度判断依据
   created_at      text      not null
+
+research_sessions                             // Deep Research 会话（optionally-shared 类型 research，默认私有），迁移 0034
+  id              integer   primary key autoincrement
+  user_id         integer   not null → users.id ON DELETE CASCADE
+  topic           text      not null
+  seed            text      nullable          // JSON：起步 QA 回答的快照（论文 id/标题、问题、回答、模型、result id）
+  created_at / updated_at   text not null
+
+research_steps                                // 线性步骤：agent 回合 / owner 标题编辑；paper_list + report 非空 = 一个版本
+  id              integer   primary key autoincrement
+  session_id      integer   not null → research_sessions.id ON DELETE CASCADE
+  step_index      integer   not null          // 1 起连续；(session_id, step_index) 唯一
+  kind            text      not null          // agent | title_edit
+  user_text       text      nullable          // agent：用户文本；title_edit：改动描述
+  model_name      text      nullable          // 仅 agent（Codex 模型）
+  status          text      not null          // queued / awaiting_output / streaming / done / failed / cancelled（title_edit 恒为 done）
+  answer          text      not null default '' // agent 原始输出（流式追加）
+  report          text      nullable          // 版本的 Markdown 报告
+  changes_note    text      nullable          // agent 的本轮改动说明（paperlist.changes）
+  paper_list      text      nullable          // 版本的列表 JSON：{title, changes?, sections:[{title, description?, items:[paper{s2_id, comment?, verification} | link{url, citation, comment?}]}]}
+  parse_error     text      nullable          // 未产出版本的原因
+  repaired        integer   not null default 0 // 1 = 列表来自自动修复请求
+  error           text      nullable
+  created_at / started_at / first_chunk_at / finished_at / updated_at   text
 
 qa_user_preferences
   user_id         integer   → users.id
@@ -317,35 +338,6 @@ paper_reference_links                          // 按用户归属的论文参考
   updated_at      text      not null
   // 索引 idx_paper_reference_links_paper_user (paper_id, user_id)；列表按 created_at 升序（添加顺序）
 
-conferences
-  id              integer   primary key autoincrement
-  name            text      not null
-  year            integer   nullable
-  start_date      text      nullable          // ISO 8601 date
-  end_date        text      nullable
-  location        text      nullable
-  description     text      nullable
-  link            text      nullable
-  created_at      text      not null
-  updated_at      text      not null
-
-conference_papers                              // 候选池
-  id              integer   primary key autoincrement
-  conference_id   integer   → conferences.id, not null
-  title           text      not null
-  topic           text      nullable           // 自由文本，按主题分组用
-  authors         text      nullable           // JSON array
-  abstract        text      nullable
-  source          text      nullable           // 'arxiv' | 'openreview' | 'semantic_scholar' | null
-  external_id     text      nullable
-  link            text      nullable
-  status          text      not null default 'pending'  // pending | candidate | ingested
-  paper_id        integer   → papers.id, nullable       // 入库后写入
-  metadata        text      nullable           // JSON: 原始抓取数据
-  created_at      text      not null
-  updated_at      text      not null
-  index (conference_id, status)
-
 translations                                   // 英译中翻译缓存；按内容寻址，全体用户共享（无 user_id）
   id              integer   primary key autoincrement
   source_hash     text      not null           // 规范化(去首尾空白)源文的 SHA-256 hex
@@ -387,6 +379,8 @@ services:
     max_concurrency: 1              # S2 带 key 默认 1 RPS
     rate_limit_interval: 1          # 无 key 建议 3；强制指数退避
     # api_key_env: SEMANTIC_SCHOLAR_API_KEY   # 或 api_key: <key>，经 x-api-key 头发送
+  research:                         # Deep Research 回合（未配置时并发 1、无间隔；不写 service_executions）
+    max_concurrency: 1
   s2_pdf_service:                   # 仅无 arxiv_id 的论文：经 S2 openAccessPdf 下载 PDF
     max_concurrency: 2
     rate_limit_interval: 2
@@ -465,6 +459,12 @@ s2_cache:
   not_found_ttl_days: 7             # S2 查无此文的负缓存天数，期间不再请求
   max_ids_per_request: 200          # POST /api/s2/papers/resolve 单次 id 上限，超出 400
 
+# Deep Research（/research）。整块或单项缺省时使用下列默认值。
+research:
+  system_prompt: research           # prompts/system/research.md（先找 qa_prompt.system_prompts_dir，找不到用仓库自带）
+  history_char_budget: 20000        # 每轮回放的历史步骤字符预算（超出只保留用户文本）
+  abstract_char_limit: 1500         # <current_version> 中每篇论文摘要的截断长度
+
 # doc2x CLI（精确解析 + 保留排版对照翻译）。整块缺省 = 关闭。
 # 前置（以运行后端的同一 OS 用户，一次性）：npm i -g @noedgeai-org/doc2x-cli@latest（Node >= 22）+ doc2x login
 doc2x:
@@ -531,12 +531,16 @@ notes:
 
 **S2 论文元数据缓存**：`services/s2_paper_cache.ts` 的 `resolveS2Ids(ids, { allowFetch })` 把 S2 id（paperId、CorpusId、`CorpusId:<n>`、S2 URL，经 `utils/s2_ids.ts` 规范化）解析为元数据，每个 id 依次查：论文库 `papers`（`source: library`，不出网）→ `s2_papers` 新鲜条目（`cache`）→ 剩余 id 合并为一次 S2 `POST /paper/batch`（每块 ≤500，`semantic_scholar_service.ts` 的 `s2PostBatch`，与其他 S2 调用共用 API key、限流和退避）。S2 返回 null 记为 `not_found` 负缓存；抓取失败时有旧数据返回 `stale_cache`，否则 `unavailable`。同一 id 的并发抓取共享一个 in-flight 请求。QA 回答完成后 `api/qa.ts` 异步调用 `warmCites(answer)` 预热回答里所有 `#cite:` id，失败只记日志。
 
+**Deep Research**：`api/research.ts` + `services/research_runtime.ts`。回合在模块内用 `Semaphore` / `RateLimiter`（`services.research`）调度——不走 `executePureService`，因为 `service_executions.paper_id` 是指向 `papers` 的非空外键而研究回合不属于论文；每个排队/运行中的步骤有一个 AbortController 供取消。状态机、200ms 局部写入、独立的 `QAResultStreamBroker` 实例、SSE（`start → delta* → [repairing] → done|error`）和启动恢复照搬 QA 的写法。输入由 `research_prompt.ts` 组装：`<topic>`、`<seed>`、`<history>`（用户文本 + `changes` / 标题编辑记录，按 `history_char_budget` 截断）、`<current_version>`（当前报告 + `research_list.ts` 渲染的 `<paper_list>` XML：已验证论文附 `resolveS2Ids` 取得的标题、作者、年份、venue、arXiv id、被引数、TLDR、截断摘要；未验证论文 `verified="false"` 只给 id 与 comment）、`<request>`；Codex 联网搜索开启。完成后 `paperlist.ts` 拆分报告与最后一个 ```` ```paperlist ```` 块，zod 校验（论文只取 `s2_id` + comment，链接要 BibTeX 风格 `citation`），批量解析 id（解析不到标 unverified，不做标题匹配），段内去重；报告与列表缺一则在同一回合内用同一模型**自动修复一次**（非流式、不联网；只缺/坏列表时只要 `paperlist` 并沿用原报告，缺报告时要完整输出），仍失败则记 `parse_error`、不产生新版本。解析与修复都在标记 done 之前完成。列表格式的知识集中在 `research_list.ts` / `paperlist.ts`（前端对应 `lib/research-list.ts`）。
+
 **QA durable streaming runtime**：每次调用通过 pure-service `onCreated` 在排队前插入一个 exact Result；execution context 带 `AbortSignal`，semaphore/rate-limit/provider 都可精确取消。provider delta 以约 200ms 合并，先 append 到 `qa_results.answer` 再发布 SSE；终态 flush 后由权威 final 覆盖并生成 hash。Internal `GET /api/qa/results/:resultId/stream` 使用 `start → delta* → done|error`，断开只取消订阅；`POST /api/qa/results/:resultId/cancel` 才取消运行。`thinking_duration_ms` 由 started/first_chunk/finished 时间戳派生，不写入数据库。启动时 stale active Result 保留局部内容后标为 failed，并重算 Entry 汇总状态。
 
 **有效 Codex QA 模型配置**：交互式 Codex QA 必须使用 structured app-server（`stream:true` + `cli_path` + `codex_home` + `model_id` + `reasoning_effort`）。本机默认/可选的 GPT-5.6-sol max/xhigh/medium 与 GPT-5.5-xhigh 已从 `shell` exec 迁移到该形式，稳定 Paperland model name 不变，因此浏览器保存的模型选择继续有效。`config.example.yml` 同样展示 GPT-5.6-sol app-server 形态。`stream:false` 仍是受支持的显式 buffered 兼容模式。
 
 **QA 前端流式渲染**：Pinia 为当前可见 active Result 管理一个可重连 SSE observer，delta 先经 animation-frame batch；`QAThinkingTimer` 只更新固定宽度计时文本。`QAStreamingMarkdown` 保留稳定 Markdown block DOM、只解析尾部，流式期禁用不稳定的 hash 高亮/锚点；done 等待 pending paint 后切到标准 `MarkdownContent` 做一次 canonical render。不自动滚动或对答案容器做 transition。
 新增流式 UI copy 统一为英文：`Queued / Thinking / Streaming / Done / Stopped / Failed`、`Thought for · mm:ss`、`This model will display its answer when complete`、`Agent is thinking…`。
+
+**QA 对话 / 树视图**：纯前端，无新依赖。对话视图的 thread 不落库，由尾回答经已有的 `GET /api/qa/entries/:id/tree` 推导；树视图沿用笔记思维导图的手写布局（嵌套 flex + DOM 实测 SVG 连线），不引入图形库。提问框一次只选一个模型（后端接口仍支持多模型）。
 
 **QA 多回答选择**：`QAResultView` 对所有状态都按 `created_at`（缺失回退 `completed_at`）+ result id 判定最新回答（按提问时间，不按完成时间）。多模型提交时后端按模型列表逆序创建 Result，排在前面的模型默认被选中；默认追问对象额外限定为 done（`defaultFollowupResult`）。首次显示和新增 Result 时激活最新；status、Thinking 计时、answer delta 和等价轮询都不进入 selection signature，因此不重置手动 tab；删除当前 Result 回退最新；`requestedResultId` 锚点为一次性高优先级选择。
 
