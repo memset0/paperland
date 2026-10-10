@@ -223,7 +223,9 @@ function copyToken() {
         <TableBody>
           <TableRow v-for="t in store.tokens" :key="t.id">
             <TableCell>
-              <code class="text-xs font-mono bg-muted rounded px-1.5 py-0.5">{{ t.token }}</code>
+              <code v-if="t.token" class="text-xs font-mono bg-muted rounded px-1.5 py-0.5">{{ t.token }}</code>
+              <span v-else class="text-xs text-muted-foreground">不可查看</span>
+              <Badge v-if="t.kind === 'agent'" variant="outline" class="ml-2" title="每个用户一个，Deep Research 注入 Codex 使用，只能由本人重置">Codex agent</Badge>
             </TableCell>
             <TableCell class="text-xs text-muted-foreground">{{ new Date(t.created_at).toLocaleString() }}</TableCell>
             <TableCell>
@@ -232,7 +234,7 @@ function copyToken() {
               </Badge>
             </TableCell>
             <TableCell class="text-right">
-              <Button v-if="!t.revoked_at" variant="ghost" size="xs" class="text-destructive" @click="store.revokeToken(t.id)">
+              <Button v-if="!t.revoked_at && t.kind !== 'agent'" variant="ghost" size="xs" class="text-destructive" @click="store.revokeToken(t.id)">
                 <Trash2 />撤销
               </Button>
             </TableCell>

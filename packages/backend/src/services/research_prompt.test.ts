@@ -112,6 +112,13 @@ describe('buildResearchInput', () => {
     expect(system).toContain('paperland://paper/<id>')
   })
 
+  it('tells the agent to get paper ids from the S2 tools and read library papers with read_paper', () => {
+    const system = getResearchSystemPrompt()
+    expect(system).toContain('s2_match')
+    expect(system).toContain('s2_search')
+    expect(system).toContain('read_paper')
+  })
+
   it('omits optional sections on the first round', async () => {
     const t = text(await buildResearchInput({ topic: 't', seed: null, history: [], current: null, request: 't' }))
     expect(t).not.toContain('<seed>')

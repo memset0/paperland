@@ -1,13 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api } from '@/api/client'
+import type { ApiToken } from '@paperland/shared'
 
-interface TokenInfo {
-  id: number
-  token: string
-  created_at: string
-  revoked_at: string | null
-}
+type TokenInfo = ApiToken
 
 export const useSettingsStore = defineStore('settings', () => {
   const tokens = ref<TokenInfo[]>([])

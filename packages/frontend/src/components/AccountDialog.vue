@@ -2,9 +2,9 @@
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
-import { quickOpenApi, sharingApi } from '@/api/client'
-import type { SharingDataType, SharingPreferences } from '@paperland/shared'
-import { Copy, RefreshCw } from '@lucide/vue'
+import { myTokensApi, quickOpenApi, sharingApi } from '@/api/client'
+import type { MyApiTokens, SharingDataType, SharingPreferences } from '@paperland/shared'
+import { Copy, Plus, RefreshCw, Trash2 } from '@lucide/vue'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -65,6 +65,49 @@ async function toggleSharing(key: SharingDataType, value: boolean) {
   }
 }
 
+// API tokens: personal tokens for the External API / MCP in other tools (full value shown once),
+// plus the Codex agent token Paperland injects into Deep Research runs (never shown; reset only).
+const mcpUrl = `${siteUrl}/mcp`
+const tokens = ref<MyApiTokens | null>(null)
+const createdToken = ref('')
+const tokenBusy = ref(false)
+
+async function loadTokens() {
+  try { tokens.value = (await myTokensApi.list()).data } catch { tokens.value = null }
+}
+
+async function createToken() {
+  tokenBusy.value = true
+  try {
+    createdToken.value = (await myTokensApi.create()).data.token
+    await loadTokens()
+  } finally {
+    tokenBusy.value = false
+  }
+}
+
+async function revokeToken(id: number) {
+  if (!confirm('撤销后使用这个 token 的服务会立即失去访问权限。继续？')) return
+  await myTokensApi.revoke(id)
+  await loadTokens()
+}
+
+async function resetAgentToken() {
+  if (!confirm('重置后旧的 Codex agent token 立即失效，正在运行的 Deep Research 回合后续的工具调用会失败，新回合自动使用新 token。继续？')) return
+  tokenBusy.value = true
+  try {
+    const agent = (await myTokensApi.resetAgent()).data
+    if (tokens.value) tokens.value = { ...tokens.value, agent }
+    toast.success('Codex agent token 已重置')
+  } finally {
+    tokenBusy.value = false
+  }
+}
+
+function formatTime(iso: string | null) {
+  return iso ? new Date(iso).toLocaleString() : ''
+}
+
 async function copy(text: string) {
   await navigator.clipboard.writeText(text)
   toast.success('已复制')
@@ -79,6 +122,8 @@ watch(open, (o) => {
     error.value = ''
     loadOpenToken()
     loadSharing()
+    createdToken.value = ''
+    loadTokens()
   }
 })
 
@@ -109,7 +154,7 @@ async function submit() {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="sm:max-w-sm">
+    <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-sm">
       <DialogHeader>
         <DialogTitle>账户设置</DialogTitle>
         <DialogDescription>修改你的用户名、昵称或密码。修改密码需要输入当前密码。</DialogDescription>
@@ -154,6 +199,47 @@ async function submit() {
             />
             {{ item.label }}
           </label>
+        </div>
+      </div>
+      <div class="space-y-3 border-t pt-4">
+        <div>
+          <h3 class="text-sm font-medium">API Tokens</h3>
+          <p class="text-xs text-muted-foreground">用于在其他服务中访问 Paperland：External API（如 Zotero 插件）和 MCP 服务器。以 <code>Authorization: Bearer &lt;token&gt;</code> 发送。</p>
+        </div>
+        <div class="space-y-2">
+          <Label for="acct-mcp-url">MCP URL</Label>
+          <div class="flex gap-2">
+            <Input id="acct-mcp-url" :model-value="mcpUrl" readonly class="font-mono text-xs" />
+            <Button type="button" variant="outline" size="icon" title="Copy" @click="copy(mcpUrl)"><Copy class="size-4" /></Button>
+          </div>
+        </div>
+        <div v-if="createdToken" class="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+          <p class="text-xs font-medium">新 token（只显示这一次，请立即复制）</p>
+          <div class="flex gap-2">
+            <Input :model-value="createdToken" readonly class="font-mono text-xs" />
+            <Button type="button" variant="outline" size="icon" title="Copy" @click="copy(createdToken)"><Copy class="size-4" /></Button>
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium">Personal tokens</span>
+            <Button type="button" variant="outline" size="sm" :disabled="tokenBusy" @click="createToken"><Plus />New token</Button>
+          </div>
+          <div v-if="tokens?.personal.length" class="divide-y rounded-md border">
+            <div v-for="t in tokens.personal" :key="t.id" class="flex items-center gap-2 px-2 py-1.5 text-xs">
+              <code class="font-mono" :class="{ 'line-through text-muted-foreground': t.revoked_at }">{{ t.token }}</code>
+              <span class="min-w-0 flex-1 truncate text-muted-foreground">{{ t.revoked_at ? 'Revoked' : formatTime(t.created_at) }}</span>
+              <Button v-if="!t.revoked_at" type="button" variant="ghost" size="icon-sm" class="text-destructive" title="Revoke" @click="revokeToken(t.id)"><Trash2 class="size-3.5" /></Button>
+            </div>
+          </div>
+          <p v-else class="text-xs text-muted-foreground">还没有 personal token。</p>
+        </div>
+        <div v-if="tokens" class="flex items-center gap-2 rounded-md border px-2 py-1.5">
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-medium">Codex agent token</p>
+            <p class="text-xs text-muted-foreground">Deep Research 自动使用，不可查看。{{ tokens.agent.rotated_at ? `Reset ${formatTime(tokens.agent.rotated_at)}` : `Created ${formatTime(tokens.agent.created_at)}` }}</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" :disabled="tokenBusy" @click="resetAgentToken"><RefreshCw />Reset</Button>
         </div>
       </div>
       <div class="space-y-3 border-t pt-4">

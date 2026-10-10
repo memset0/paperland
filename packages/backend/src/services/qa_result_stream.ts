@@ -4,6 +4,8 @@ export type QAResultStreamEvent =
   | { event: 'done'; result: any }
   // Deep Research only: the round's output was invalid and an automatic repair request is running.
   | { event: 'repairing'; result: any }
+  // Deep Research only: the agent started or finished a tool call (not persisted).
+  | { event: 'tool'; result_id: number; server: string; tool: string; status: 'started' | 'completed' | 'failed' }
   | { event: 'error'; result: any }
 
 export type QAResultStreamSubscriber = (event: QAResultStreamEvent) => void

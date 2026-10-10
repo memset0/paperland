@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, primaryKey, index, unique, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
 
 // User accounts. Website credentials live here (not in config.yml).
 export const users = sqliteTable('users', {
@@ -196,7 +197,14 @@ export const apiTokens = sqliteTable('api_tokens', {
   user_id: integer('user_id').references(() => users.id), // owning user; nullable for migration
   created_at: text('created_at').notNull(),
   revoked_at: text('revoked_at'),
-})
+  // 'personal' — user-managed (External API + /mcp); 'agent' — one per user, injected into the
+  // Codex agents Paperland runs (/mcp only), never shown, only reset in place.
+  kind: text('kind').notNull().default('personal'),
+  // Last time the value was replaced in place (agent token reset); null = never.
+  rotated_at: text('rotated_at'),
+}, (table) => [
+  uniqueIndex('api_tokens_agent_user_unq').on(table.user_id).where(sql`kind = 'agent'`),
+])
 
 // Image host: one row per uploaded image, content-addressed by the SHA-256 hash of its
 // bytes (the primary key). Identical bytes dedupe to a single row/file/URL. The file lives

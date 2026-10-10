@@ -40,6 +40,8 @@ import { doc2xTranslateService } from './services/doc2x_translate_service.js'
 import { papersCoolService } from './services/papers_cool_service.js'
 import { s2Routes } from './api/s2.js'
 import { researchRoutes } from './api/research.js'
+import { mcpRoutes } from './api/mcp.js'
+import { tokenRoutes } from './api/tokens.js'
 import { recoverInterruptedResearchSteps } from './services/research_runtime.js'
 import { registerFrontendHosting } from './frontend_hosting.js'
 
@@ -134,6 +136,7 @@ async function main() {
   await app.register(sharingRoutes)
   await app.register(userRoutes)
   await app.register(settingsRoutes)
+  await app.register(tokenRoutes)
   await app.register(paperRoutes)
   await app.register(serviceRoutes)
   await app.register(qaRoutes)
@@ -148,6 +151,8 @@ async function main() {
 
   await app.register(s2Routes)
   await app.register(researchRoutes)
+  // Agent tools MCP server (bearer-token auth, outside /api and the login wall)
+  await app.register(mcpRoutes)
 
   // Register external API routes
   await app.register(externalPaperRoutes)

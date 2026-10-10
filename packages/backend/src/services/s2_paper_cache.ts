@@ -148,6 +148,44 @@ function upsertRecord(rec: any, now: string): CacheRow {
   })
 }
 
+/**
+ * Merge S2 records that may carry only some fields (search / match / citation results) into the
+ * cache. Fields a record leaves null keep the existing row's value, so a partial result never erases
+ * a richer entry, and an existing ok row keeps its `fetched_at` (a partial result is not a refresh).
+ * Records without a `paperId` are skipped. Returns how many rows were written.
+ */
+export function cacheS2Records(records: unknown[]): number {
+  const now = new Date().toISOString()
+  let written = 0
+  for (const rec of records as any[]) {
+    if (!rec || typeof rec.paperId !== 'string') continue
+    const incoming = recordToRow(rec, now)
+    const conds = []
+    if (incoming.s2_paper_id) conds.push(eq(schema.s2Papers.s2_paper_id, incoming.s2_paper_id))
+    if (incoming.corpus_id) conds.push(eq(schema.s2Papers.corpus_id, incoming.corpus_id))
+    const existing = conds.length
+      ? getDatabase().select().from(schema.s2Papers).where(or(...conds)).all().find((r) => r.status === 'ok')
+      : undefined
+    if (!existing) {
+      upsertRecord(rec, now)
+      written++
+      continue
+    }
+    const merged: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(incoming)) {
+      merged[key] = value ?? (existing as Record<string, unknown>)[key] ?? null
+    }
+    // Keep the original fetch time: a partial record is not a full refresh.
+    merged.fetched_at = existing.fetched_at
+    getDatabase().transaction((tx) => {
+      tx.delete(schema.s2Papers).where(or(...conds)).run()
+      tx.insert(schema.s2Papers).values({ ...(merged as Omit<CacheRow, 'id' | 'created_at'>), created_at: existing.created_at }).run()
+    })
+    written++
+  }
+  return written
+}
+
 /** Record that S2 has no paper for this id (negative entry keyed by the requested id only). */
 function storeNotFound(key: Key, now: string): void {
   const db = getDatabase()

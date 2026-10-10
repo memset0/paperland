@@ -3,7 +3,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { ModelConfig } from '@paperland/shared'
-import { appServerInput, codexProvider, execArgs } from './codex_provider.js'
+import { appServerInput, codexProvider, execArgs, mcpTokenEnvVar } from './codex_provider.js'
+import type { ModelToolCallEvent } from './types.js'
 
 let fixtureDir = ''
 let codexHome = ''
@@ -180,5 +181,49 @@ exec sleep 1`)
     expect(threadStart.params.config).toEqual({ web_search: 'live' })
     expect(turnStart.params.input).toEqual(appServerInput(structured))
     expect(turnStart.params.input[1]).toEqual({ type: 'localImage', path: '/data/images/a b.png' })
+  })
+
+  test('app-server sets skill roots, attaches MCP servers with the token in env, and reports tool calls', async () => {
+    const logFile = join(fixtureDir, 'app-server-mcp-log.txt')
+    const envVar = mcpTokenEnvVar('paperland')
+    const cliPath = executable('fake-codex-mcp', `
+IFS= read -r initialize
+printf '%s\n' '{"id":0,"result":{}}'
+IFS= read -r initialized
+IFS= read -r skills
+printf '%s\n' "$skills" > ${logFile}
+printf '%s\n' '{"id":10,"result":{}}'
+IFS= read -r thread_start
+printf '%s\n' "$thread_start" >> ${logFile}
+printf '{"token":"%s"}\n' "$${envVar}" >> ${logFile}
+printf '%s\n' '{"id":1,"result":{"thread":{"id":"thread-1","ephemeral":true}}}'
+IFS= read -r turn_start
+printf '%s\n' '{"id":2,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/started","params":{"item":{"type":"mcpToolCall","id":"t1","server":"paperland","tool":"s2_search","status":"inProgress"}}}'
+printf '%s\n' '{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"t1","server":"paperland","tool":"s2_search","status":"completed"}}}'
+printf '%s\n' '{"method":"item/started","params":{"item":{"type":"agentMessage","id":"final","phase":"final_answer"}}}'
+printf '%s\n' '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"final","phase":"final_answer","text":"ok"}}}'
+printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}'
+exec sleep 1`)
+    const events: ModelToolCallEvent[] = []
+    const input = {
+      user: [{ type: 'text' as const, text: 'go' }],
+      web_search: true,
+      mcp_servers: [{ name: 'paperland', url: 'http://127.0.0.1:3000/mcp', bearer_token: 'secret-token' }],
+      skill_roots: ['/repo/prompts/skills'],
+    }
+    await expect(codexProvider.invoke(input, appServerConfig(cliPath), { onToolCall: (e) => { events.push(e) } })).resolves.toBe('ok')
+    const [skills, threadStart, env] = require('fs').readFileSync(logFile, 'utf8').trim().split('\n').map((line: string) => JSON.parse(line))
+    expect(skills).toMatchObject({ method: 'skills/extraRoots/set', id: 10, params: { extraRoots: ['/repo/prompts/skills'] } })
+    expect(threadStart.params.config).toEqual({
+      web_search: 'live',
+      mcp_servers: { paperland: { url: 'http://127.0.0.1:3000/mcp', bearer_token_env_var: envVar } },
+    })
+    expect(JSON.stringify(threadStart)).not.toContain('secret-token')
+    expect(env.token).toBe('secret-token')
+    expect(events).toEqual([
+      { server: 'paperland', tool: 's2_search', status: 'started' },
+      { server: 'paperland', tool: 's2_search', status: 'completed' },
+    ])
   })
 })

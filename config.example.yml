@@ -216,3 +216,16 @@ research:
   system_prompt: research       # prompts/system/research.md (same directory as qa_prompt system prompts)
   history_char_budget: 20000    # characters of earlier steps replayed to the agent each round
   abstract_char_limit: 1500     # per-paper abstract characters shown to the agent in the current list
+
+# Agent tools: read-only MCP server at /mcp (Bearer api token) given to Deep Research rounds — site paper
+# search / full text / Q&A plus Semantic Scholar tools that reuse the S2 key and rate limit above.
+# The whole block or any key may be omitted; these are the defaults.
+agent_tools:
+  enabled: true
+  base_url: http://127.0.0.1:3000   # where the agent reaches this backend's /mcp
+  search_max_results: 20            # search_papers result cap
+  read_max_chars: 20000             # read_paper page size cap
+  qa_answer_max_chars: 4000         # get_paper_qa per-answer truncation cap
+  s2_get_path_prefixes: ['/graph/v1/']  # s2_get passthrough path allowlist (GET only)
+  s2_get_max_chars: 20000           # s2_get response truncation
+  # skills_dir: ./prompts/skills    # extra Codex skill root (default: the repo's prompts/skills)

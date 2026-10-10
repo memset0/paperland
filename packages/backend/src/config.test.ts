@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { BUNDLED_SYSTEM_PROMPTS_DIR, loadConfig } from './config.js'
+import { BUNDLED_SKILLS_DIR, BUNDLED_SYSTEM_PROMPTS_DIR, loadConfig } from './config.js'
 
 let fixtureDir = ''
 let executable = ''
@@ -177,6 +177,20 @@ doc2x:
     expect(loadConfig(file).research).toEqual({ system_prompt: 'research', history_char_budget: 20000, abstract_char_limit: 1500 })
     writeFileSync(file, require('fs').readFileSync(file, 'utf8') + '\nresearch:\n  history_char_budget: 5000\n', 'utf8')
     expect(loadConfig(file).research).toEqual({ system_prompt: 'research', history_char_budget: 5000, abstract_char_limit: 1500 })
+  })
+
+  test('agent_tools uses explicit defaults when absent and resolves a relative skills_dir', () => {
+    const file = configFile(oneModel)
+    expect(loadConfig(file).agent_tools).toEqual({
+      enabled: true, base_url: 'http://127.0.0.1:3000', search_max_results: 20,
+      read_max_chars: 20000, qa_answer_max_chars: 4000, s2_get_path_prefixes: ['/graph/v1/'], s2_get_max_chars: 20000,
+      skills_dir: BUNDLED_SKILLS_DIR,
+    })
+    writeFileSync(file, require('fs').readFileSync(file, 'utf8') + '\nagent_tools:\n  read_max_chars: 5000\n  skills_dir: ./my-skills\n', 'utf8')
+    const tools = loadConfig(file).agent_tools
+    expect(tools.read_max_chars).toBe(5000)
+    expect(tools.search_max_results).toBe(20)
+    expect(tools.skills_dir).toBe(resolve(fixtureDir, 'my-skills'))
   })
 
   test('services accept download_timeout and max_file_size_mb', () => {

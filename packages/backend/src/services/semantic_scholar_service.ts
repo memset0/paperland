@@ -122,6 +122,17 @@ async function s2Get(path: string, fields: string, params: Record<string, string
   return s2Request(path, `${S2_BASE}${path}?${qs}`, {}, maxRetries)
 }
 
+const S2_HOST = 'https://api.semanticscholar.org'
+
+/**
+ * GET any Semantic Scholar API path (absolute, e.g. `/graph/v1/paper/search`) with query params,
+ * through the shared key, rate gate, and backoff. Callers validate the path (see agent tools).
+ */
+export async function s2ApiGet(path: string, params: Record<string, string> = {}, maxRetries = 5): Promise<any> {
+  const qs = new URLSearchParams(params).toString()
+  return s2Request(path, `${S2_HOST}${path}${qs ? `?${qs}` : ''}`, {}, maxRetries)
+}
+
 // S2 accepts at most 500 ids per `POST /paper/batch` call.
 const BATCH_MAX_IDS = 500
 

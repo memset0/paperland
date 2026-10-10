@@ -14,13 +14,33 @@ S2 论文元数据缓存的解析接口 `POST /api/s2/papers/resolve` 同样属�
 
 Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回退与 SSE）同样只是 Internal API（会话认证），External API 不暴露 research 数据；新增的 `research_sessions` / `research_steps` 表与 `research` 共享类型不改变任何 External API 契约。
 
+### MCP 服务器（`/mcp`）
+
+`POST /mcp` 是 Paperland 的只读 MCP 服务器（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal 与 agent** 两种 token，按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
+
 ---
 
 ## 认证
 
 ### 获取 Token
 
-**管理员**在 Paperland 前端「设置」页面签发 Auth Token（Token 管理为管理员专属），复制后配置到第三方服务中。
+每个用户都可以在账户对话框（侧边栏账户菜单 → API Tokens）管理**自己的** personal token：列表只显示掩码，新建时完整值**只显示一次**，可随时撤销。管理员另可在「设置」页面查看全站 token、为自己签发和撤销 personal token。复制后配置到第三方服务中。
+
+对应的 Internal API（会话登录，只能操作自己的 token）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/auth/me/tokens` | `{ data: { personal: [{ id, token(掩码), created_at, revoked_at }], agent: { created_at, rotated_at } } }` |
+| POST | `/api/auth/me/tokens` | 新建 personal token，201 `{ data: { id, token(完整值，仅此一次), created_at } }` |
+| DELETE | `/api/auth/me/tokens/:id` | 撤销自己的 personal token；不是自己的或不是 personal → 404 |
+| POST | `/api/auth/me/agent-token/reset` | 原地重置自己的 Codex agent token，旧值立即失效；只返回 `{ data: { created_at, rotated_at } }` |
+
+### Token 类型
+
+`api_tokens.kind` 区分两种 token（格式都是 `sk-` + 64 位十六进制）：
+
+- **personal**（默认，所有既有 token）：用户自己管理，**External API 与 MCP（`/mcp`）都可用**。
+- **agent**（Codex agent token）：每个用户恰好一个，自动创建，供 Paperland 在 Deep Research 回合里注入自己拉起的 Codex 使用。**只有 `/mcp` 接受**，调用 External API 返回 401；任何接口都不返回它的值（管理员列表里 `token` 为 `null`、不可撤销），只能由本人重置。
 
 ### 使用 Token
 
@@ -30,13 +50,13 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 Authorization: Bearer <token>
 ```
 
-未携带或 Token 无效 / 已撤销时返回 `401 Unauthorized`。
+未携带或 Token 无效 / 已撤销，或使用 agent token 时，返回 `401 Unauthorized`。
 
 > 网站的登录墙（未登录的 `/api/*` 一律 401）与自助注册审核只作用于网站 Internal API，**不影响** External API：`/external-api/*` 仍只认 Bearer Token。
 
 ### Token 的用户归属
 
-每个 Token 归属一个用户（签发它的管理员，或指定用户）。以该 Token 调用 External API 时，请求**按其归属用户**操作：因此通过 Token 创建 / 同步的**标签**等按用户私有的数据，归该用户所有，与其他用户的数据相互隔离。升级到用户系统前已存在的 Token 一律迁移归属到初始 `admin` 用户，**Zotero 等既有集成无需改动即可继续工作**。
+每个 Token 归属一个用户（签发它的管理员，或指定用户）。以该 Token 调用 External API 时，请求**按其归属用户**操作：因此通过 Token 创建 / 同步的**标签**等按用户私有的数据，归该用户所有，与其他用户的数据相互隔离。升级到用户系统前已存在的 Token 一律迁移归属到初始 `admin` 用户，**Zotero 等既有集成无需改动即可继续工作**。归属用户不是 active 状态（如待审核的注册账号）时，其 Token 调用 External API 返回 401（与 `/mcp` 一致）；没有归属用户的老 Token 仍可使用。
 
 External API 只涉及论文（始终全站共享）与标签（始终私有），不暴露高亮、笔记、Free Q&A、参考链接等「用户可选共享」数据，因此不受 Account → Sharing 开关影响（多用户可见性规则见 `frontend-architecture.md` §5.3）。
 

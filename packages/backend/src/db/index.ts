@@ -90,6 +90,13 @@ export function initDatabase(): ReturnType<typeof drizzle> {
     console.log(`${line}\n`)
   }
 
+  // Every active user has exactly one agent token (api_tokens kind 'agent', partial unique index).
+  // Covers the seeded admin and any user created without one; idempotent.
+  _sqlite.query(`INSERT OR IGNORE INTO api_tokens (token, user_id, kind, created_at)
+    SELECT 'sk-' || lower(hex(randomblob(32))), u.id, 'agent', ? FROM users u
+    WHERE u.status = 'active' AND NOT EXISTS (SELECT 1 FROM api_tokens t WHERE t.user_id = u.id AND t.kind = 'agent')`)
+    .run(new Date().toISOString())
+
   // Backfill ownership of pre-auth data to the lowest-id admin.
   // Idempotent: only rows with NULL user_id are affected (none after the first run).
   const admin = _sqlite.query("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get() as { id: number } | undefined

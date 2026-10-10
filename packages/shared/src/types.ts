@@ -242,12 +242,26 @@ export interface ServiceExecution {
 }
 
 // API Token
+/** `personal`: user-managed (External API + /mcp). `agent`: one per user, injected into Codex runs (/mcp only). */
+export type ApiTokenKind = 'personal' | 'agent'
+
+/** Admin list row. `token` is masked for personal tokens and null for agent tokens (never shown). */
 export interface ApiToken {
   id: number
-  token: string
+  kind: ApiTokenKind
+  token: string | null
   user_id: number | null
   created_at: string
+  rotated_at: string | null
   revoked_at: string | null
+}
+
+/** The signed-in user's tokens (`GET /api/auth/me/tokens`). */
+export interface MyApiTokens {
+  /** Personal tokens, newest first; `token` is masked. */
+  personal: Array<{ id: number; token: string; created_at: string; revoked_at: string | null }>
+  /** The Codex agent token: metadata only, its value is never returned. */
+  agent: { created_at: string; rotated_at: string | null }
 }
 
 // User accounts (stored in the DB; not in config.yml)
@@ -412,6 +426,22 @@ export interface AppConfig {
   pdf_viewer: PdfViewerConfig
   sharing: SharingConfig
   doc2x: Doc2xConfig
+  agent_tools: AgentToolsConfig
+}
+
+/** MCP tools for agents Paperland launches (Deep Research rounds). */
+export interface AgentToolsConfig {
+  enabled: boolean
+  /** Base URL the agent uses to reach this backend's `/mcp`. */
+  base_url: string
+  search_max_results: number
+  read_max_chars: number
+  qa_answer_max_chars: number
+  /** `s2_get` only allows paths starting with one of these. */
+  s2_get_path_prefixes: string[]
+  s2_get_max_chars: number
+  /** Absolute skill directory added as an extra Codex skill root (resolved at config load). */
+  skills_dir: string
 }
 
 export interface QAPromptConfig {
@@ -729,6 +759,15 @@ export interface ResearchSeed {
   question: string
   answer: string
   model_name: string
+}
+
+/** SSE `tool` event of a research round: the agent started or finished a tool call (not persisted). */
+export interface ResearchToolEvent {
+  step_id: number
+  /** MCP server name (`paperland`, …), or `web` for native web search. */
+  server: string
+  tool: string
+  status: 'started' | 'completed' | 'failed'
 }
 
 export interface ResearchStep {

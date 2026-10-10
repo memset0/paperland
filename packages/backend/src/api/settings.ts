@@ -1,14 +1,14 @@
 import type { FastifyInstance } from 'fastify'
-import { randomBytes } from 'crypto'
 import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { requireAdmin } from '../auth/guards.js'
+import { createPersonalToken, maskToken } from '../services/api_tokens.js'
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // Token management is admin-only.
   app.addHook('preHandler', requireAdmin)
 
-  // List tokens (with owning user)
+  // List tokens (with owning user and kind). Agent tokens never expose their value, not even masked.
   app.get('/api/settings/tokens', async () => {
     const db = getDatabase()
     const tokens = db.select().from(schema.apiTokens).all()
@@ -16,9 +16,11 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return {
       data: tokens.map((t) => ({
         id: t.id,
-        token: maskToken(t.token),
+        kind: t.kind,
+        token: t.kind === 'agent' ? null : maskToken(t.token),
         user_id: t.user_id,
         created_at: t.created_at,
+        rotated_at: t.rotated_at,
         revoked_at: t.revoked_at,
       })),
     }
@@ -26,15 +28,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
   // Issue new token (owned by the issuing admin so External-API data is attributed to them)
   app.post('/api/settings/tokens', async (request) => {
-    const db = getDatabase()
-    const token = `sk-${randomBytes(32).toString('hex')}`
-    const now = new Date().toISOString()
-
-    const result = db.insert(schema.apiTokens).values({
-      token,
-      user_id: request.user!.id,
-      created_at: now,
-    }).returning().get()
+    const result = createPersonalToken(request.user!.id)
 
     return {
       id: result.id,
@@ -55,6 +49,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Token not found' } })
       return
     }
+    if (existing.kind === 'agent') {
+      reply.code(400).send({ error: { code: 'AGENT_TOKEN', message: 'Agent tokens cannot be revoked; the owner can reset it' } })
+      return
+    }
 
     db.update(schema.apiTokens)
       .set({ revoked_at: now })
@@ -63,9 +61,4 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     return { success: true }
   })
-}
-
-function maskToken(token: string): string {
-  if (token.length <= 8) return '****'
-  return `${token.slice(0, 4)}...${token.slice(-4)}`
 }

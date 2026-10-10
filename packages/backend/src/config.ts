@@ -295,6 +295,31 @@ const researchSchema = z.object({
   abstract_char_limit: z.number().int().positive().default(RESEARCH_DEFAULTS.abstract_char_limit),
 })
 
+// Agent tools (MCP at /mcp) for agents Paperland launches, e.g. Deep Research rounds: on/off, the
+// base URL the agent connects to, per-tool limits, the S2 passthrough
+// path allowlist, and the repo skill directory added as an extra Codex skill root.
+export const BUNDLED_SKILLS_DIR = resolve(import.meta.dir, '../../../prompts/skills')
+const AGENT_TOOLS_DEFAULTS = {
+  enabled: true,
+  base_url: 'http://127.0.0.1:3000',
+  search_max_results: 20,
+  read_max_chars: 20000,
+  qa_answer_max_chars: 4000,
+  s2_get_path_prefixes: ['/graph/v1/'],
+  s2_get_max_chars: 20000,
+  skills_dir: BUNDLED_SKILLS_DIR,
+}
+const agentToolsSchema = z.object({
+  enabled: z.boolean().default(AGENT_TOOLS_DEFAULTS.enabled),
+  base_url: z.string().url().default(AGENT_TOOLS_DEFAULTS.base_url),
+  search_max_results: z.number().int().positive().default(AGENT_TOOLS_DEFAULTS.search_max_results),
+  read_max_chars: z.number().int().positive().default(AGENT_TOOLS_DEFAULTS.read_max_chars),
+  qa_answer_max_chars: z.number().int().positive().default(AGENT_TOOLS_DEFAULTS.qa_answer_max_chars),
+  s2_get_path_prefixes: z.array(z.string().startsWith('/')).default(AGENT_TOOLS_DEFAULTS.s2_get_path_prefixes),
+  s2_get_max_chars: z.number().int().positive().default(AGENT_TOOLS_DEFAULTS.s2_get_max_chars),
+  skills_dir: z.string().default(AGENT_TOOLS_DEFAULTS.skills_dir),
+})
+
 const configSchema = z.object({
   database: databaseSchema,
   auth: authSchema,
@@ -324,6 +349,8 @@ const configSchema = z.object({
   s2_cache: s2CacheSchema.default(S2_CACHE_DEFAULTS),
   // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
   research: researchSchema.default(RESEARCH_DEFAULTS),
+  // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
+  agent_tools: agentToolsSchema.default(AGENT_TOOLS_DEFAULTS),
 }).superRefine((config, ctx) => {
   if (config.translation.model && !config.models.available.some((model) => model.name === config.translation.model)) {
     ctx.addIssue({
@@ -375,6 +402,8 @@ export function loadConfig(configPath?: string): AppConfig {
   config.qa_prompt.system_prompts_dir = promptsDir
     ? resolve(dirname(filePath), promptsDir)
     : BUNDLED_SYSTEM_PROMPTS_DIR
+  // A configured relative skills_dir resolves against the config file's directory, like prompts.
+  config.agent_tools.skills_dir = resolve(dirname(filePath), config.agent_tools.skills_dir)
   const missing = referencedSystemPrompts(config)
     .filter(({ name }) => !existsSync(systemPromptPath(config.qa_prompt.system_prompts_dir!, name)))
   if (missing.length > 0) {

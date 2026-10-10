@@ -1,8 +1,25 @@
 import type { ModelConfig } from '@paperland/shared'
 
+/** A tool call the agent started or finished (MCP tool or native web search). */
+export interface ModelToolCallEvent {
+  /** MCP server name, or `web` for native web search. */
+  server: string
+  tool: string
+  status: 'started' | 'completed' | 'failed'
+}
+
 export interface ModelInvokeOptions {
   onChunk?: (delta: string) => void | Promise<void>
+  /** Tool-call progress (Codex app-server only). */
+  onToolCall?: (event: ModelToolCallEvent) => void
   signal?: AbortSignal
+}
+
+/** An MCP server (Streamable HTTP) the agent may use for this call, with its bearer token. */
+export interface ModelMcpServer {
+  name: string
+  url: string
+  bearer_token: string
 }
 
 export interface ModelCapabilities {
@@ -20,6 +37,10 @@ export interface ModelInput {
   user: ModelInputPart[]
   /** Allow the provider's native web search when it has one (Codex only). */
   web_search?: boolean
+  /** MCP servers to attach for this call (Codex app-server only). */
+  mcp_servers?: ModelMcpServer[]
+  /** Extra skill root directories (absolute) for this call (Codex app-server only). */
+  skill_roots?: string[]
 }
 
 export interface ModelProvider {

@@ -186,7 +186,7 @@ export const translationApi = {
 }
 
 // Auth + user management API
-import type { SessionUser, User, UserRole } from '@paperland/shared'
+import type { MyApiTokens, SessionUser, User, UserRole } from '@paperland/shared'
 
 export const authApi = {
   me: () => api.get<{ user: SessionUser | null; registration_enabled: boolean }>('/api/auth/me'),
@@ -255,6 +255,15 @@ export const quickOpenApi = {
     if (!res.ok) throw Object.assign(new Error(body?.error?.message || res.statusText || 'Request failed'), { status: res.status })
     return body
   },
+}
+
+// The signed-in user's API tokens: personal tokens (full value only at creation) and the Codex agent
+// token (never returned; reset in place).
+export const myTokensApi = {
+  list: () => api.get<{ data: MyApiTokens }>('/api/auth/me/tokens'),
+  create: () => api.post<{ data: { id: number; token: string; created_at: string } }>('/api/auth/me/tokens'),
+  revoke: (id: number) => api.delete<{ success: boolean }>(`/api/auth/me/tokens/${id}`),
+  resetAgent: () => api.post<{ data: MyApiTokens['agent'] }>('/api/auth/me/agent-token/reset'),
 }
 
 export const usersApi = {
@@ -403,7 +412,7 @@ export const configApi = {
 }
 
 // Deep Research API (/research)
-import type { ResearchSeed, ResearchSessionDetail, ResearchSessionSummary, ResearchStep } from '@paperland/shared'
+import type { ResearchSeed, ResearchSessionDetail, ResearchSessionSummary, ResearchStep, ResearchToolEvent } from '@paperland/shared'
 import { consumeNamedEventStream } from '@/lib/named-event-stream'
 
 export const researchApi = {
@@ -433,6 +442,8 @@ export const researchApi = {
       onDelta?: (delta: { step_id: number; delta: string; answer_length: number; first_chunk_at: string | null }) => void
       /** The output was invalid; the automatic repair request is running. */
       onRepairing?: (step: ResearchStep) => void
+      /** The agent started or finished a tool call (MCP tool, or `web` for web search). */
+      onTool?: (event: ResearchToolEvent) => void
     } = {},
   ): Promise<ResearchStep> {
     const response = await fetch(`/api/research/steps/${stepId}/stream`, {
@@ -454,6 +465,7 @@ export const researchApi = {
       if (event.event === 'start') options.onStart?.(payload.step)
       else if (event.event === 'delta') options.onDelta?.(payload)
       else if (event.event === 'repairing') options.onRepairing?.(payload.step)
+      else if (event.event === 'tool') options.onTool?.(payload)
       else if (event.event === 'done' || event.event === 'error') terminal = payload.step
     })
     if (!terminal) throw new Error('Research stream ended before a terminal event')

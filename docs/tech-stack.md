@@ -65,6 +65,8 @@ paperland/
 │   │   │   │   ├── qa.ts
 │   │   │   │   ├── s2.ts             # POST /api/s2/papers/resolve（S2 id → 缓存元数据）
 │   │   │   │   ├── research.ts       # /api/research/*：会话、步骤（提交/重试/取消）、标题编辑、回退、SSE
+│   │   │   │   ├── mcp.ts            # POST /mcp：agent 工具的 MCP 服务器（无状态 JSON-RPC，api_tokens Bearer：personal + agent）
+│   │   │   │   ├── tokens.ts         # /api/auth/me/tokens*：用户自管 personal token、重置自己的 Codex agent token
 │   │   │   │   ├── services.ts
 │   │   │   │   └── settings.ts
 │   │   │   ├── external-api/       # External API routes (/external-api/v1/...)
@@ -79,6 +81,8 @@ paperland/
 │   │   │   │   ├── research_runtime.ts      # Deep Research 回合调度（services.research 的 Semaphore/RateLimiter）、状态机、流式、自动修复、重启恢复
 │   │   │   │   ├── research_prompt.ts       # 回合输入组装（<topic>/<seed>/<history>/<current_version>/<request>）与修复请求
 │   │   │   │   ├── research_list.ts         # 列表格式边界：解析回答、带 S2 元数据的 <paper_list> XML、标题编辑、修复合并
+│   │   │   │   ├── agent_tools.ts           # agent 只读工具：本站论文检索 / 全文分页 / QA，S2 搜索 / 匹配 / 批量 / 引用 / 透传（共享 S2 限速、写缓存）
+│   │   │   │   ├── api_tokens.ts            # api_tokens 两种 kind：personal（自管）/ agent（每用户一个、只供 /mcp、原地重置），Bearer 校验
 │   │   │   │   ├── paperlist.ts             # paperlist 块解析与校验（zod、批量解析 s2_id、段内去重）
 │   │   │   │   ├── s2_paper_cache.test.ts
 │   │   │   │   ├── s2_pdf_service.ts        # 无 arxiv_id 时经 S2 openAccessPdf 下载 PDF
@@ -175,10 +179,10 @@ users
   nickname        text      nullable          // 对外显示名，可重复；为空时显示 username（≤32 字符，去首尾空格）
   password_hash   text      not null          // Bun.password (argon2id)
   role            text      not null          // "admin" | "user"
+  status          text      not null default 'active'  // "active" | "pending"（自助注册待审核，不能登录；迁移 0036）
   open_token      text      nullable          // 浏览器插件快捷打开的每用户 CSRF token（首次请求时生成，可重新生成）
   created_at      text      not null
 
-  status          text      not null default 'active'  // "active" | "pending"（自助注册待审核，不能登录；迁移 0036）
 sessions
   id              text      primary key       // 随机不透明 token（httpOnly cookie）
   user_id         integer   → users.id, not null
@@ -299,9 +303,12 @@ service_executions
 api_tokens
   id              integer   primary key autoincrement
   token           text      unique not null
-  user_id         integer   → users.id        // 归属用户（External API 按此用户操作）
+  user_id         integer   → users.id        // 归属用户（External API / MCP 按此用户操作）
   created_at      text      not null
   revoked_at      text      nullable
+  kind            text      not null default 'personal'  // 'personal'（External API + /mcp）| 'agent'（只供 /mcp）；迁移 0037
+  rotated_at      text      nullable          // agent token 最近一次原地重置时间
+  // 部分唯一索引 api_tokens_agent_user_unq (user_id) WHERE kind = 'agent'：每个用户最多一个 agent token
 
 highlights
   id              integer   primary key autoincrement
@@ -467,6 +474,17 @@ research:
   history_char_budget: 20000        # 每轮回放的历史步骤字符预算（超出只保留用户文本）
   abstract_char_limit: 1500         # <current_version> 中每篇论文摘要的截断长度
 
+# agent 工具（/mcp，Deep Research 回合使用）。整块或单项缺省时使用下列默认值。
+agent_tools:
+  enabled: true                     # false = 回合只有联网搜索
+  base_url: http://127.0.0.1:3000   # agent 连接本后端 /mcp 的地址
+  search_max_results: 20            # search_papers 结果上限
+  read_max_chars: 20000             # read_paper 单页字符上限
+  qa_answer_max_chars: 4000         # get_paper_qa 每个回答截断长度上限
+  s2_get_path_prefixes: ['/graph/v1/']  # s2_get 透传允许的路径前缀（仅 GET）
+  s2_get_max_chars: 20000           # s2_get 响应截断长度
+  # skills_dir: ./prompts/skills    # 额外的 Codex skill 根目录（缺省 = 仓库自带；相对路径相对 config.yml）
+
 # doc2x CLI（精确解析 + 保留排版对照翻译）。整块缺省 = 关闭。
 # 前置（以运行后端的同一 OS 用户，一次性）：npm i -g @noedgeai-org/doc2x-cli@latest（Node >= 22）+ doc2x login
 doc2x:
@@ -533,7 +551,9 @@ notes:
 
 **S2 论文元数据缓存**：`services/s2_paper_cache.ts` 的 `resolveS2Ids(ids, { allowFetch })` 把 S2 id（paperId、CorpusId、`CorpusId:<n>`、S2 URL，经 `utils/s2_ids.ts` 规范化）解析为元数据，每个 id 依次查：论文库 `papers`（`source: library`，不出网）→ `s2_papers` 新鲜条目（`cache`）→ 剩余 id 合并为一次 S2 `POST /paper/batch`（每块 ≤500，`semantic_scholar_service.ts` 的 `s2PostBatch`，与其他 S2 调用共用 API key、限流和退避）。S2 返回 null 记为 `not_found` 负缓存；抓取失败时有旧数据返回 `stale_cache`，否则 `unavailable`。同一 id 的并发抓取共享一个 in-flight 请求。QA 回答完成后 `api/qa.ts` 异步调用 `warmCites(answer)` 预热回答里所有 `#cite:` id，失败只记日志。
 
-**Deep Research**：`api/research.ts` + `services/research_runtime.ts`。回合在模块内用 `Semaphore` / `RateLimiter`（`services.research`）调度——不走 `executePureService`，因为 `service_executions.paper_id` 是指向 `papers` 的非空外键而研究回合不属于论文；每个排队/运行中的步骤有一个 AbortController 供取消。状态机、200ms 局部写入、独立的 `QAResultStreamBroker` 实例、SSE（`start → delta* → [repairing] → done|error`）和启动恢复照搬 QA 的写法。输入由 `research_prompt.ts` 组装：`<topic>`、`<seed>`、`<history>`（用户文本 + `changes` / 标题编辑记录，按 `history_char_budget` 截断）、`<current_version>`（当前报告 + `research_list.ts` 渲染的 `<paper_list>` XML：已验证论文附 `resolveS2Ids` 取得的标题、作者、年份、venue、arXiv id、被引数、TLDR、截断摘要；未验证论文 `verified="false"` 只给 id 与 comment；已在论文库的论文带 `in_library="paperland://paper/<id>"`）、`<request>`；Codex 联网搜索开启。system prompt（`prompts/system/research.md`）除列表格式外还规定：公式一律 `$...$` / `$$...$$`、禁止 `\(...\)` / `\[...\]`；`paperlist` JSON 字符串里的反斜杠必须转义（否则 `\frac`、`\theta` 等会被当成 `\f`、`\t` JSON 转义悄悄损坏）；`in_library` 论文可用 `[📄 标题](paperland://paper/<id>)` 链接。完成后 `paperlist.ts` 拆分报告与最后一个 ```` ```paperlist ```` 块，zod 校验（论文只取 `s2_id` + comment，链接要 BibTeX 风格 `citation`），批量解析 id（解析不到标 unverified，不做标题匹配），段内去重；报告与列表缺一则在同一回合内用同一模型**自动修复一次**（非流式、不联网；只缺/坏列表时只要 `paperlist` 并沿用原报告，缺报告时要完整输出），仍失败则记 `parse_error`、不产生新版本。解析与修复都在标记 done 之前完成。列表格式的知识集中在 `research_list.ts` / `paperlist.ts`（前端对应 `lib/research-list.ts`）。
+**Deep Research**：`api/research.ts` + `services/research_runtime.ts`。回合在模块内用 `Semaphore` / `RateLimiter`（`services.research`）调度——不走 `executePureService`，因为 `service_executions.paper_id` 是指向 `papers` 的非空外键而研究回合不属于论文；每个排队/运行中的步骤有一个 AbortController 供取消。状态机、200ms 局部写入、独立的 `QAResultStreamBroker` 实例、SSE（`start → (delta|tool)* → [repairing] → done|error`）和启动恢复照搬 QA 的写法。输入由 `research_prompt.ts` 组装：`<topic>`、`<seed>`、`<history>`（用户文本 + `changes` / 标题编辑记录，按 `history_char_budget` 截断）、`<current_version>`（当前报告 + `research_list.ts` 渲染的 `<paper_list>` XML：已验证论文附 `resolveS2Ids` 取得的标题、作者、年份、venue、arXiv id、被引数、TLDR、截断摘要；未验证论文 `verified="false"` 只给 id 与 comment；已在论文库的论文带 `in_library="paperland://paper/<id>"`）、`<request>`；Codex 联网搜索开启。system prompt（`prompts/system/research.md`）除列表格式外还规定：公式一律 `$...$` / `$$...$$`、禁止 `\(...\)` / `\[...\]`；`paperlist` JSON 字符串里的反斜杠必须转义（否则 `\frac`、`\theta` 等会被当成 `\f`、`\t` JSON 转义悄悄损坏）；`in_library` 论文可用 `[📄 标题](paperland://paper/<id>)` 链接。完成后 `paperlist.ts` 拆分报告与最后一个 ```` ```paperlist ```` 块，zod 校验（论文只取 `s2_id` + comment，链接要 BibTeX 风格 `citation`），批量解析 id（解析不到标 unverified，不做标题匹配），段内去重；报告与列表缺一则在同一回合内用同一模型**自动修复一次**（非流式、不联网；只缺/坏列表时只要 `paperlist` 并沿用原报告，缺报告时要完整输出），仍失败则记 `parse_error`、不产生新版本。解析与修复都在标记 done 之前完成。列表格式的知识集中在 `research_list.ts` / `paperlist.ts`（前端对应 `lib/research-list.ts`）。
+
+**Agent 工具（MCP）**：`agent_tools.enabled` 时每个研究回合额外获得本站 MCP 服务器 `paperland` 与 S2 检索 skill。`api/mcp.ts` 自行实现 MCP 的最小子集（Streamable HTTP、无状态：每个 POST 一条 JSON-RPC 或一个批量，直接回 `application/json`；`initialize` / `ping` / `tools/list` / `tools/call`，通知回 202，`GET` / `DELETE` 405），没有引入 `@modelcontextprotocol/sdk`。路径在 `/api` 之外，不经登录墙，任何来源都可访问（含经 Caddy 转发），只靠 Bearer token 鉴权：复用 `api_tokens`（`services/api_tokens.ts#checkBearerToken`，接受 personal 与 agent 两种 kind，要求 token 未撤销、属主存在且 active），按属主的身份与可见性执行工具。每个用户恰好一个 **Codex agent token**（`kind = 'agent'`，部分唯一索引保证；迁移 `0037_agent_tokens` 为 active 用户回填，admin 新建 / 注册审核通过时创建，`db/index.ts` 启动时为缺失的 active 用户兜底，运行时 `ensureAgentToken` get-or-create，均幂等）：任何接口都不返回它的值，只能原地重置（`rotated_at`，旧值立即失效），External API（`auth/token_auth.ts`）不接受它。用户在账户对话框管理自己的 personal token（`api/tokens.ts`）。工具全部只读、声明 `readOnlyHint`（`services/agent_tools.ts`）：本站 `search_papers`（已列出论文，标题 / 作者 / 摘要逐词匹配）、`get_paper`、`read_paper`（按 `content_priority` 取全文，分页，`outline` 模式给章节标题与偏移）、`get_paper_qa`（按 QA 共享规则过滤）；S2 `s2_search`、`s2_match`、`s2_papers`（走 `resolveS2Ids`）、`s2_citations` / `s2_references`、`s2_get`（仅 `s2_get_path_prefixes` 下的 GET，路径不得含 `..` / 查询串，响应截断）。S2 工具都走 `semantic_scholar_service.ts` 新导出的 `s2ApiGet`（同一个 key、共享限速与退避，key 不进工具输入输出），搜索 / 匹配 / 引用结果经 `s2_paper_cache.ts` 的 `cacheS2Records` 合并写入 `s2_papers`（不覆盖已有非空字段）。注入方式（已用 codex 0.162.1 实测）：`codex_provider.ts` 在 `thread/start` 的 `config.mcp_servers.paperland = { url, bearer_token_env_var }` 里引用环境变量 `PAPERLAND_MCP_TOKEN_PAPERLAND`，值是会话所有者的 agent token，只放在 app-server 子进程环境里；`thread/start` 之前发 `skills/extraRoots/set` 把 `agent_tools.skills_dir`（仓库 `prompts/skills/`，含 `s2-literature-search/SKILL.md`）加为本进程的 skill 根目录——不写 `CODEX_HOME`，不影响用户自己的 Codex。app-server 的 `mcpToolCall` / `webSearch` 条目经 `onToolCall` 回调变成研究 SSE 的 `tool` 事件（不落库），前端显示当前工具调用。exec（`stream: false`）路径不接工具。
 
 **QA durable streaming runtime**：每次调用通过 pure-service `onCreated` 在排队前插入一个 exact Result；execution context 带 `AbortSignal`，semaphore/rate-limit/provider 都可精确取消。provider delta 以约 200ms 合并，先 append 到 `qa_results.answer` 再发布 SSE；终态 flush 后由权威 final 覆盖并生成 hash。Internal `GET /api/qa/results/:resultId/stream` 使用 `start → delta* → done|error`，断开只取消订阅；`POST /api/qa/results/:resultId/cancel` 才取消运行。`thinking_duration_ms` 由 started/first_chunk/finished 时间戳派生，不写入数据库。启动时 stale active Result 保留局部内容后标为 failed，并重算 Entry 汇总状态。
 

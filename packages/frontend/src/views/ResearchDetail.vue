@@ -165,6 +165,13 @@ async function removeSession() {
   router.push('/research')
 }
 
+/** What the agent of an active round is doing, from its latest tool call (SSE `tool`). */
+function activityLabel(stepId: number): string {
+  const last = store.toolActivity.get(stepId)?.last
+  if (!last || last.status !== 'started') return 'Agent is thinking…'
+  return last.server === 'web' ? 'Searching the web…' : `Calling ${last.tool}…`
+}
+
 const STATUS_LABEL: Record<ResearchStepStatus, string> = {
   queued: 'Queued', awaiting_output: 'Thinking', streaming: 'Writing', done: 'Done', failed: 'Failed', cancelled: 'Cancelled',
 }
@@ -288,7 +295,8 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
               <!-- Live output while running: report streams, the list block is hidden -->
               <div v-if="isActiveStep(step)" class="mt-2 border-t pt-2">
                 <div v-if="!step.answer" class="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 class="size-3.5 animate-spin" />{{ step.status === 'queued' ? 'Waiting for an available slot…' : 'Agent is thinking…' }}
+                  <Loader2 class="size-3.5 animate-spin" />{{ step.status === 'queued' ? 'Waiting for an available slot…' : activityLabel(step.id) }}
+                  <span v-if="store.toolActivity.get(step.id)?.calls" class="text-muted-foreground/70">· {{ store.toolActivity.get(step.id)!.calls }} tool calls</span>
                 </div>
                 <template v-else>
                   <QAStreamingMarkdown :content="splitStreamingAnswer(step.answer).report" class="text-sm" />

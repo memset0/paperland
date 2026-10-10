@@ -6,7 +6,7 @@ import { resolve, dirname } from 'path'
 import { loadConfig, getConfig } from '../config.js'
 import * as schema from '../db/schema.js'
 import { setDatabaseForTesting } from '../db/index.js'
-import { resolveS2Ids, warmCites } from './s2_paper_cache.js'
+import { cacheS2Records, resolveS2Ids, warmCites } from './s2_paper_cache.js'
 
 // S2 is always mocked here (globalThis.fetch) — this test never hits the real API.
 
@@ -151,5 +151,32 @@ describe('warmCites', () => {
     const res = await resolveS2Ids([PA, PB], { allowFetch: true })
     expect(res.every((r) => r.source === 'cache')).toBe(true)
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe('cacheS2Records', () => {
+  it('caches new partial records so later resolves need no S2 request', async () => {
+    mockBatch([])
+    expect(cacheS2Records([rec(PA, 13756489, 'Attention'), { title: 'no id' }])).toBe(1)
+    const [res] = await resolveS2Ids([PA], { allowFetch: true })
+    expect(res.source).toBe('cache')
+    expect(res.paper?.title).toBe('Attention')
+    expect(calls).toEqual([])
+  })
+
+  it('merges into an existing row without erasing fields the record omits', () => {
+    const old = ago(3)
+    db.insert(schema.s2Papers).values({
+      s2_paper_id: PA, corpus_id: '13756489', title: 'Old title', abstract: 'Full abstract', tldr: 'Short',
+      status: 'ok', fetched_at: old, created_at: old,
+    }).run()
+    cacheS2Records([{ paperId: PA, externalIds: { CorpusId: 13756489 }, title: 'New title', citationCount: 9 }])
+    const rows = db.select().from(schema.s2Papers).all()
+    expect(rows.length).toBe(1)
+    expect(rows[0].title).toBe('New title')
+    expect(rows[0].citation_count).toBe(9)
+    expect(rows[0].abstract).toBe('Full abstract')
+    expect(rows[0].tldr).toBe('Short')
+    expect(rows[0].fetched_at).toBe(old)
   })
 })

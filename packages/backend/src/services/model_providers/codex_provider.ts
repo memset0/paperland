@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { ModelConfig } from '@paperland/shared'
-import type { ModelInput, ModelInvokeOptions, ModelProvider } from './types.js'
+import type { ModelInput, ModelInvokeOptions, ModelProvider, ModelToolCallEvent } from './types.js'
 import { createAbortError, throwIfAborted, toModelInput, userText } from './types.js'
 
 const DEFAULT_TIMEOUT_SECONDS = 120
@@ -12,6 +12,44 @@ function codexEnv(config: ModelConfig): Record<string, string | undefined> {
   return config.codex_home
     ? { ...process.env, CODEX_HOME: config.codex_home }
     : process.env
+}
+
+/** Env var that carries an MCP server's bearer token to the app-server (never put in thread config). */
+export function mcpTokenEnvVar(serverName: string): string {
+  return `PAPERLAND_MCP_TOKEN_${serverName.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+}
+
+/**
+ * `thread/start` config overrides: native web search and the MCP servers attached to this call
+ * (Streamable HTTP; the bearer token is read from the env var named by `bearer_token_env_var`).
+ */
+export function threadConfig(input: ModelInput): Record<string, unknown> | undefined {
+  const config: Record<string, unknown> = {}
+  if (input.web_search) config.web_search = 'live'
+  if (input.mcp_servers?.length) {
+    config.mcp_servers = Object.fromEntries(input.mcp_servers.map((server) => [
+      server.name,
+      { url: server.url, bearer_token_env_var: mcpTokenEnvVar(server.name) },
+    ]))
+  }
+  return Object.keys(config).length ? config : undefined
+}
+
+/** Tool-call progress for an app-server item event, or null for items that are not tool calls. */
+export function toolCallEvent(method: string, item: any): ModelToolCallEvent | null {
+  let server: string
+  let tool: string
+  if (item?.type === 'mcpToolCall') {
+    server = String(item.server ?? '')
+    tool = String(item.tool ?? '')
+  } else if (item?.type === 'webSearch') {
+    server = 'web'
+    tool = 'web_search'
+  } else {
+    return null
+  }
+  const status = method === 'item/started' ? 'started' : (item.status === 'failed' || item.error) ? 'failed' : 'completed'
+  return { server, tool, status }
 }
 
 function shellQuote(value: string): string {
@@ -149,12 +187,14 @@ async function invokeAppServer(input: ModelInput, config: ModelConfig, options: 
 
   const ownsWorkingDir = !config.working_dir
   const workingDir = config.working_dir || mkdtempSync(join(tmpdir(), 'paperland-codex-'))
+  const env = { ...codexEnv(config) }
+  for (const server of input.mcp_servers ?? []) env[mcpTokenEnvVar(server.name)] = server.bearer_token
   const proc = Bun.spawn([config.cli_path, 'app-server'], {
     cwd: workingDir,
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
-    env: codexEnv(config),
+    env,
   })
 
   const stdin = proc.stdin as any
@@ -173,6 +213,22 @@ async function invokeAppServer(input: ModelInput, config: ModelConfig, options: 
   let finalItemId = ''
   let finalText = ''
 
+  const SKILL_ROOTS_REQUEST_ID = 10
+  const overrides = threadConfig(input)
+  const startThread = () => send({
+    method: 'thread/start',
+    id: 1,
+    params: {
+      model: config.model_id,
+      cwd: workingDir,
+      approvalPolicy: 'never',
+      sandbox: 'read-only',
+      ephemeral: true,
+      ...(input.system ? { developerInstructions: input.system } : {}),
+      ...(overrides ? { config: overrides } : {}),
+    },
+  })
+
   const protocolPromise = (async () => {
     send({
       method: 'initialize',
@@ -187,25 +243,25 @@ async function invokeAppServer(input: ModelInput, config: ModelConfig, options: 
     })
 
     for await (const message of readJsonLines(proc.stdout)) {
+      if (message.id === SKILL_ROOTS_REQUEST_ID) {
+        // Extra skill roots are best effort: without them the round still runs, just without skills.
+        if (message.error) console.warn(`[codex] skills/extraRoots/set failed: ${message.error.message || JSON.stringify(message.error)}`)
+        startThread()
+        continue
+      }
+
       if (message?.error && message?.id != null) {
         throw new Error(`Codex app-server error: ${message.error.message || JSON.stringify(message.error)}`)
       }
 
       if (message.id === 0) {
         send({ method: 'initialized', params: {} })
-        send({
-          method: 'thread/start',
-          id: 1,
-          params: {
-            model: config.model_id,
-            cwd: workingDir,
-            approvalPolicy: 'never',
-            sandbox: 'read-only',
-            ephemeral: true,
-            ...(input.system ? { developerInstructions: input.system } : {}),
-            ...(input.web_search ? { config: { web_search: 'live' } } : {}),
-          },
-        })
+        if (input.skill_roots?.length) {
+          // Process-scoped (not persisted to CODEX_HOME); must land before the thread starts.
+          send({ method: 'skills/extraRoots/set', id: SKILL_ROOTS_REQUEST_ID, params: { extraRoots: input.skill_roots } })
+        } else {
+          startThread()
+        }
         continue
       }
 
@@ -237,6 +293,13 @@ async function invokeAppServer(input: ModelInput, config: ModelConfig, options: 
       if (message.method === 'turn/started' && message.params?.turn?.id) {
         turnId = message.params.turn.id
         continue
+      }
+
+      if (message.method === 'item/started' || message.method === 'item/completed') {
+        const toolEvent = toolCallEvent(message.method, message.params?.item)
+        if (toolEvent) {
+          try { options.onToolCall?.(toolEvent) } catch {}
+        }
       }
 
       if (message.method === 'item/started') {

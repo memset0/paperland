@@ -469,6 +469,7 @@ export async function researchRoutes(app: FastifyInstance): Promise<void> {
       if (event.event === 'start') void enqueue('start', { step: event.result })
       else if (event.event === 'delta') void enqueue('delta', { step_id: stepId, delta: event.delta, answer_length: event.answer_length, first_chunk_at: event.first_chunk_at })
       else if (event.event === 'repairing') void enqueue('repairing', { step: event.result })
+      else if (event.event === 'tool') void enqueue('tool', { step_id: stepId, server: event.server, tool: event.tool, status: event.status })
       else if (event.event === 'done') void enqueue('done', { step: event.result }).then(finish)
       else void enqueue('error', errorPayload(event.result)).then(finish)
     })

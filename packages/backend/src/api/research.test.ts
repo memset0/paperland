@@ -12,6 +12,8 @@ import { setDatabaseForTesting } from '../db/index.js'
 import { recoverInterruptedResearchSteps, resetResearchSchedulerForTesting } from '../services/research_runtime.js'
 import type { ModelInput } from '../services/model_invoke.js'
 import { researchRoutes, setResearchRunOptionsForTesting } from './research.js'
+import { checkBearerToken } from '../services/api_tokens.js'
+import { researchStepStreamBroker } from '../services/research_runtime.js'
 
 // Model calls and list parsing are injected and S2 is mocked (globalThis.fetch); this test never
 // calls a real model or Semantic Scholar.
@@ -364,6 +366,54 @@ describe('visibility', () => {
 
   it('anonymous cannot list or read', async () => {
     expect((await app.inject({ url: '/api/research' })).statusCode).toBe(401)
+  })
+})
+
+describe('agent tools', () => {
+  it("gives each round a paperland MCP server authenticated with the owner's agent token", async () => {
+    let validDuringCall = false
+    const events: any[] = []
+    let subscribed!: () => void
+    const ready = new Promise<void>((r) => { subscribed = r })
+    setResearchRunOptionsForTesting({
+      callModelFn: async (input, _model, opts) => {
+        await ready
+        modelCalls.push({ input, model: _model })
+        const check = checkBearerToken(input.mcp_servers?.[0]?.bearer_token, ['agent'])
+        validDuringCall = check.ok && check.user.id === alice.id && check.token.kind === 'agent'
+        opts.onToolCall?.({ server: 'paperland', tool: 's2_search', status: 'started' })
+        return 'Round #1 LIST'
+      },
+      parseFn: fakeParse,
+      batchMs: 1,
+    })
+    const session = (await create()).json().data
+    const stepId = session.steps[0].id
+    const unsubscribe = researchStepStreamBroker.subscribe(stepId, (e) => { events.push(e) })
+    subscribed()
+    await waitSettled(stepId)
+    unsubscribe()
+    const input = modelCalls[0].input
+    expect(input.mcp_servers).toEqual([{ name: 'paperland', url: 'http://127.0.0.1:3000/mcp', bearer_token: expect.any(String) }])
+    expect(input.skill_roots).toEqual([getConfig().agent_tools.skills_dir])
+    expect(validDuringCall).toBe(true)
+    // The same agent token is reused (not re-created) by later rounds.
+    const agentRows = db.select().from(schema.apiTokens).where(eq(schema.apiTokens.user_id, alice.id)).all().filter((t) => t.kind === 'agent')
+    expect(agentRows).toHaveLength(1)
+    expect(agentRows[0].token).toBe(input.mcp_servers![0].bearer_token)
+    expect(events.some((e) => e.event === 'tool' && e.tool === 's2_search' && e.result_id === stepId)).toBe(true)
+  })
+
+  it('attaches nothing when agent tools are disabled', async () => {
+    getConfig().agent_tools.enabled = false
+    try {
+      const session = (await create()).json().data
+      await waitSettled(session.steps[0].id)
+      expect(modelCalls[0].input.mcp_servers).toBeUndefined()
+      expect(modelCalls[0].input.skill_roots).toBeUndefined()
+    } finally {
+      getConfig().agent_tools.enabled = true
+    }
   })
 })
 

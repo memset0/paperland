@@ -5,6 +5,7 @@ import { requireAdmin } from '../auth/guards.js'
 import { normalizeNickname } from '../auth/nickname.js'
 import { resetDevAdminCache } from '../auth/session_auth.js'
 import { addStarterPaper } from '../services/user_library.js'
+import { ensureAgentToken } from '../services/api_tokens.js'
 import type { UserRole, UserStatus } from '@paperland/shared'
 
 function publicUser(u: { id: number; username: string; nickname: string | null; role: string; status: string; created_at: string }) {
@@ -42,6 +43,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         created_at: new Date().toISOString(),
       }).returning().get()
       addStarterPaper(created.id)
+      ensureAgentToken(created.id)
       return reply.code(201).send({ data: publicUser(created) })
     }
   )
@@ -104,6 +106,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       db.update(schema.users).set({ status: 'active' }).where(eq(schema.users.id, id)).run()
       addStarterPaper(id)
     }
+    ensureAgentToken(id)
     return { data: publicUser(db.select().from(schema.users).where(eq(schema.users.id, id)).get()!) }
   })
 
@@ -121,6 +124,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     }
     db.transaction((tx) => {
       tx.delete(schema.sessions).where(eq(schema.sessions.user_id, id)).run()
+      tx.delete(schema.apiTokens).where(eq(schema.apiTokens.user_id, id)).run()
       tx.delete(schema.users).where(eq(schema.users.id, id)).run()
     })
     return { success: true, deleted_id: id }

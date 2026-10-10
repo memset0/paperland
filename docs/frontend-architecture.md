@@ -996,7 +996,9 @@ models:
 
 ### 5.4 External API Token
 
-- 管理员在「设置」页面签发 / 查看 / 撤销 Token（Token 管理为**仅管理员**）。
+- 每个用户在账户对话框（`AccountDialog.vue` 的 **API Tokens** 区块，`myTokensApi` → `/api/auth/me/tokens*`）管理自己的 personal token：列表掩码、「New token」后完整值只显示一次（黄色提示框 + 复制）、撤销前 `confirm`；同时显示 MCP URL（`<origin>/mcp`）。下方一行 **Codex agent token**：只显示创建 / 重置时间和「Reset」按钮（`confirm` 提示旧值立即失效、进行中回合后续工具调用会失败），不提供查看。
+- 管理员在「设置」页面查看全站 Token、签发 / 撤销自己的 personal token；agent token 行显示「不可查看」+ `Codex agent` 标记，不提供撤销（只能由本人重置）。
+- 两种 token（`api_tokens.kind`）：personal 可用于 External API 与 `/mcp`，agent 只用于 `/mcp`（Deep Research 回合自动注入会话所有者的 agent token）。
 - 每个 Token 归属一个用户（`api_tokens.user_id`）；以该 Token 调用 External API 时按其归属用户操作，故 Zotero 等创建 / 同步的标签归该用户所有。已有 Token 迁移归属 admin。
 - Token 无细粒度权限，持有即可访问全部 External API 端点。
 
@@ -1437,6 +1439,7 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 - **`/research/:id`**（`views/ResearchDetail.vue`，自管布局，标题经 `usePageTitle` 设为会话标题）：
   - 桌面（≥900px）两栏：左侧为**步骤时间线** + 下一轮输入框（owner 可见；Textarea + Codex 模型下拉，默认沿用最近一轮的模型，⌘/Ctrl+Enter 发送；有进行中回合时禁用），右侧为**版本视图**。窄屏单栏，版本视图在前。
   - 时间线：agent 回合显示序号、状态、模型、`Repaired` 标记（列表来自自动修复）、用户文本、`changes` 说明、「Version n」跳转；进行中回合流式渲染报告（`QAStreamingMarkdown`），`paperlist` 块开始后隐藏原始 JSON，显示「Generating paper list…」（自动修复期间为「Fixing paper list…」）；未产出版本的回合显示原因与可展开的原始回答；最新 agent 回合可 **Retry**（对话框可改文本和模型，替换该回合）、进行中可 **Cancel**。标题编辑步骤显示为一行虚线记录（改了哪些标题）。
+  - **工具调用进度**：研究回合的 SSE 有 `tool` 事件（`ResearchToolEvent`：`server`、`tool`、`status`，不落库）。`stores/research.ts` 的 `toolActivity` 记录每个进行中回合的最近一次工具调用与调用次数（回合结束清除）；回合还没有输出文字时，占位从「Agent is thinking…」换成「Calling `s2_search`…」/「Searching the web…」，并附「· N tool calls」。工具本身见 tech-stack.md「Agent 工具（MCP）」。
   - 版本视图：版本下拉（所有历史版本可查看，默认当前版本）、Report / Papers 两个 tab。Report 以 `MarkdownContent` 的 qa-answer 模式渲染（`#cite` 一律经 S2 解析接口成 chip + 卡片，不依赖所属论文），下方折叠「References · N」（`PaperRefList`）。Papers 用 `ResearchPaperList.vue` → `PaperRefList` 的 sections 形态。
   - **从历史版本继续**：查看非当前版本时，owner 可点「Continue from this version」，确认框写明将**永久删除**的版本号范围与步骤数（不可撤销），确认后 `POST /api/research/:id/truncate`。在历史版本上点「Edit titles」也先走同一确认框。
   - **编辑标题**：只能改当前版本的列表总标题与各段标题（对话框），保存为一个新版本（`title_edit` 步骤，条目、comment、报告原样复制）；论文条目的增删改完全交给 agent。

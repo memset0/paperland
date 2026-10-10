@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api, researchApi } from '@/api/client'
-import type { ResearchSessionDetail, ResearchSessionSummary, ResearchStep, VisibilityScope } from '@paperland/shared'
+import type { ResearchSessionDetail, ResearchSessionSummary, ResearchStep, ResearchToolEvent, VisibilityScope } from '@paperland/shared'
 
 const ACTIVE: ResearchStep['status'][] = ['queued', 'awaiting_output', 'streaming']
 const MAX_RECONNECTS = 5
@@ -30,6 +30,8 @@ export const useResearchStore = defineStore('research', () => {
   const subscriptions = new Map<number, AbortController>()
   /** Steps whose automatic repair request is running (from the SSE `repairing` event). */
   const repairingStepIds = ref(new Set<number>())
+  /** Latest tool call and number of tool calls per active step (from SSE `tool` events; not persisted). */
+  const toolActivity = ref(new Map<number, { last: ResearchToolEvent; calls: number }>())
 
   async function fetchSessions() {
     listLoading.value = true
@@ -85,6 +87,11 @@ export const useResearchStore = defineStore('research', () => {
             onRepairing: (step) => {
               repairingStepIds.value = new Set(repairingStepIds.value).add(step.id)
             },
+            onTool: (event) => {
+              const prev = toolActivity.value.get(event.step_id)
+              const calls = (prev?.calls ?? 0) + (event.status === 'started' ? 1 : 0)
+              toolActivity.value = new Map(toolActivity.value).set(event.step_id, { last: event, calls })
+            },
           })
           // The terminal step carries the parsed version; refresh the session so the title/list update.
           replaceStep(terminal)
@@ -105,6 +112,11 @@ export const useResearchStore = defineStore('research', () => {
         const next = new Set(repairingStepIds.value)
         next.delete(stepId)
         repairingStepIds.value = next
+      }
+      if (toolActivity.value.has(stepId)) {
+        const next = new Map(toolActivity.value)
+        next.delete(stepId)
+        toolActivity.value = next
       }
     }
   }
@@ -186,7 +198,7 @@ export const useResearchStore = defineStore('research', () => {
   })
 
   return {
-    sessions, scope, listLoading, current, detailLoading, codexModels, defaultModel, latestModel, repairingStepIds,
+    sessions, scope, listLoading, current, detailLoading, codexModels, defaultModel, latestModel, repairingStepIds, toolActivity,
     fetchSessions, fetchModels, openSession, refreshCurrent, create, submit, retry, cancel,
     editTitles, truncate, remove, closeSession,
   }
