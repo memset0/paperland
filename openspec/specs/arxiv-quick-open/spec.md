@@ -4,6 +4,7 @@
 Lets a logged-in user jump from any external page carrying an arxiv id straight to that paper in Paperland via a single GET link, creating the paper on demand while guarding the side effect with a per-user CSRF token.
 
 ## Requirements
+
 ### Requirement: Per-user quick-open token
 The system SHALL maintain one quick-open (CSRF) token per user. `GET /api/auth/open-token` SHALL return `{ token }` for the logged-in user, generating a random token (at least 128 bits of entropy) on first request. `POST /api/auth/open-token/regenerate` SHALL replace it with a new random token and return it; the old token SHALL stop working immediately. Both endpoints SHALL require login (401 otherwise).
 
@@ -77,8 +78,8 @@ The frontend SHALL serve `GET /open/arxiv/<arxiv_id>?token=<token>` (old-style i
 - **THEN** the page shows an error explaining the token is invalid and does not create or open any paper
 
 ### Requirement: Token management in account settings
-The account settings dialog SHALL show a "Browser Extension" section displaying the Paperland site URL (current origin) and the user's quick-open token, each with a copy button, plus a button to regenerate the token.
+The Settings page's Account area SHALL show a "Browser Extension" section displaying the Paperland site URL (current origin) and the user's quick-open token, each with a copy button, plus a button to regenerate the token.
 
 #### Scenario: Copy and regenerate
-- **WHEN** the user opens account settings
+- **WHEN** the user opens the Settings page
 - **THEN** the current token is shown with copy and regenerate controls, and regenerating replaces the displayed token

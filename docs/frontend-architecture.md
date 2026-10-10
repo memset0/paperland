@@ -138,7 +138,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 #### Extension 页面（`/extension`）
 
 - 侧边栏 **Extension**（`Puzzle` 图标，位于 Images 之后，需登录），`views/ExtensionPage.vue`，使用 `AppPage`。
-- 内容：下载按钮（普通 `<a href download>` 指向 `GET /api/extension/download?base_url=<window.location.origin>`，同源请求携带会话 cookie）、Chrome/Edge 与 Firefox 安装步骤（Tabs）、使用方式与支持站点、Site URL + Token（复制 / 重新生成，与 Account settings 中的区块是同一个 token）。
+- 内容：下载按钮（普通 `<a href download>` 指向 `GET /api/extension/download?base_url=<window.location.origin>`，同源请求携带会话 cookie）、Chrome/Edge 与 Firefox 安装步骤（Tabs）、使用方式与支持站点、Site URL + Token（复制 / 重新生成，与 Settings 页 Browser Extension 卡片中的是同一个 token）。
 - `base_url` 用浏览器看到的 origin，而不是后端推断的地址，这样在 Caddy 反代和 Vite 代理下都正确。
 
 #### 快捷打开：浏览器插件 / `/open/arxiv/:arxiv_id`
@@ -146,7 +146,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - 路由 `/open/arxiv/:arxiv_id(.*)?token=<token>`（`views/OpenArxiv.vue`，`(.*)` 让旧式 id `hep-th/9901001` 保持为一个参数）。浏览器插件（`packages/browser-extension/`，见 `docs/browser-extension.md`）在 arxiv / Hugging Face / alphaXiv 页面一键打开该路径。
 - 页面调用 `POST /api/papers/open-arxiv { arxiv_id, token }`：不存在则创建（与方式一相同的 ingest 流程，自动触发服务）、存在则复用，随后 `router.replace` 到 `/papers/:id`，带 token 的 URL 不留在历史记录中。
 - 路由**不**设置 `requiresAuth`（守卫会跳回 `/` 丢失目标）；未登录时 App 显示整页登录页（登录墙），登录成功后路由原样渲染、自动继续。token 无效 / id 无效时在页面内显示错误和返回列表链接，不创建论文。
-- token 是每用户的 CSRF token：仅凭 token 无法操作（还需会话 cookie），用于防止第三方页面用链接诱导已登录用户创建论文。在 **Account settings → Browser Extension** 查看站点地址与 token（复制 / 重新生成）。
+- token 是每用户的 CSRF token：仅凭 token 无法操作（还需会话 cookie），用于防止第三方页面用链接诱导已登录用户创建论文。在 **Settings → Browser Extension** 查看站点地址与 token（复制 / 重新生成）。
 - 生产托管：`frontend_hosting.ts` 对 `/open/` 前缀豁免「带扩展名即视为静态文件」规则（`2401.12345` 看起来像扩展名），保证该路径返回 SPA 入口。
 
 #### 方式二：通过 Semantic Scholar 标识创建
@@ -368,7 +368,7 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 - **功能入口（`PaperActionLauncher.vue`）**：渲染调用方（`PaperDetail`）按页面功能顺序（引用 → 笔记 → 提问）注入的有序功能项，当前仅"提问"（`Bot` 图标）。
   - **桌面端**（≥ md）：在论文详情页 header **右侧内联直接平铺**功能按钮（图标 + 文字），无下拉菜单。
   - **移动端**（< md）：右下角**圆形悬浮按钮（FAB）**，点击展开竖直功能列表，选中即触发并收起。
-- **面板状态（`composables/useQAWindow.ts`）**：模块级单例，`isOpen` + top-left 锚定几何 `left/top/width/height`（可缩放）。与笔记窗口不同，**不记忆/不持久化**上次位置大小，每次 `open()` 用调用方按当前布局算好的默认几何覆盖。
+- **面板状态（`composables/useQAWindow.ts`）**：提问框是全站浮动窗口之一（`stores/windows.ts` 的 `qa-ask`），`QAInput` 用共享的 `FloatingWindow` 外壳（`bare` 外观）渲染，移动 / 缩放逻辑与笔记窗口、Q&A 树窗口同一份代码。与它们不同，**不记忆/不持久化**上次位置大小，每次 `open()`（`store.place`）用调用方按当前布局算好的默认几何覆盖。
 - **默认几何（由 `PaperDetail.openQA()` 计算）**：默认放在内容区左下角，默认高 `QA_DEFAULT_HEIGHT`（约 2 行输入框）。
   - 双栏：贴左下角，宽 = 左侧（PDF）栏当前宽度（`#split-container` 实测 × `leftWidth`），`top = 容器底 − height`。
   - 单栏：贴底部，占内容区完整横向宽度（`narrowScrollRef` 实测）。
@@ -382,12 +382,22 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 
 #### 对话视图（QAConversationPanel）与树视图（QATreeView）
 
-- **对话栏**：宽屏双栏布局（且已登录）时，在 Q&A 栏右侧再加第三栏，左边分隔线可拖动调宽（`CONVERSATION_MIN_WIDTH` 320px ~ 容器 60%，宽度存 `localStorage` `paperland_qa_conv_width`）。功能入口新增「对话视图 / 关闭对话视图」切换；窄屏/移动端不提供。
-- **状态（`composables/useQAConversation.ts`）**：模块级单例，`open`、`width`、`available`（由 `PaperDetail` 按 `showSplitView && 已登录` 设置）、`tabs` + `active`。tab 只记 thread 的尾回答 `{ entry_id, result_id }`，`entry_id: null` 为「新对话」tab；按「用户 + 论文」存 `localStorage`（`paperland_qa_conv_<user>_<paper>`，try/catch）。`openThread(entry, result)`：已有同尾 tab 则激活，当前是空白「新对话」tab 则复用，否则新开 tab，并打开视图。
+- **三种页面布局**：宽屏且已登录时，页头右上角（`PaperActionLauncher` 左侧）有布局切换按钮组（`data-layout-selector`，单选）：
+  - **双栏**（`split`，`Columns2`）：原来的「阅读器 | 论文信息 + Q&A」。
+  - **论文 + 对话**（`split-conv`，`MessagesSquare`）：「阅读器 | 对话视图」两栏。原右栏拆成左侧阅读器里 Note 右边的两个 tab（`PaperViewerPanel` 的 `info-tabs` prop + `#metadata` / `#qa` 插槽）：「Metadata」放论文信息卡片、引用、笔记卡片、Kimi 摘要；「Q&A」放 Preset Q&A 与 User Q&A 列表，以及 `QAPanelNav`。左右比例与双栏共用，拖任一布局的分隔线都会改变两者。
+  - **三栏**（`three`，`Columns3`）：「阅读器 | 论文信息 + Q&A | 对话视图」，两条分隔线都可拖动，比例独立保存。
+  - 论文信息卡片（`Metadata`）和整栏（`PaperColumn`，`part: all | metadata | qa`）只在模板里定义一次（VueUse `createReusableTemplate`）：中间栏渲染 `all`，两个 tab 各渲染一部分。`QAPanelNav` 的滚动容器 `wideScrollRef` 跟随含 Q&A 的那个实例。
+  - 定位 Q&A（`revealQAEntry`，以及 `locateBlock` 命中回答）前会调 `requestPaperInfo()`，「论文 + 对话」布局下阅读器会先切到「Q&A」tab。
+  - 窄屏/移动端、未登录不提供布局切换和对话视图。
+- **比例与持久化（修复刷新后比例错乱）**：所有比例都按 split 容器宽度的**百分比**存储，不再存 px。旧实现的对话栏宽度是 px，左栏 45% 也不持久化，刷新或窗口宽度变化后中栏会被挤窄或溢出。
+  - `paperland_paper_layout` 存 `{ layout, last }`，`last` 是最近用过的对话布局。
+  - `paperland_paper_split_left` 存双栏 / 论文 + 对话共用的左栏比例，范围 20–80%。
+  - `paperland_paper_three` 存三栏的 `{ left, conv }`。读取和拖动时都经过 `clampThree`：左栏 ≥ 15%，对话栏 ≥ 22%，中栏 ≥ 25%；正在拖动的一侧优先，另一侧让位。
+  - 在双栏布局下点「在对话视图中打开」，切换到 `last` 记录的对话布局，默认「论文 + 对话」。对话栏上的「关闭对话视图」按钮回到双栏。
 - **thread（`QAThreadView.vue`）**：不落库，由尾回答推导。调 `GET /api/qa/entries/:id/tree` 找根 → 尾的路径，每个祖先取其子节点的 `parent_result_id` 对应的回答、尾节点取选中的回答；内容优先用 `useQAStore().qaData` 里的实时 entry（流式回答实时增长），不在当前 scope 的祖先用树快照。不可见/已删除的祖先显示占位。问题渲染为右侧气泡（附件可点击跳回 PDF 位置，`QA-<id>` 点击在列表中定位），回答复用 `QAResultBody`（`in-conversation`、不显示管理按钮）。尾回答流式时贴底自动滚动。
 - **停靠提问框**：`QAInput` 的 `docked` 模式（非 fixed、无移动/缩放/关闭，模型改为下拉框），与浮动框共用 `useQAComposer` 草稿，切 tab、开关视图都保留内容。`QAConversationPanel` 让追问目标跟随活动 tab：尾回答 `done` 时 `composer.startFollowup(尾回答)`，「新对话」tab 清空追问；尾回答未完成时传 `blocked` 提示并禁用提交。提交成功后 `setActiveTail(entry_id, runs[0].result_id)`，活动 tab 自动跳到新回答。
 - **入口**：每个回答操作栏新增「在对话视图中打开」（`PanelRightOpen`，任意状态包括排队/流式，仅 `available` 时显示）。对话视图打开时，`useQAComposer.startFollowup`（回答的追问按钮、`#moonlight`、`?followup=1`）会先 `openThread` 到该回答。
-- **树视图（`QATreeView.vue` + 递归 `QATreeNode.vue`）**：`QAList` 的 Preset / User Q&A 标题栏有「树视图」按钮，切换后用一张「Q&A Tree」卡片替代两份列表（模式存 `composables/useQAViewMode.ts` 的 `qaViewMode`，`localStorage` `paperland_qa_view_mode`）。由 `qaData`（模板 + 当前 mine/all scope 的用户提问）按 `parent_entry_id` 建森林，追问挂在父**问题**下（与接续的是父问题哪个回答无关），父问题不在当前数据中的作为根；中心节点为论文标题。布局同笔记思维导图：嵌套 flex + 由 DOM 实测位置画 SVG 贝塞尔连线（ResizeObserver 重算）。点节点打开该问题的首选回答（置顶模型，否则最近请求的）所在 thread；对话视图不可用时改为在列表中定位。`revealQAEntry` / 锚点跳转会先把模式切回列表。
+- **Q&A 树（`QATreeView.vue` + 递归 `QATreeNode.vue`）**：在浮动窗口中打开，**不改变 Q&A 列表**。`QAList` 的 Preset / User Q&A 标题栏有「Q&A 树（浮动窗口）」按钮（`Network` 图标）→ `windows.openQATree(paperId, title)`，由 `FloatingWindowHost` 用共享外壳渲染（可拖动、缩放、与其他浮窗共存）；切换论文 / 离开详情页时 `PaperDetail` 关闭 `qa-tree` 窗口。由 `qaData`（模板 + 当前 mine/all scope 的用户提问）按 `parent_entry_id` 建森林，追问挂在父**问题**下（与接续的是父问题哪个回答无关），父问题不在当前数据中的作为根；中心节点为论文标题。布局同笔记思维导图：嵌套 flex + 由 DOM 实测位置画 SVG 贝塞尔连线（ResizeObserver 重算）。点节点打开该问题的首选回答（置顶模型，否则最近请求的）所在 thread；对话视图不可用时改为在列表中定位。
 
 #### QA 快速导航（QAPanelNav）
 
@@ -427,7 +437,7 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 
 - **实时更新**：前端通过短轮询（每 N 秒请求一次）获取最新状态，done 后立即展示回答
 - **一键生成按钮**：仅当存在 idle 状态的模板时显示
-- **双栏比例**：左右栏宽度支持拖拽调整（使用 Pointer Events API + `setPointerCapture` 确保快速拖动跟手），分隔条 2px 宽 + 12px 隐形热区
+- **双栏比例**：左右栏宽度支持拖拽调整（使用 Pointer Events API + `setPointerCapture` 确保快速拖动跟手），分隔条 2px 宽 + 12px 隐形热区；比例以百分比存 localStorage，刷新后恢复（三种布局见「对话视图」一节）
 - **左侧面板折叠**：分隔条中间有 toggle 按钮（`PanelLeftClose`/`PanelLeftOpen` 图标），可一键折叠/展开左面板，带 300ms 过渡动画
 
 ---
@@ -918,10 +928,22 @@ models:
 
 ### 4.3 前端设置页面
 
-- 查看当前配置（只读展示或可编辑，**TBD**）
-- 模型列表及默认模型选择
-- 各 service 并发数调整
-- **Token 管理**：签发 / 查看 / 撤销 External API Token
+`/settings`（`views/Settings.vue`，`AppPage` 包裹）对**所有登录用户**开放（路由 `meta.requiresAuth`，侧边栏 Settings 项 `requiresAuth`）；不再有账户设置弹窗——侧边栏账户菜单的 **Account settings** 和移动端抽屉里的用户名按钮都 `router.push('/settings')`。自上而下：
+
+1. **Install app**（`components/settings/InstallAppCard.vue`）：把站点安装为独立窗口的 PWA，见下文「PWA 安装」。
+2. **Account 区**（`components/settings/AccountSettings.vue`，由原 `AccountDialog.vue` 迁移，挂载时加载数据）四张卡片：
+   - **Account**：用户名 / 昵称 / 当前密码 / 新密码，`PATCH /api/auth/me`（`auth.updateAccount`）；保存成功后 toast，清空密码框并按新用户信息重填，停留在本页。
+   - **Sharing**：五个共享开关（见 5.3）。
+   - **API Tokens**：MCP URL、personal token 列表 / 新建 / 撤销、Codex agent token 重置（见 5.4）。
+   - **Browser Extension**：Site URL + quick-open token（复制 / 重新生成）。
+3. **Administration**（`v-if="auth.isAdmin"`，标题行带 ShieldCheck）：用户管理表（新增 / 审核 / 角色 / 昵称 / 重置密码）与 **All API Tokens**（全站 token 列表，`/api/settings/tokens*`）。仅管理员挂载时才请求 `/api/users`、`/api/settings/tokens`，普通用户不会触发 403。
+
+**PWA 安装**（无新依赖，手写）：
+- `public/manifest.webmanifest`（name/short_name `Paperland`、`start_url`/`scope`/`id` 为 `/`、`display: standalone`、`theme_color #0069A8`、图标 `icon-192.png` / `icon-512.png` / `icon-maskable-512.png` / `favicon.svg`）；`index.html` 链接 manifest、`apple-touch-icon.png`（180）与 `theme-color`。PNG 图标按 `favicon.svg` 的几何图形绘制生成后提交。
+- `public/sw.js`：只为满足可安装性——`install` 时 `skipWaiting`、`activate` 时 `clients.claim`，`fetch` 监听器不调用 `respondWith`，**不缓存、不拦截**，API / SSE / WebSocket / 会话 cookie 行为不变。仅生产构建注册（`main.ts` → `registerServiceWorker()`，dev 不注册以免干扰 HMR）。
+- 生产托管（`frontend_hosting.ts`）直接返回 `dist/` 根目录存在的文件并带 `no-cache`，登录墙只管 `/api`，所以 manifest / 图标 / `sw.js` 匿名可取，SW 更新随下次导航检查生效。
+- `composables/usePwaInstall.ts`：模块级单例，`main.ts` 启动即 import，提前捕获 `beforeinstallprompt`（`preventDefault` 后保存，事件可能早于进入 Settings 触发）和 `appinstalled`；`standalone` 由 `display-mode: standalone` 媒体查询或 iOS `navigator.standalone` 判断。暴露 `canInstall` / `installed` / `standalone` / `install()`（调用保存的 `prompt()`，事件只能用一次）。
+- `InstallAppCard`：`canInstall` 时标题栏显示 **Install** 按钮；已安装（独立窗口运行或刚接受安装）显示已安装提示；其余（iOS Safari、Firefox 等不支持一键安装的浏览器，或 Chromium 尚未给出提示）显示 Chrome/Edge、Safari macOS、Safari iOS 的手动安装步骤。
 
 ---
 
@@ -966,7 +988,7 @@ models:
 - **前端门禁**（`App.vue`）：`auth.loaded` 之前什么都不渲染（不发业务请求）；未登录时整页显示 `components/AuthScreen.vue`（Log in / Register 两个 tab，注册关闭时只有 Log in；注册成功提示等待管理员审核并切回登录；pending 账号登录显示「awaiting admin approval」），不渲染侧边栏和页面。登录成功只是设置用户，原本请求的路由随即渲染。路由守卫对匿名直接放行（由 App 挡住），只负责非管理员访问管理员页的拦截；登录后若当前路由是管理员页而用户不是管理员，跳回 `/`。
 - **已发布笔记链接**：匿名打开 `/papers/:id?note=:noteId` 时渲染 `components/notes/PublicNoteStandalone.vue`——只拉 `GET /api/notes/:noteId`，显示论文标题、作者显示名、日期和只读笔记（复用 `PublicNoteView`），右上角 Log in；笔记不可读（未发布 / 已删）或点 Log in 时切到登录页。登录用户打开同一链接仍走论文详情页右栏自动展开的原逻辑。
 - **审核入口**：Settings 用户表把 pending 账号排在最前（`Pending` 徽标），操作列为 Approve / Reject（Reject 先 `confirm`）。管理员侧边栏 Settings 图标右上角显示待审核数量（`composables/usePendingRegistrations.ts` 共享计数：App 在确认是管理员后拉一次，Settings 每次刷新用户表时更新）。
-- 侧边栏：登录后显示账户菜单（昵称 / 用户名、改名改昵称改密、登出）。
+- 侧边栏：登录后显示账户菜单（昵称 / 用户名、**Account settings** → 跳转 `/settings`、登出）。
 
 ### 5.3 数据归属与多用户可见性
 
@@ -978,7 +1000,7 @@ models:
 | **纯私有** | 标签及论文↔标签、图床图片列表、API token、QA 背景色/阅读偏好 | 只返回给属主 |
 | **用户可选共享** | 高亮、笔记、Free Q&A（含未来划线/截图提问）、参考链接、Deep Research 会话 | 由属主每类一个开关决定 |
 
-- **共享开关**：每用户每类型一个全局开关（表 `user_sharing_settings`，稀疏存储；无行 = `config.yml` 的 `sharing.default_shared`，默认 `true`，因此存量数据迁移后即为共享）。开关作用于该类型全部已有与新建数据，无单条覆盖。例外：`research` 开关未设置时默认**关闭**（私有），不受 `sharing.default_shared` 影响（`visibility.ts` 的 `defaultSharedFor`）。账户对话框（`AccountDialog.vue`）的 **Sharing** 区块五个复选框（Highlights / Notes / Q&A / Reference links / Research），`GET/PUT /api/auth/me/sharing`（`sharingApi`，后端 `api/sharing.ts`）。
+- **共享开关**：每用户每类型一个全局开关（表 `user_sharing_settings`，稀疏存储；无行 = `config.yml` 的 `sharing.default_shared`，默认 `true`，因此存量数据迁移后即为共享）。开关作用于该类型全部已有与新建数据，无单条覆盖。例外：`research` 开关未设置时默认**关闭**（私有），不受 `sharing.default_shared` 影响（`visibility.ts` 的 `defaultSharedFor`）。Settings 页 Account 区（`components/settings/AccountSettings.vue`）的 **Sharing** 卡片五个复选框（Highlights / Notes / Q&A / Reference links / Research），`GET/PUT /api/auth/me/sharing`（`sharingApi`，后端 `api/sharing.ts`）。
 - **统一 mine/all 语义**（后端 `auth/visibility.ts` 的 `ownerVisibilityFilter` 在 SQL 层过滤，分页 total 正确）：`mine` = 自己的；`all`（普通用户）= 自己的 + 开启该类型共享的其他用户的；`all`（admin）= 所有用户的，不论开关；匿名 = 仅始终共享数据 + 已发布笔记。每行返回 `user_id` / `username` / `display_name` / `shared`。
 - **统一的 Mine / All 切换组件**：所有 Mine / All 切换（论文列表、`/notes`、`/qa` feed、论文详情 User Q&A、参考链接区、高亮）都用同一个 `components/ScopeToggle.vue`（`v-model: 'mine' | 'all'`）。
   - 文案固定为英文 "Mine" / "All"。
@@ -986,7 +1008,7 @@ models:
   - 可选 `#icon` 插槽，`HighlightScopeToggle` 在这里放高亮图标。
   - 样式为分段控件：`bg-muted` 轨道（内边距 2px，无边框），选中项是嵌在里面的 `bg-background` 圆角块（带轻阴影；暗色主题下比轨道更深）。
   - 两个选项等宽，选中块切换时平移（200ms，`prefers-reduced-motion` 下关闭）；选中态只改颜色、不加粗，宽度不抖动。
-- **前端展示**：`/notes`、`/qa`、论文详情 User Q&A、参考链接区、高亮（`HighlightScopeToggle`）都有 Mine / All 切换；不属于自己的条目显示属主 **display name**（`display_name` = 昵称，未设置时为用户名；昵称在账户对话框设置，admin 可在 Settings 用户表修改，可重复）；`shared: false` 的条目（admin 看到的别人未共享数据，或自己未共享的数据）显示 **Private** 标记。
+- **前端展示**：`/notes`、`/qa`、论文详情 User Q&A、参考链接区、高亮（`HighlightScopeToggle`）都有 Mine / All 切换；不属于自己的条目显示属主 **display name**（`display_name` = 昵称，未设置时为用户名；昵称在 Settings 页 Account 卡片设置，admin 可在 Settings 用户表修改，可重复）；`shared: false` 的条目（admin 看到的别人未共享数据，或自己未共享的数据）显示 **Private** 标记。
 - **只读**：可见不代表可写。别人的高亮/笔记/QA/参考链接对普通用户不显示编辑删除入口，后端也只允许 owner（QA 另允许 admin）修改。
 - **笔记发布是特例**：`is_public` 是单篇的 “Published” 状态，提供免登录访问的链接；已发布笔记无论属主笔记开关如何都出现在 All 列表。
 
@@ -996,7 +1018,7 @@ models:
 
 ### 5.4 External API Token
 
-- 每个用户在账户对话框（`AccountDialog.vue` 的 **API Tokens** 区块，`myTokensApi` → `/api/auth/me/tokens*`）管理自己的 personal token：列表掩码、「New token」后完整值只显示一次（黄色提示框 + 复制）、撤销前 `confirm`；同时显示 MCP URL（`<origin>/mcp`）。下方一行 **Codex agent token**：只显示创建 / 重置时间和「Reset」按钮（`confirm` 提示旧值立即失效、进行中回合后续工具调用会失败），不提供查看。
+- 每个用户在 Settings 页（`components/settings/AccountSettings.vue` 的 **API Tokens** 卡片，`myTokensApi` → `/api/auth/me/tokens*`）管理自己的 personal token：列表掩码、「New token」后完整值只显示一次（黄色提示框 + 复制）、撤销前 `confirm`；同时显示 MCP URL（`<origin>/mcp`）。下方一行 **Codex agent token**：只显示创建 / 重置时间和「Reset」按钮（`confirm` 提示旧值立即失效、进行中回合后续工具调用会失败），不提供查看。
 - 管理员在「设置」页面查看全站 Token、签发 / 撤销自己的 personal token；agent token 行显示「不可查看」+ `Codex agent` 标记，不提供撤销（只能由本人重置）。
 - 两种 token（`api_tokens.kind`）：personal 可用于 External API 与 `/mcp`，agent 只用于 `/mcp`（Deep Research 回合自动注入会话所有者的 agent token）。
 - 每个 Token 归属一个用户（`api_tokens.user_id`）；以该 Token 调用 External API 时按其归属用户操作，故 Zotero 等创建 / 同步的标签归该用户所有。已有 Token 迁移归属 admin。
@@ -1381,11 +1403,11 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 
 ### 浮动编辑窗口（`components/notes/`）
 
-- `stores/windows.ts`：多窗管理、z-index 栈、全局尺寸记忆（localStorage）。窗口按 `${paperId}:${sectionId ?? 'preamble'}` 唯一键——一个 section 至多一个窗（再次打开只聚焦）。
-- `FloatingNoteWindow.vue`：桌面可拖拽（标题栏）+ 缩放（右下角），手机端全屏。
+- **全站浮动窗口共用一套机制**：`stores/windows.ts`（store id `floating-windows`）管理所有浮动窗口——笔记 `section` / `doc`、Q&A 树 `qa-tree`、提问框 `qa-ask`——同一个 z-index 栈（从 200 起，按下即置顶）、同一种几何（`x/y/w/h`），可任意多个同时打开。尺寸记忆按种类（笔记 `paperland_note_window_size`，Q&A 树 `paperland_qa_tree_window_size`；提问框不记忆）。笔记窗口按 `${paperId}:${sectionId ?? 'preamble'}` 唯一键——一个 section 至多一个窗（再次打开只聚焦）；`closeForPaper` 只关笔记窗口，`closeKind(kind)` 关某一类。
+- `components/FloatingWindow.vue`：**唯一的浮窗外壳组件**。默认外观带标题栏（拖标题栏移动、右侧关闭、`#actions` 插槽）；`bare` 外观无任何外壳，插槽内容（提问框卡片）本身就是窗口，按空白处拖动。两者都有右下角缩放手柄，手机端全屏。
 - `NoteEditor.vue`：编辑**单个 section 的叶子正文**（中心节点 → 编辑前言）；三显示模式（Editor / Split / Preview）；编辑面用共享的 `MonacoMarkdownEditor`；预览用 `demoteHeadings(editBody)` 渲染（所见即所存）；写穿到 `store.updateLeaf(sectionId, text)` / `store.updatePreamble(text)`，1.2s 防抖 + 失焦/Ctrl+S/关窗即提交，IME 安全；冲突时顶部红条提示。标题栏显示该 section 的标题（只读——改名是结构操作，在思维导图里做）。
 - `MonacoMarkdownEditor.vue`：**全站笔记编辑统一用的 Markdown 编辑器**（Monaco，替代原 `<textarea>`），同时用于浮窗（section/doc，`NoteEditor`）与左面板 edit/split（`NoteWalkthrough`）。Markdown 语法高亮（含 **LaTeX 数学**：`lib/monaco.ts` 用 `withMath` 扩展 Monaco 自带 markdown Monarch 文法，给 `$…$` 行内 / `$$…$$` 块级数学加 token，块内还高亮 `\命令` 与花括号——KaTeX 用的就是这套定界符）、**显示行号**、跟随明暗主题（`stores/theme` → 透明背景融入面板，`*.math` token 配色随主题）、**按需懒加载**（`lib/monaco.ts` 动态 `import()` 仅取 `editor.api` + markdown 文法；用 `editor.worker?worker` 注册到 `MonacoEnvironment`，Vite `worker.format:'es'`，故 Monaco 是独立 async chunk，不进首包）。散文化配置（自动换行、无 minimap/补全弹窗）。对外暴露 `v-model` 及 `compositionstart/end`、`blur`、`save`(Ctrl/Cmd+S)、`paste`(原生 `ClipboardEvent`) 事件与 `insertAtCursor()`/`focus()`/`getEditor()`，内部在 IME 合成期间不触发 `update:modelValue`（同 Vue v-model 语义）——**自动保存/IME 守卫/粘贴上传/heading 降级/冲突检测全部仍留在父组件**，零行为回归。注意 markdown 是自行 `register` + `setMonarchTokensProvider`（不走 `.contribution` 的惰性 loader），以免扩展文法被覆盖。
-- `NoteWindowHost.vue`：在 `App.vue` 挂载一次，渲染所有窗口。
+- `components/FloatingWindowHost.vue`：在 `App.vue` 挂载一次，用 `FloatingWindow` 渲染笔记窗口（`NoteEditor`）和 Q&A 树窗口（`QATreeView`）；提问框窗口由 `QAInput` 自己用同一外壳渲染。
 
 ### 分支思维导图（heading 派生）
 

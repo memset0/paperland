@@ -18,7 +18,6 @@ import {
   DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import LoginDialog from '@/components/LoginDialog.vue'
-import AccountDialog from '@/components/AccountDialog.vue'
 import AppVersion from '@/components/AppVersion.vue'
 import NoteWindowHost from '@/components/notes/NoteWindowHost.vue'
 import AuthScreen from '@/components/AuthScreen.vue'
@@ -29,7 +28,6 @@ const route = useRoute()
 const router = useRouter()
 const isMobile = ref(window.innerWidth < 768)
 const drawerOpen = ref(false)
-const accountOpen = ref(false)
 const { isEmbed, bgColor } = useEmbedMode()
 const { openLogin } = useLoginPrompt()
 const auth = useAuthStore()
@@ -107,7 +105,7 @@ const navItems: NavItem[] = [
   { path: '/images', label: 'Images', icon: ImageIcon, requiresAuth: true },
   { path: '/extension', label: 'Extension', icon: Puzzle, requiresAuth: true },
   { path: '/services', label: 'Services', icon: Activity, requiresAdmin: true },
-  { path: '/settings', label: 'Settings', icon: Settings, requiresAdmin: true },
+  { path: '/settings', label: 'Settings', icon: Settings, requiresAuth: true },
 ]
 
 function isActive(path: string) {
@@ -170,7 +168,6 @@ async function doLogout() {
   <div v-else-if="auth.loaded" class="flex h-screen overflow-hidden" :style="bgColor ? { backgroundColor: bgColor } : {}" :class="!bgColor ? 'bg-muted/40' : ''">
     <Toaster position="top-center" richColors />
     <LoginDialog />
-    <AccountDialog v-model:open="accountOpen" />
 
     <!-- ========== DESKTOP: Icon sidebar ========== -->
     <aside v-if="!isMobile && !isEmbed" class="flex w-[52px] flex-col border-r bg-background shrink-0 [&_button]:active:translate-y-0! [&_a]:active:translate-y-0!">
@@ -236,7 +233,7 @@ async function doLogout() {
                 <span v-if="auth.isAdmin" class="text-xs text-muted-foreground">(Admin)</span>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem @click="accountOpen = true">Account settings</DropdownMenuItem>
+              <DropdownMenuItem @click="router.push('/settings')">Account settings</DropdownMenuItem>
               <DropdownMenuItem @click="doLogout">Logout</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -306,7 +303,7 @@ async function doLogout() {
                 <LogIn /> Login
               </Button>
               <template v-else>
-                <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; accountOpen = true">
+                <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; router.push('/settings')">
                   <CircleUser /> {{ auth.user?.nickname || auth.user?.username }}
                 </Button>
                 <Button variant="ghost" size="lg" class="w-full justify-start gap-3" @click="drawerOpen = false; doLogout()">

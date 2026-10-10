@@ -24,7 +24,7 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 
 ### 获取 Token
 
-每个用户都可以在账户对话框（侧边栏账户菜单 → API Tokens）管理**自己的** personal token：列表只显示掩码，新建时完整值**只显示一次**，可随时撤销。管理员另可在「设置」页面查看全站 token、为自己签发和撤销 personal token。复制后配置到第三方服务中。
+每个用户都可以在 **Settings** 页（侧边栏 Settings 或账户菜单 → Account settings）的 **API Tokens** 卡片管理**自己的** personal token：列表只显示掩码，新建时完整值**只显示一次**，可随时撤销。管理员另可在同一页面下方的 Administration → All API Tokens 查看全站 token、为自己签发和撤销 personal token。复制后配置到第三方服务中。
 
 对应的 Internal API（会话登录，只能操作自己的 token）：
 

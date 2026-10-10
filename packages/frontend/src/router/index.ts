@@ -80,7 +80,7 @@ const routes = [
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/Settings.vue'),
-    meta: { requiresAdmin: true, title: 'Settings', icon: Settings },
+    meta: { requiresAuth: true, title: 'Settings', icon: Settings },
   },
   {
     path: '/translation-test',

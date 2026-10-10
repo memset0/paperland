@@ -62,11 +62,11 @@ The system SHALL provide `GET /api/auth/me/sharing` returning `{ data: { highlig
 - **THEN** the system SHALL respond 401
 
 ### Requirement: Sharing settings UI
-The account dialog SHALL include a "Sharing" section with one switch each for Highlights, Notes, Q&A, Reference links, and Research, reflecting the caller's effective values and saving changes immediately via `PUT /api/auth/me/sharing`. The section SHALL explain that switched-on data appears in other users' "All" lists, that admins can see all data regardless, and that published notes are always listed.
+The Settings page's Account area SHALL include a "Sharing" section with one switch each for Highlights, Notes, Q&A, Reference links, and Research, reflecting the caller's effective values and saving changes immediately via `PUT /api/auth/me/sharing`. The section SHALL explain that switched-on data appears in other users' "All" lists, that admins can see all data regardless, and that published notes are always listed.
 
 #### Scenario: Toggle a switch in the dialog
-- **WHEN** a user turns off the Q&A switch in the account dialog
-- **THEN** the system SHALL persist the change and the switch SHALL remain off on reopening the dialog
+- **WHEN** a user turns off the Q&A switch on the Settings page
+- **THEN** the system SHALL persist the change and the switch SHALL remain off after reloading the page
 
 ### Requirement: Uniform mine/all read scope
 Every list or overlay of optionally-shared data SHALL accept a scope of `mine` or `all` (default `mine`) and SHALL apply these rules for an authenticated caller:

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
+import { useAuthStore } from '@/stores/auth'
 import { usersApi } from '@/api/client'
 import type { User, UserRole } from '@paperland/shared'
 import { toast } from 'vue-sonner'
@@ -14,9 +15,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import AppPage from '@/components/AppPage.vue'
+import InstallAppCard from '@/components/settings/InstallAppCard.vue'
+import AccountSettings from '@/components/settings/AccountSettings.vue'
 import { usePendingRegistrations } from '@/composables/usePendingRegistrations'
 
 const store = useSettingsStore()
+const auth = useAuthStore()
 const newToken = ref<string | null>(null)
 const issuing = ref(false)
 const copied = ref(false)
@@ -104,7 +108,8 @@ async function saveNickname() {
   } catch { /* handled */ }
 }
 
-onMounted(() => { store.fetchTokens(); fetchUsers() })
+// Admin-only data: never request it for regular users (the endpoints would answer 403).
+onMounted(() => { if (auth.isAdmin) { store.fetchTokens(); fetchUsers() } })
 
 async function issueNew() {
   issuing.value = true
@@ -127,6 +132,14 @@ function copyToken() {
 <template>
   <AppPage>
     <div class="space-y-6">
+    <!-- Order: Install app → the user's own account settings → administration (admins only) -->
+    <InstallAppCard />
+    <AccountSettings />
+
+    <template v-if="auth.isAdmin">
+    <h2 class="flex items-center gap-2 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <ShieldCheck class="h-3.5 w-3.5" />Administration
+    </h2>
     <!-- ── User management (admin only) ── -->
     <Card class="overflow-hidden gap-0 py-0">
       <div class="flex items-center justify-between border-b px-5 py-3">
@@ -190,7 +203,7 @@ function copyToken() {
       <div class="flex items-center justify-between border-b px-5 py-3">
         <div class="flex items-center gap-2">
           <Key class="h-4 w-4 text-muted-foreground" />
-          <h3 class="text-sm font-semibold">API Token</h3>
+          <h3 class="text-sm font-semibold">All API Tokens</h3>
         </div>
         <Button size="sm" :disabled="issuing" @click="issueNew">
           <Plus />签发
@@ -243,6 +256,8 @@ function copyToken() {
       </Table>
       <div v-if="!store.tokens.length" class="text-center py-10 text-sm text-muted-foreground">暂无 Token</div>
     </Card>
+
+    </template>
 
     <!-- Create user dialog -->
     <Dialog v-model:open="showCreate">
