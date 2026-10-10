@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Usage dashboard">
+<rect width="320" height="180" rx="16" fill="#eef2f7"/>
+<circle cx="160" cy="38" r="14" fill="#fbbf24"/><text x="160" y="43" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#78350f" text-anchor="middle">1</text>
+<circle cx="98" cy="68" r="12" fill="#cbd5e1"/><text x="98" y="72" font-family="system-ui,sans-serif" font-size="12" font-weight="700" fill="#334155" text-anchor="middle">2</text>
+<circle cx="222" cy="84" r="12" fill="#d6a574"/><text x="222" y="88" font-family="system-ui,sans-serif" font-size="12" font-weight="700" fill="#5b3412" text-anchor="middle">3</text>
+<rect x="124" y="60" width="72" height="96" rx="6" fill="#6366f1"/>
+<rect x="62" y="88" width="72" height="68" rx="6" fill="#818cf8"/>
+<rect x="186" y="104" width="72" height="52" rx="6" fill="#a5b4fc"/>
+<rect x="138" y="76" width="44" height="6" rx="3" fill="#e0e7ff"/>
+<rect x="76" y="104" width="44" height="6" rx="3" fill="#e0e7ff"/>
+<rect x="200" y="120" width="44" height="6" rx="3" fill="#eef2ff"/>
+<rect x="40" y="156" width="240" height="4" rx="2" fill="#94a3b8"/>
+</svg>

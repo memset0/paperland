@@ -15,7 +15,7 @@ export async function usageRoutes(app: FastifyInstance): Promise<void> {
     return { data: userUsage(request.user!.id, parseDays(request.query.days)) }
   })
 
-  app.get<{ Querystring: { days?: string } }>('/api/usage/leaderboard', { preHandler: requireAdmin }, async (request) => {
+  app.get<{ Querystring: { days?: string } }>('/api/usage/leaderboard', { preHandler: requireUser }, async (request) => {
     return { data: usageLeaderboard(parseDays(request.query.days)) }
   })
 

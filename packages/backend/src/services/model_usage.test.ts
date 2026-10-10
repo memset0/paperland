@@ -173,13 +173,16 @@ describe('attribution', () => {
 })
 
 describe('usage API', () => {
-  it('returns own totals to users and the leaderboard only to admins', async () => {
+  it('returns own totals to users and the leaderboard to any signed-in user', async () => {
     recordModelUsage({ category: 'qa', userId: alice.id, sourceId: null, modelName: 'priced', usage: usage(100, 0, 10) })
     expect((await app.inject({ url: '/api/usage/me' })).statusCode).toBe(401)
     const mine = (await app.inject({ url: '/api/usage/me?days=30', headers: { 'x-test-user': '1' } })).json().data
     expect(mine.total.calls).toBe(1)
     expect((await app.inject({ url: '/api/usage/me', headers: { 'x-test-user': '2' } })).json().data.total.calls).toBe(0)
-    expect((await app.inject({ url: '/api/usage/leaderboard', headers: { 'x-test-user': '1' } })).statusCode).toBe(403)
+    expect((await app.inject({ url: '/api/usage/leaderboard' })).statusCode).toBe(401)
+    const userBoard = await app.inject({ url: '/api/usage/leaderboard', headers: { 'x-test-user': '2' } })
+    expect(userBoard.statusCode).toBe(200)
+    expect(userBoard.json().data).toEqual([expect.objectContaining({ user_id: alice.id, calls: 1 })])
     const board = (await app.inject({ url: '/api/usage/leaderboard', headers: { 'x-test-user': '3' } })).json().data
     expect(board).toEqual([expect.objectContaining({ user_id: alice.id, username: 'alice', calls: 1 })])
   })

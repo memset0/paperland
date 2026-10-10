@@ -1,4 +1,4 @@
-// Formatting shared by the Usage section and the admin Usage leaderboard.
+// Formatting shared by the Home usage dashboard components.
 
 /** 1234 → "1.2K", 3400000 → "3.4M". */
 export function formatTokens(n: number): string {
@@ -21,5 +21,12 @@ export function cacheShare(input: number, cached: number): string {
 
 export const USAGE_WINDOWS = [
   { label: 'All time', days: undefined },
+  { label: 'Last 7 days', days: 7 },
   { label: 'Last 30 days', days: 30 },
 ] as const
+
+/** Leaderboard display name: nickname with username, username, or "Unattributed" for usage without a user. */
+export function usageDisplayName(e: { user_id: number | null; username: string | null; nickname: string | null }): string {
+  if (e.user_id == null) return 'Unattributed'
+  return e.nickname ? `${e.nickname} (${e.username})` : (e.username ?? `#${e.user_id}`)
+}

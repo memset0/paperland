@@ -874,3 +874,20 @@ export interface UsageRecalculateResult {
   skipped: number
   skipped_models: string[]
 }
+
+/** One entry of `GET /api/features`; `seen` is the signed-in user's flag. */
+export interface FeatureItem {
+  key: string
+  title: string
+  description: string
+  image_url: string
+  /** YYYY-MM-DD, archive date of the change that shipped it. */
+  released_at: string
+  seen: boolean
+}
+
+/** `GET /api/features` */
+export interface FeatureListResponse {
+  /** Newest first. */
+  features: FeatureItem[]
+}

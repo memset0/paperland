@@ -1,20 +1,4 @@
-# settings-page Specification
-
-## Purpose
-One Settings page for every signed-in user that gathers app installation, personal account settings, and (for admins) site administration in a fixed order.
-
-## Requirements
-
-### Requirement: Settings page is available to every signed-in user
-The `/settings` page SHALL be accessible to every authenticated user, not only admins. Anonymous visitors SHALL get the login screen as for any other login-required page. The page SHALL use the unified page layout with the title "Settings".
-
-#### Scenario: Regular user opens Settings
-- **WHEN** an authenticated `user`-role account navigates to `/settings`
-- **THEN** the Settings page SHALL load without an "Admin access required" toast or redirect
-
-#### Scenario: Anonymous visitor opens Settings
-- **WHEN** an anonymous visitor opens `/settings`
-- **THEN** the login screen SHALL be shown and the Settings page SHALL appear after logging in
+## MODIFIED Requirements
 
 ### Requirement: Settings sections and order
 The Settings page SHALL show, from top to bottom: an "Install app" section; an "Account" area containing the profile form (username, nickname, current password, new password, Save), the "Sharing" section, the "API Tokens" section and the "Browser Extension" section; and, for admins only, the administration area containing user management, the site-wide API token list and the admin "Recalculate costs" card. Model usage (the user's own usage and the usage leaderboard) SHALL NOT be shown on Settings; it lives on the Home page. Non-admin users SHALL NOT see the administration area, and the page SHALL NOT call admin-only endpoints for them.
@@ -35,10 +19,3 @@ The Settings page SHALL show, from top to bottom: an "Install app" section; an "
 - **WHEN** any user wants to see their own usage
 - **THEN** it SHALL be shown on the Home page, not on Settings
 - **AND** the Settings page SHALL show neither a Usage section nor a Usage leaderboard, and SHALL NOT call `GET /api/usage/me` or `GET /api/usage/leaderboard`
-
-### Requirement: No account settings dialog
-There SHALL be no separate account settings dialog; every entry point that previously opened it SHALL navigate to the Settings page instead.
-
-#### Scenario: Account menu entry
-- **WHEN** an authenticated user selects "Account settings" in the sidebar account menu
-- **THEN** the app SHALL navigate to `/settings` and no dialog SHALL open

@@ -41,21 +41,22 @@ paperland/
 │   ├── frontend/                   # Vue 3 + Vite
 │   │   ├── src/
 │   │   │   ├── views/              # 页面组件
-│   │   │   │   ├── PaperList.vue
+│   │   │   │   ├── HomePage.vue        # /：欢迎页 dashboard（Usage：颁奖台排行榜 + 本人用量）
+│   │   │   │   ├── PaperList.vue       # /papers：论文列表
 │   │   │   │   ├── PaperDetail.vue
 │   │   │   │   ├── QAPage.vue
 │   │   │   │   ├── ResearchList.vue    # /research：Deep Research 会话列表 + 新建（可从 QA 回答起步）
 │   │   │   │   ├── ResearchDetail.vue  # /research/:id：步骤时间线、版本视图（Report / Papers）、标题编辑、从历史版本继续
 │   │   │   │   ├── ServiceDashboard.vue
 │   │   │   │   └── Settings.vue        # /settings（所有登录用户）：Install app → Account → Administration（仅 admin）
-│   │   │   ├── components/         # 通用组件（含 settings/：InstallAppCard.vue（PWA 安装）、AccountSettings.vue（个人账户 / Sharing / API Tokens / 浏览器插件）；含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板；PaperRefList.vue：可复用论文列表，QA 引用列表 / Deep Research 共用（论文 / 链接行、Markdown comment、New / Unverified / Removed）；ResearchPaperList.vue：一个研究列表版本 + 与上一版本逐段对比）
+│   │   │   ├── components/         # 通用组件（含 home/：UsageDashboard.vue（时间窗口切换）、UsagePodium.vue（前三名颁奖台 + 第 4 名起表格）、UsageSummary.vue（本人用量）、usage-format.ts；含 settings/：InstallAppCard.vue（PWA 安装）、AccountSettings.vue（个人账户 / Sharing / API Tokens / 浏览器插件）；含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板；PaperRefList.vue：可复用论文列表，QA 引用列表 / Deep Research 共用（论文 / 链接行、Markdown comment、New / Unverified / Removed）；ResearchPaperList.vue：一个研究列表版本 + 与上一版本逐段对比）
 │   │   │   ├── composables/        # Vue composables（含 useS2Papers.ts：S2 id 批量解析与会话缓存）
 │   │   │   ├── lib/                # 纯函数工具（含 cite-links.ts：`#cite:` 提取与 id 规范化；research-list.ts：研究列表格式边界——流式拆分报告/列表块、逐段版本对比）
 │   │   │   ├── router/
-│   │   │   ├── stores/             # Pinia stores（含 research.ts：研究会话、步骤 SSE 订阅）
+│   │   │   ├── stores/             # Pinia stores（含 research.ts：研究会话、步骤 SSE 订阅；features.ts：功能公告列表与 seen 标记）
 │   │   │   ├── api/                # API 请求封装
 │   │   │   └── App.vue
-│   │   ├── public/                 # 静态资源原样复制到 dist 根：favicon.svg、PWA manifest.webmanifest、sw.js（不缓存不拦截）、icon-*.png / apple-touch-icon.png
+│   │   ├── public/                 # 静态资源原样复制到 dist 根：favicon.svg、PWA manifest.webmanifest、sw.js（不缓存不拦截）、icon-*.png / apple-touch-icon.png、features/<key>.svg（功能公告插图）
 │   │   ├── index.html
 │   │   ├── vite.config.ts
 │   │   ├── tsconfig.json
@@ -64,6 +65,7 @@ paperland/
 │   ├── backend/                    # Fastify API server
 │   │   ├── src/
 │   │   │   ├── api/                # Internal API routes
+│   │   │   │   ├── features.ts              # 功能公告：GET /api/features（含本人 seen）、POST /api/features/seen
 │   │   │   │   ├── papers.ts
 │   │   │   │   ├── qa.ts
 │   │   │   │   ├── s2.ts             # POST /api/s2/papers/resolve（S2 id → 缓存元数据）
@@ -271,6 +273,7 @@ research_steps                                // 线性步骤：agent 回合 / o
   created_at / started_at / first_chunk_at / finished_at / updated_at   text
 
 model_usage                                   // 每次模型调用的 token 用量与估算费用（独立账本，不加在请求表上），迁移 0038
+feature_views                                 // 用户看过哪些功能公告（user_id + feature_key 唯一，删用户级联），迁移 0039
   id              integer   primary key autoincrement
   category        text      not null          // qa | research | translation
   user_id         integer   nullable → users.id ON DELETE SET NULL          // 计费归属
@@ -578,7 +581,9 @@ notes:
 
 **Agent 画图（`upload_image`）**：Codex 内置 `image_gen`（随带 `imagegen` skill）在我们的 ephemeral、只读沙箱 app-server 回合里可用，图片存到 `$CODEX_HOME/generated_images/<thread>/<item>.png`（模型知道这个路径）。`upload_image`（唯一的非只读工具，`readOnlyHint: false`、`destructiveHint: false`、`idempotentHint: true`）把图片经 `image_store.ts#storeImage`（同样的大小上限、MIME 白名单、内容寻址去重）存进图床，上传者为 token 属主，返回 `{ url: '/image/<path>', markdown: '![alt](url)', width, height, deduped }`。两种输入二选一：`path` 只接受 **agent token**（`AgentToolContext.token_kind`，来自 `checkBearerToken`），且 realpath 必须落在某个已配置 Codex 模型的 `<codex_home>/generated_images/` 内（拒绝 `..`、符号链接逃逸、相对路径，校验通过前不读文件）；`data`（base64 / data URL）任何 token 都可用。`/mcp` 的 body 上限按 `image_host.max_size_mb` 的 base64 体积放宽（Fastify 默认 1MB 会让 `data` 上传 413）。`approvalPolicy: never` 会拒绝非只读 MCP 工具，所以 `services/agent_attach.ts#attachAgentTools` 挂 `paperland` 服务器时总是在 thread config 里预批准：`mcp_servers.paperland.tools.upload_image.approval_mode = "approve"`（`ModelMcpServer.approved_tools`），可选 `enabled_tools` 白名单（`ModelMcpServer.enabled_tools`）。研究回合：全部工具 + skill（`attachResearchTools`）；**QA**：Codex app-server 模型（`model_invoke.ts#modelSupportsAgentTools`）且有提问者时，`qa_service.ts#askQuestion({ agentUserId })` 用提问者的 agent token 只挂 `upload_image`。只要挂了 `upload_image`，就把 `prompts/agent/figures.md`（每次运行重读）追加到 system prompt：需要或用户要求时才画；内置预览和 Mermaid 代码读者看不到；画完立即用保存路径调 `upload_image`，原样嵌入返回的 Markdown；不写本地路径 / 占位符、不往工作区拷文件。实测 `gpt-6-astra`（medium）能完成画图 → 上传 → 嵌入，`gpt-6-luna`（low）会画但不上传。生成的原图留在 `$CODEX_HOME/generated_images/`，暂不清理。
 
-**Token 用量与估算费用**：每次模型调用写一行 `model_usage`（`services/model_usage.ts#recordModelUsage`，写入失败只打日志、不影响运行）。provider 经 `ModelInvokeOptions.onUsage` 上报一次用量：Codex app-server 取本轮最后一条 `thread/tokenUsage/updated` 的 `total`（线程内所有请求累计，含工具调用往返；`inputTokens` 含命中缓存的 `cachedInputTokens`，一轮里除首个请求外大多命中缓存），在 `finally` 里上报，失败 / 取消的回合也记；OpenAI 兼容 API 取 JSON 响应的 `usage`，流式请求带 `stream_options: { include_usage: true }`、从最后一个 chunk 取 `usage`；Codex exec 模式拿不到用量，不记。费用 = (未命中输入 × input + 命中输入 × cached_input + 输出 × output) / 1e6，reasoning 算在输出里，写入时按当时 `models.available[].pricing` 固定；管理员可用 `POST /api/usage/recalculate`（`{ from?, to? }`，`YYYY-MM-DD`、UTC 日、含两端，缺省为开区间）按**当前** pricing 从已存 token 重算区间内的费用（`model_usage.ts#recalculateCosts`，每个模型一条 SQL UPDATE、同一事务；模型已不在配置里或没配 pricing 的行保持原值，返回 `{ updated, skipped, skipped_models }`）。归属：QA → `qa_results.requested_by_user_id`（`api/qa.ts#runQA`）；Deep Research → 会话所有者（`research_runtime.ts`，修复请求另记一行）；翻译 → 触发未命中缓存翻译的登录用户（`translateText({ userId })`，命中缓存不调模型不记）。Codex 内置画图的消耗不在 `tokenUsage` 里，不记。旧调用不回填。`api/usage.ts`：`GET /api/usage/me`（本人汇总，总计 + 按类别）、`GET /api/usage/leaderboard`（admin，按估算费用、再按 token 降序；无归属的合为一行），都支持 `?days=N`。
+**Token 用量与估算费用**：每次模型调用写一行 `model_usage`（`services/model_usage.ts#recordModelUsage`，写入失败只打日志、不影响运行）。provider 经 `ModelInvokeOptions.onUsage` 上报一次用量：Codex app-server 取本轮最后一条 `thread/tokenUsage/updated` 的 `total`（线程内所有请求累计，含工具调用往返；`inputTokens` 含命中缓存的 `cachedInputTokens`，一轮里除首个请求外大多命中缓存），在 `finally` 里上报，失败 / 取消的回合也记；OpenAI 兼容 API 取 JSON 响应的 `usage`，流式请求带 `stream_options: { include_usage: true }`、从最后一个 chunk 取 `usage`；Codex exec 模式拿不到用量，不记。费用 = (未命中输入 × input + 命中输入 × cached_input + 输出 × output) / 1e6，reasoning 算在输出里，写入时按当时 `models.available[].pricing` 固定；管理员可用 `POST /api/usage/recalculate`（`{ from?, to? }`，`YYYY-MM-DD`、UTC 日、含两端，缺省为开区间）按**当前** pricing 从已存 token 重算区间内的费用（`model_usage.ts#recalculateCosts`，每个模型一条 SQL UPDATE、同一事务；模型已不在配置里或没配 pricing 的行保持原值，返回 `{ updated, skipped, skipped_models }`）。归属：QA → `qa_results.requested_by_user_id`（`api/qa.ts#runQA`）；Deep Research → 会话所有者（`research_runtime.ts`，修复请求另记一行）；翻译 → 触发未命中缓存翻译的登录用户（`translateText({ userId })`，命中缓存不调模型不记）。Codex 内置画图的消耗不在 `tokenUsage` 里，不记。旧调用不回填。`api/usage.ts`：`GET /api/usage/me`（本人汇总，总计 + 按类别）、`GET /api/usage/leaderboard`（所有登录用户可读，供首页颁奖台；按估算费用、再按 token 降序；无归属的合为一行），都支持 `?days=N`。
+
+**功能公告**：注册表是代码里的 `packages/backend/src/features.ts`（`FEATURES`：`key` / `title` / `description` / `released_at`，日期取交付该功能的 OpenSpec change 的 archive 日期），插图是前端 `public/features/<key>.svg`。`feature_views` 表记录每个用户看过哪些 key（`(user_id, feature_key)` 唯一，`ON CONFLICT DO NOTHING` 保留首次 `seen_at`，删用户级联）。`api/features.ts`：`GET /api/features`（登录；`{ features: [{ key, title, description, image_url, released_at, seen }] }`，按日期新到旧，同日保持注册顺序）、`POST /api/features/seen`（登录；`{ keys: string[] }`，非空、全部为已知 key，否则 400 且不写入）。无新依赖。
 
 **QA durable streaming runtime**：每次调用通过 pure-service `onCreated` 在排队前插入一个 exact Result；execution context 带 `AbortSignal`，semaphore/rate-limit/provider 都可精确取消。provider delta 以约 200ms 合并，先 append 到 `qa_results.answer` 再发布 SSE；终态 flush 后由权威 final 覆盖并生成 hash。Internal `GET /api/qa/results/:resultId/stream` 使用 `start → delta* → done|error`，断开只取消订阅；`POST /api/qa/results/:resultId/cancel` 才取消运行。`thinking_duration_ms` 由 started/first_chunk/finished 时间戳派生，不写入数据库。启动时 stale active Result 保留局部内容后标为 failed，并重算 Entry 汇总状态。
 

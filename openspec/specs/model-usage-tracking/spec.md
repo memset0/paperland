@@ -50,17 +50,6 @@ The estimated cost SHALL be computed from the model's configured `pricing` (USD 
 - **WHEN** a model without `pricing` reports usage
 - **THEN** the row SHALL store the tokens and `cost_usd = null`
 
-### Requirement: Usage APIs
-`GET /api/usage/me` SHALL return the signed-in user's totals (calls, input, cached input, output, total tokens, estimated cost) overall and per category. `GET /api/usage/leaderboard` SHALL be admin-only and return one entry per user with usage (id, username, nickname, calls, tokens, estimated cost), sorted by estimated cost descending then total tokens descending; rows without a user SHALL be grouped as one unattributed entry. Both endpoints SHALL accept an optional `days` query parameter limiting the window to the last N days; without it they cover all time. Costs SHALL sum only non-null `cost_usd` values.
-
-#### Scenario: Regular user reads own usage
-- **WHEN** a `user`-role account calls `GET /api/usage/me`
-- **THEN** it SHALL receive only its own totals
-
-#### Scenario: Leaderboard is admin-only
-- **WHEN** a `user`-role account calls `GET /api/usage/leaderboard`
-- **THEN** the response SHALL be 403
-
 ### Requirement: Admin cost recalculation
 `POST /api/usage/recalculate` SHALL be admin-only (others get 403, anonymous 401) and accept an optional JSON body `{ from?, to? }` with dates `YYYY-MM-DD` (inclusive, UTC days, compared against `created_at`); an omitted bound is open, and an invalid date or `from` after `to` SHALL be rejected with 400. For every `model_usage` row in the range whose `model_name` currently has `pricing` in `config.yml`, `cost_usd` SHALL be recomputed from the stored token counts with the formula of "Cost estimate from configured pricing". Rows whose model is not configured or has no pricing SHALL be left unchanged. The response SHALL be `{ updated, skipped, skipped_models }` (counts and the distinct skipped model names). The Settings page's admin area SHALL offer this as a "Recalculate costs" card with From / To date inputs (blank = unbounded) and a button that asks for confirmation and then shows the result.
 
@@ -79,3 +68,18 @@ The estimated cost SHALL be computed from the model's configured `pricing` (USD 
 #### Scenario: Non-admin cannot recalculate
 - **WHEN** a `user`-role account calls `POST /api/usage/recalculate`
 - **THEN** the response SHALL be 403 and no row SHALL change
+
+### Requirement: Usage endpoints
+`GET /api/usage/me` SHALL return the signed-in user's totals (calls, input, cached input, output, total tokens, estimated cost) overall and per category. `GET /api/usage/leaderboard` SHALL be available to every signed-in user (any role) and return one entry per user with usage (id, username, nickname, calls, tokens, estimated cost), sorted by estimated cost descending then total tokens descending; rows without a user SHALL be grouped as one unattributed entry. Anonymous callers SHALL receive 401 from both endpoints. Both endpoints SHALL accept an optional `days` query parameter limiting the window to the last N days; without it they cover all time. Costs SHALL sum only non-null `cost_usd` values.
+
+#### Scenario: Regular user reads own usage
+- **WHEN** a `user`-role account calls `GET /api/usage/me`
+- **THEN** it SHALL receive only its own totals
+
+#### Scenario: Regular user reads the leaderboard
+- **WHEN** a `user`-role account calls `GET /api/usage/leaderboard`
+- **THEN** the response SHALL be 200 with an entry for every user that has usage in the window
+
+#### Scenario: Anonymous leaderboard request
+- **WHEN** an anonymous caller requests `GET /api/usage/leaderboard`
+- **THEN** the response SHALL be 401

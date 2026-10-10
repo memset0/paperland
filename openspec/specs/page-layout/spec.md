@@ -20,7 +20,7 @@ The frontend SHALL provide a shared `AppPage` layout component (`packages/fronte
 
 #### Scenario: Management view uses AppPage
 
-- **WHEN** a management view (Papers, Research list, Tags, Q&A, Notes, Services, Settings) renders
+- **WHEN** a management view (Home, Papers, Research list, Tags, Q&A, Notes, Services, Settings) renders
 - **THEN** its outermost element SHALL be `AppPage`
 - **AND** the view SHALL NOT render its own page-level width wrapper, `<h1>` title, leading title icon, or description paragraph
 
@@ -56,12 +56,12 @@ The frontend SHALL provide a shared `AppPage` layout component (`packages/fronte
 
 #### Scenario: Constrained management page
 
-- **WHEN** a constrained management page (e.g. Tags, Settings, Services, Notes) renders on a wide viewport
+- **WHEN** a constrained management page (e.g. Home, Tags, Settings, Services, Notes) renders on a wide viewport
 - **THEN** its content SHALL be centered and capped at `max-w-5xl`
 
 #### Scenario: Full-width management page
 
-- **WHEN** the Papers page (`/`) renders on a wide viewport
+- **WHEN** the Papers page (`/papers`) renders on a wide viewport
 - **THEN** `AppPage` SHALL be used with `full` enabled so the paper table occupies the full page width with no maximum width constraint
 
 ### Requirement: Full-height fill mode preserves internal scroll

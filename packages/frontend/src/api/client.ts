@@ -272,6 +272,14 @@ export const usageApi = {
   recalculate: (range: { from?: string; to?: string }) => api.post<{ data: UsageRecalculateResult }>('/api/usage/recalculate', range),
 }
 
+import type { FeatureListResponse } from '@paperland/shared'
+
+// Feature announcements (Home → Features, sidebar Home count) and the signed-in user's seen flags.
+export const featuresApi = {
+  list: () => api.get<{ data: FeatureListResponse }>('/api/features'),
+  markSeen: (keys: string[]) => api.post<{ success: boolean }>('/api/features/seen', { keys }),
+}
+
 export const usersApi = {
   list: () => api.get<{ data: User[] }>('/api/users'),
   create: (payload: { username: string; password: string; role: UserRole }) =>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, watchEffect } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, LogIn, CircleUser, NotebookPen, Image as ImageIcon, Sun, Moon, Monitor, Puzzle, Telescope } from '@lucide/vue'
+import { House, FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, LogIn, CircleUser, NotebookPen, Image as ImageIcon, Sun, Moon, Monitor, Puzzle, Telescope } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import LoginDialog from '@/components/LoginDialog.vue'
 import AppVersion from '@/components/AppVersion.vue'
+import { useFeaturesStore } from '@/stores/features'
 import FloatingWindowHost from '@/components/FloatingWindowHost.vue'
 import AuthScreen from '@/components/AuthScreen.vue'
 import PublicNoteStandalone from '@/components/notes/PublicNoteStandalone.vue'
@@ -80,6 +81,17 @@ watch(() => auth.user, (u) => {
 
 // Sidebar badge on Settings: self-registrations awaiting approval (admins only).
 const { pendingCount, refreshPending } = usePendingRegistrations()
+
+// Unseen features: a passive red count on the Home entry (no push). Reload per signed-in account.
+const features = useFeaturesStore()
+watch(() => auth.user?.id, (id) => { if (id != null && !isEmbed.value) features.load(true) }, { immediate: true })
+
+/** Red count badge for a nav item (pending registrations on Settings, new features on Home). */
+function badgeCount(item: NavItem): number {
+  if (item.path === '/settings') return pendingCount.value
+  if (item.path === '/') return features.newCount
+  return 0
+}
 watch(() => auth.isAdmin, (admin) => { if (admin) refreshPending() }, { immediate: true })
 
 function onResize() { isMobile.value = window.innerWidth < 768 }
@@ -97,7 +109,8 @@ onUnmounted(() => {
 
 interface NavItem { path: string; label: string; icon: any; requiresAuth?: boolean; requiresAdmin?: boolean }
 const navItems: NavItem[] = [
-  { path: '/', label: 'Papers', icon: FileText },
+  { path: '/', label: 'Home', icon: House },
+  { path: '/papers', label: 'Papers', icon: FileText },
   { path: '/research', label: 'Research', icon: Telescope, requiresAuth: true },
   { path: '/tags', label: 'Tags', icon: Tag, requiresAuth: true },
   { path: '/qa', label: 'Q&A', icon: MessageSquare, requiresAuth: true },
@@ -109,7 +122,7 @@ const navItems: NavItem[] = [
 ]
 
 function isActive(path: string) {
-  if (path === '/') return route.path === '/' || route.path.startsWith('/papers/')
+  if (path === '/') return route.path === '/'
   return route.path.startsWith(path)
 }
 
@@ -187,15 +200,16 @@ async function doLogout() {
                 <a :href="navHref(item)" class="relative" @click="onNavClick($event, item)">
                   <component :is="item.icon" />
                   <span
-                    v-if="item.path === '/settings' && pendingCount > 0"
+                    v-if="badgeCount(item) > 0"
                     class="absolute -top-0.5 -right-0.5 min-w-4 h-4 rounded-full bg-destructive px-1 text-[10px] leading-4 text-white text-center"
-                  >{{ pendingCount }}</span>
+                  >{{ badgeCount(item) }}</span>
                 </a>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
               {{ item.label }}
               <span v-if="item.path === '/settings' && pendingCount > 0" class="opacity-70">({{ pendingCount }} pending)</span>
+              <span v-if="item.path === '/' && features.newCount > 0" class="opacity-70">({{ features.newCount }} new {{ features.newCount === 1 ? 'feature' : 'features' }})</span>
               <span v-if="item.requiresAdmin && !auth.isAdmin" class="opacity-70">(Admin only)</span>
               <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="opacity-70">(Login required)</span>
             </TooltipContent>
@@ -282,9 +296,9 @@ async function doLogout() {
                   <component :is="item.icon" />
                   {{ item.label }}
                   <span
-                    v-if="item.path === '/settings' && pendingCount > 0"
+                    v-if="badgeCount(item) > 0"
                     class="ml-auto rounded-full bg-destructive px-1.5 text-[10px] leading-4 text-white"
-                  >{{ pendingCount }}</span>
+                  >{{ badgeCount(item) }}</span>
                   <span v-else-if="item.requiresAdmin && !auth.isAdmin" class="ml-auto text-xs text-muted-foreground">Admin only</span>
                   <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="ml-auto text-xs text-muted-foreground">Login required</span>
                 </a>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Custom Q&amp;A">
+<rect width="320" height="180" rx="16" fill="#eef2f7"/>
+<rect x="28" y="24" width="96" height="132" rx="8" fill="#fff" stroke="#cbd5e1"/>
+<rect x="40" y="38" width="60" height="6" rx="3" fill="#94a3b8"/>
+<rect x="40" y="54" width="72" height="4" rx="2" fill="#cbd5e1"/><rect x="40" y="64" width="66" height="4" rx="2" fill="#cbd5e1"/><rect x="40" y="74" width="72" height="4" rx="2" fill="#cbd5e1"/><rect x="40" y="84" width="50" height="4" rx="2" fill="#cbd5e1"/>
+<rect x="40" y="100" width="72" height="4" rx="2" fill="#cbd5e1"/><rect x="40" y="110" width="60" height="4" rx="2" fill="#cbd5e1"/>
+<rect x="146" y="34" width="146" height="34" rx="17" fill="#6366f1"/>
+<text x="219" y="56" font-family="system-ui,sans-serif" font-size="13" fill="#fff" text-anchor="middle">What is the main idea?</text>
+<rect x="146" y="82" width="146" height="66" rx="12" fill="#fff" stroke="#cbd5e1"/>
+<rect x="160" y="96" width="110" height="5" rx="2.5" fill="#94a3b8"/><rect x="160" y="108" width="118" height="5" rx="2.5" fill="#cbd5e1"/><rect x="160" y="120" width="96" height="5" rx="2.5" fill="#cbd5e1"/><rect x="160" y="132" width="70" height="5" rx="2.5" fill="#cbd5e1"/>
+</svg>

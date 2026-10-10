@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { FileText, MessageSquare, Activity, Settings, Tag, NotebookPen, Image as ImageIcon, Languages, Puzzle, Telescope } from '@lucide/vue'
+import { House, FileText, MessageSquare, Activity, Settings, Tag, NotebookPen, Image as ImageIcon, Languages, Puzzle, Telescope } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { formatTitle } from '@/composables/usePageTitle'
@@ -7,6 +7,12 @@ import { formatTitle } from '@/composables/usePageTitle'
 const routes = [
   {
     path: '/',
+    name: 'home',
+    component: () => import('@/views/HomePage.vue'),
+    meta: { title: 'Home', icon: House },
+  },
+  {
+    path: '/papers',
     name: 'papers',
     component: () => import('@/views/PaperList.vue'),
     meta: { title: 'Papers', icon: FileText },

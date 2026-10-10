@@ -365,3 +365,14 @@ export const modelUsage = sqliteTable('model_usage', {
   index('model_usage_user_idx').on(table.user_id),
   index('model_usage_created_idx').on(table.created_at),
 ])
+
+// Which registry features (src/features.ts) a user has seen (clicked on Home); drives the red dots
+// and counts. `feature_key` is free text — features live in code, not in the database.
+export const featureViews = sqliteTable('feature_views', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  feature_key: text('feature_key').notNull(),
+  seen_at: text('seen_at').notNull(),
+}, (table) => [
+  uniqueIndex('feature_views_user_feature_unq').on(table.user_id, table.feature_key),
+])

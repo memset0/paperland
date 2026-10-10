@@ -73,7 +73,7 @@ watch(() => auth.isAuthenticated, (ok) => { if (ok && status.value === 'waiting-
           <span>{{ error }}</span>
         </div>
         <Button variant="outline" as-child>
-          <RouterLink to="/">Back to papers</RouterLink>
+          <RouterLink to="/papers">Back to papers</RouterLink>
         </Button>
       </div>
     </div>

@@ -48,7 +48,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 每个页面根据内容设置浏览器标签标题，统一格式 `{页面标题} · Paperland`，无标题时回退为 `Paperland`。`index.html` 的静态 `<title>Paperland</title>` 仅作首屏 / 兜底。
 
-- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Papers `/`、Research `/research`、Tags `/tags`、Q&A `/qa`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Research `/research/:id`，加载后改为会话标题）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
+- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Home `/`、Papers `/papers`、Research `/research`、Tags `/tags`、Q&A `/qa`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Research `/research/:id`，加载后改为会话标题）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
 - **动态标题**：内容驱动的页面在视图内用 `composables/usePageTitle.ts` 的 `usePageTitle(() => …)`（基于 `@vueuse/core` 的 `useTitle`）响应式覆盖占位——论文详情用论文标题（加载前显示「Paper Detail」）。守卫先于视图执行，故占位标题在数据就绪后被组件覆盖；离开页面时视图作用域销毁停止 watcher，由目标页守卫重置标题。
 - **格式来源**：`formatTitle(name?)` 是格式与 ` · Paperland` 后缀的唯一来源，守卫与各视图共用。新增路由只需补 `meta.title`（缺省则回退 `Paperland`）。
 
@@ -81,14 +81,14 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 各「XX 管理」页通过共享组件 `components/AppPage.vue` 统一页面标题与内容宽度，不再各自手写页头 / 宽度容器：
 
 - **标题**：固定置于内容区顶部，统一 `text-xl font-semibold`，左侧带**对应图标**、**无描述副标题**。标题文字默认取 `route.meta.title`（英文，与侧边栏标签、浏览器标签一致），可用 `title` prop 覆盖。
-- **标题图标**：默认取 `route.meta.icon`（在 `router/index.ts` 为每个管理路由声明，与侧边栏导航图标一致：Papers→FileText、Research→Telescope、Tags→Tag、Q&A→MessageSquare、Notes→NotebookPen、Services→Activity、Settings→Settings），可用 `icon` prop 覆盖。图标只在 `meta` 里定义一处，避免与侧边栏图标漂移。
+- **标题图标**：默认取 `route.meta.icon`（在 `router/index.ts` 为每个管理路由声明，与侧边栏导航图标一致：Home→House、Papers→FileText、Research→Telescope、Tags→Tag、Q&A→MessageSquare、Notes→NotebookPen、Services→Activity、Settings→Settings），可用 `icon` prop 覆盖。图标只在 `meta` 里定义一处，避免与侧边栏图标漂移。
 - **宽度**：默认居中收窄 `mx-auto max-w-5xl`；传 `full` 则全宽、无最大宽度限制。
 - **`fill` 模式**：用于自管内部滚动的页面（如 Q&A）——外层 `h-full flex flex-col`，标题头 `shrink-0` 不随滚动，内容区为 `flex-1 min-h-0 overflow-hidden`，页面内部的 `overflow-y-auto` 子元素照常滚动。非 `fill` 时页面随 `<main>` 整体滚动。
 - **操作按钮**：经 `#actions` 具名插槽渲染在标题右侧（如 "Add paper"、"New research"、服务管理 "Backfill S2 data"）。
 
 各路由归类：
 
-- **全宽（`full`）**：论文管理 `/`（表格需要整页宽）。
+- **全宽（`full`）**：论文管理 `/papers`（表格需要整页宽）。
 - **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/research`、`/images`（图床画廊）、`/services`、`/settings`。
 - **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`、研究详情 `/research/:id`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
 
@@ -938,8 +938,9 @@ models:
    - **Sharing**：五个共享开关（见 5.3）。
    - **API Tokens**：MCP URL、personal token 列表 / 新建 / 撤销、Codex agent token 重置（见 5.4）。
    - **Browser Extension**：Site URL + quick-open token（复制 / 重新生成）。
-3. **Usage**（`components/settings/UsageSection.vue`，`usageApi.me` → `GET /api/usage/me`）：本人模型调用的次数、token、缓存命中占比、估算费用，以及按类别（Q&A / Deep Research / Translation）的表格；右上角 All time / Last 30 days 切换（`?days=30`）。数字格式化在 `components/settings/usage-format.ts`（`formatTokens` 1.2K / 3.4M、`formatCost`、`cacheShare`）。
-4. **Administration**（`v-if="auth.isAdmin"`，标题行带 ShieldCheck）：用户管理表（新增 / 审核 / 角色 / 昵称 / 重置密码）、**All API Tokens**（全站 token 列表，`/api/settings/tokens*`）、**Recalculate costs**（`components/settings/UsageRecalculate.vue`：From / To 两个日期输入（UTC、含两端、留空为开区间）+ 按钮，`confirm` 后调 `usageApi.recalculate` → `POST /api/usage/recalculate`，按 config.yml 当前 pricing 从已存 token 重算估算费用，显示更新条数和因无 pricing 跳过的模型）与 **Usage leaderboard**（`components/settings/UsageLeaderboard.vue`，`usageApi.leaderboard` → `GET /api/usage/leaderboard`：排名、用户（昵称 + 用户名，无归属的显示 Unattributed）、调用数、token、缓存占比、估算费用，同样可切 30 天）。仅管理员挂载时才请求 `/api/users`、`/api/settings/tokens`、`/api/usage/leaderboard`，普通用户不会触发 403。
+3. **Administration**（`v-if="auth.isAdmin"`，标题行带 ShieldCheck）：用户管理表（新增 / 审核 / 角色 / 昵称 / 重置密码）、**All API Tokens**（全站 token 列表，`/api/settings/tokens*`）与 **Recalculate costs**（`components/settings/UsageRecalculate.vue`：From / To 两个日期输入（UTC、含两端、留空为开区间）+ 按钮，`confirm` 后调 `usageApi.recalculate` → `POST /api/usage/recalculate`，按 config.yml 当前 pricing 从已存 token 重算估算费用，显示更新条数和因无 pricing 跳过的模型）。仅管理员挂载时才请求 `/api/users`、`/api/settings/tokens`，普通用户不会触发 403。
+
+模型用量（本人用量与排行榜）不在 Settings，见「首页（Home）」。
 
 **PWA 安装**（无新依赖，手写）：
 - `public/manifest.webmanifest`（name/short_name `Paperland`、`start_url`/`scope`/`id` 为 `/`、`display: standalone`、`theme_color #0069A8`、图标 `icon-192.png` / `icon-512.png` / `icon-maskable-512.png` / `favicon.svg`）；`index.html` 链接 manifest、`apple-touch-icon.png`（180）与 `theme-color`。PNG 图标按 `favicon.svg` 的几何图形绘制生成后提交。
@@ -984,7 +985,7 @@ models:
 |------|------|
 | **匿名可访问（白名单）** | `GET /api/health`、`POST /api/auth/login`、`POST /api/auth/register`、`GET /api/auth/me`、`GET /api/notes/:noteId`（匿名只返回已发布笔记，其余 404）；另有 `/api` 之外的 `/image/*` |
 | **需登录（任意用户）** | 其余全部 `/api/*`：论文列表 / 详情、问答、PDF（`/api/files/*`）、会议、模板、笔记、高亮、标签、翻译、图床上传…… |
-| **仅管理员** | 服务管理 Dashboard（`/api/services*`）、设置页 Token 管理（`/api/settings/tokens*`）、用户管理（`/api/users*`）、用量排行榜（`/api/usage/leaderboard`） |
+| **仅管理员** | 服务管理 Dashboard（`/api/services*`）、设置页 Token 管理（`/api/settings/tokens*`）、用户管理（`/api/users*`） |
 
 - 各路由里原有的「匿名返回空 / 仅模板」分支保留但已不可达（匿名到不了这些路由）。
 - **`/api/files/*`**（`api/files.ts`，PDF 查看器）：需登录，且只服务**解析后位于项目 `data/` 目录内、扩展名为 `.pdf`** 的文件（论文 PDF `data/pdfs/…`、doc2x 译文 `data/doc2x/…/*.pdf`）；越界路径（`..`、绝对路径）、数据库 / 配置等非 PDF 一律 404。缓存头为 `private`。
@@ -1480,4 +1481,25 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 
 - `stores/research.ts`：会话列表（scope）、当前会话详情、Codex 模型列表；对当前会话中每个进行中的步骤开 SSE（`researchApi.stream`，`start` / `delta` / `repairing` / `done` / `error`，断线最多重连 5 次），步骤结束后重新拉取会话以更新标题与版本。
 - Internal API（会话认证，全部需登录）：`GET/POST /api/research`、`GET /api/research/seed-preview`、`GET/DELETE /api/research/:id`、`POST /api/research/:id/steps`、`POST /api/research/:id/steps/:stepId/retry|cancel`、`PUT /api/research/:id/titles`、`POST /api/research/:id/truncate`、`GET /api/research/steps/:stepId/stream`（SSE）。409：有进行中回合时提交/编辑/回退、重试非最新步骤；400：非 Codex 模型、标题编辑带了标题以外的字段或空标题。
+
+## 首页（Home）
+
+`/` 是欢迎页 / dashboard（`views/HomePage.vue`，`AppPage` 包裹，`meta.title` Home、`meta.icon` House，默认 `max-w-5xl` 宽度），侧边栏 **Home** 排在 **Papers** 之前、仅在 `/` 高亮。论文列表在 `/papers`（`views/PaperList.vue`，路由名 `papers`）；Papers 侧边栏项在 `/papers` 与 `/papers/:id` 高亮（`startsWith`）。论文详情的返回按钮、点击标签（`/papers?tags=<id>`）、删除后跳转与 OpenArxiv 错误页 "Back to papers" 均指向 `/papers`。旧的 `/?tags=…` 书签不会再过滤（`/` 不再是列表）。
+
+首页模块按 section 纵向堆叠（`space-y-6`），目前有：
+
+- **Usage**（`components/home/UsageDashboard.vue`）：右上角一个时间窗口切换 All time（默认）/ Last 7 days / Last 30 days（`USAGE_WINDOWS`，All time 不带 `days`，其余 `?days=7|30`），同时驱动下面两部分；切换时并行请求 `usageApi.me` 与 `usageApi.leaderboard`，过期响应丢弃。
+  - `UsagePodium.vue`：排行榜（`GET /api/usage/leaderboard`，所有登录用户可读，按估算费用、再按 token 降序）。前三名做成颁奖台，视觉顺序 2nd · 1st · 3rd，台阶高度递减，金/银/铜色调（Tailwind `amber`/`slate`/`orange` 半透明色，深浅主题通用），1st 带 `Crown`、2/3 带 `Medal`；每格显示首字母头像、显示名（昵称 + 用户名 / 用户名 / Unattributed）、估算费用与 token。不足三名只显示已有名次；第 4 名起在台下表格列出（排名、用户、调用数、token、缓存占比、费用），≤3 名不显示表格；窗口内无用量显示 "No usage recorded yet"。当前用户在台上头像加 ring、名字旁 "You" 徽标，表格行浅色高亮。
+  - `UsageSummary.vue`：本人用量（`GET /api/usage/me`）：调用数、token、缓存命中占比、估算费用 + 按类别（Q&A / Deep Research / Translation）表格。
+  - 数字格式化与显示名在 `components/home/usage-format.ts`（`formatTokens` 1.2K / 3.4M、`formatCost`、`cacheShare`、`usageDisplayName`）。
+
+## 功能公告（Features）
+
+让用户发现新功能：首页一个 **Features** section，按用户记录是否看过。**不主动推送**（没有弹窗）：未看过的功能卡片带小红点，侧边栏 Home 与 Features 标题旁显示红色计数。
+
+- **注册表**：`packages/backend/src/features.ts` 的 `FEATURES` 数组（后端是唯一来源，前端不硬编码功能）。每项 `key`（稳定，存进 `feature_views`，不要改名）、`title` / `description`（英文）、`released_at`（`YYYY-MM-DD`）。插图是 `packages/frontend/public/features/<key>.svg`（public 目录，免登录访问，API 返回 `image_url: /features/<key>.svg`）。
+- **上线日期** = 交付该功能的 OpenSpec change 的 archive 日期（`openspec/changes/archive/` 目录名的日期前缀）；没有对应 change 时用最早引入它的 commit 日期。在注释里写上来源 change。
+- **新增一个功能**：① 在 `FEATURES` 追加一项（日期 = archive 当天）；② 加一张 320×180 viewBox 的简洁 SVG（固定浅色调色板，深浅主题都可读，不放真实用户数据，尽量 < 2KB）；③ 跑 `bun test src/api/features.test.ts`（其中的初始 key 列表断言需同步）。无需迁移。
+- **数据流**：`stores/features.ts`（Pinia）持有 `GET /api/features` 的结果（新到旧、每项带本人 `seen`），`newCount` = 未看过的数量。`App.vue` 在登录用户 id 变化时强制拉取（嵌入模式不拉），侧边栏 Home 项复用 Settings 的红色计数徽标（`badgeCount(item)`），tooltip 显示 "(N new features)"。`markSeen(keys)` 先本地置 `seen`、再 fire-and-forget `POST /api/features/seen`。
+- **首页 Features**（`components/home/FeatureList.vue`，在 Usage 之后）：标题旁红色计数 = 未看过的数量；所有功能卡片（`components/FeatureCard.vue`：插图、标题、日期、说明），未看过的卡片右上角小红点、可点击（`role=button`，Enter/Space 同样生效），点击即 `markSeen([key])`，红点消失、计数减一。仅打开首页不会标记已看。
 

@@ -312,7 +312,7 @@ watch(() => [route.params.id, route.query.qa, route.query.result, route.query.no
 })
 
 function navigateToTagFilter(tagId: number) {
-  router.push({ path: '/', query: { tags: String(tagId) } })
+  router.push({ path: '/papers', query: { tags: String(tagId) } })
 }
 
 const isEditingTags = ref(false)
@@ -465,7 +465,7 @@ async function confirmDelete() {
   deleting.value = true
   try {
     await store.deletePaper(store.currentPaper!.id)
-    router.push('/')
+    router.push('/papers')
   } finally {
     deleting.value = false
   }
@@ -684,7 +684,7 @@ async function promote() {
     </div>
     <!-- Normal header -->
     <div v-else class="flex h-12 items-center gap-3 border-b bg-background px-4 shrink-0">
-      <Button variant="ghost" size="icon-sm" @click="router.push('/')">
+      <Button variant="ghost" size="icon-sm" @click="router.push('/papers')">
         <ArrowLeft />
       </Button>
       <div class="min-w-0 flex-1">

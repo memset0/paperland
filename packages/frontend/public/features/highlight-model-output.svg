@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Highlight model output">
+<rect width="320" height="180" rx="16" fill="#eef2f7"/>
+<rect x="36" y="26" width="248" height="128" rx="12" fill="#fff" stroke="#cbd5e1"/>
+<rect x="54" y="44" width="200" height="6" rx="3" fill="#cbd5e1"/>
+<rect x="52" y="60" width="132" height="14" rx="3" fill="#fde047"/>
+<rect x="54" y="64" width="128" height="6" rx="3" fill="#a16207" opacity=".55"/>
+<rect x="190" y="64" width="74" height="6" rx="3" fill="#cbd5e1"/>
+<rect x="54" y="84" width="212" height="6" rx="3" fill="#cbd5e1"/>
+<rect x="52" y="98" width="96" height="14" rx="3" fill="#86efac"/>
+<rect x="54" y="102" width="92" height="6" rx="3" fill="#15803d" opacity=".55"/>
+<rect x="154" y="102" width="100" height="6" rx="3" fill="#cbd5e1"/>
+<rect x="54" y="122" width="160" height="6" rx="3" fill="#cbd5e1"/>
+<g transform="translate(196 112)"><rect width="72" height="26" rx="13" fill="#1e293b"/><circle cx="16" cy="13" r="6" fill="#fde047"/><circle cx="32" cy="13" r="6" fill="#86efac"/><circle cx="48" cy="13" r="6" fill="#93c5fd"/><circle cx="62" cy="13" r="4" fill="#f9a8d4"/></g>
+</svg>
