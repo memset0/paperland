@@ -88,7 +88,7 @@ The viewer SHALL accept an external navigation request of the form `{ page }`, `
 - **THEN** the viewer SHALL still scroll to the page, skip the highlight, and surface a brief "anchor stale" notice rather than throwing
 
 ### Requirement: Region screenshot capture to the image host
-The viewer SHALL provide a toolbar control that enters a "region capture" mode in which the user drags a rectangle over a single PDF page; on completion the viewer SHALL offer a small action menu next to the region, in this order: 复制图片链接 (copy the image URL) and 复制 Markdown (copy the Markdown image with its location link) for everyone who can capture, plus 加入提问框 (add to the question box) and 截图提问 (ask about the screenshot directly) for authenticated users. Every action SHALL first render that rectangle to a PNG at the configured capture DPI and upload it to the image host; 复制图片链接 SHALL then copy the bare image-host URL, 复制 Markdown SHALL copy a Markdown snippet whose image is wrapped in a `paperland://` link back to the captured region, while the two ask actions SHALL use the uploaded image as an image input (see `contextual-qa`). Dismissing the menu SHALL discard the capture without uploading. The control SHALL be available only when a `paperId` is provided (so the link can be built). The captured region SHALL be a normalized `{ page, x, y, w, h }` rectangle in `[0,1]` page space, constrained to the single page under the drag's start point.
+The viewer SHALL provide a toolbar control that enters a "region capture" mode in which the user drags a rectangle over a single PDF page; on completion the viewer SHALL keep the captured region visibly highlighted on the page and SHALL offer a small action menu centered directly below that highlighted region, in this order: 复制图片链接 (copy the image URL) and 复制 Markdown (copy the Markdown image with its location link) for everyone who can capture, plus 加入提问框 (add to the question box) and 截图提问 (ask about the screenshot directly) for authenticated users. Every action SHALL first render that rectangle to a PNG at the configured capture DPI and upload it to the image host; 复制图片链接 SHALL then copy the bare image-host URL, 复制 Markdown SHALL copy a Markdown snippet whose image is wrapped in a `paperland://` link back to the captured region, while the two ask actions SHALL use the uploaded image as an image input (see `contextual-qa`). The highlight and the menu SHALL be anchored to the captured page so they scroll and zoom with it, and SHALL stay visible until the capture is resolved: an action succeeds, the menu is dismissed, a new drag starts, or capture mode exits. While an upload is in progress the menu actions SHALL be disabled, and after a failed upload the highlight and menu SHALL remain so the user can retry. Dismissing the menu SHALL discard the capture without uploading and SHALL remove the highlight. The control SHALL be available only when a `paperId` is provided (so the link can be built). The captured region SHALL be a normalized `{ page, x, y, w, h }` rectangle in `[0,1]` page space, constrained to the single page under the drag's start point.
 
 While capture mode is active, the viewer SHALL show a crosshair cursor and a drag overlay above the text layer so the drag draws a selection rectangle instead of selecting text, and SHALL restore normal text selection when capture mode is exited (via the toolbar control, `Esc`, or after a capture completes).
 
@@ -123,6 +123,21 @@ The clipboard snippet SHALL have the form `[![](<image_url>)](paperland://paper/
 #### Scenario: Dismiss the capture menu
 - **WHEN** the user presses `Esc` or clicks elsewhere while the capture action menu is open
 - **THEN** nothing SHALL be uploaded or copied
+- **AND** the region highlight SHALL be removed
+
+#### Scenario: Captured region stays highlighted with the menu below it
+- **WHEN** the user releases a drag that forms a valid region on page N
+- **THEN** the region SHALL remain highlighted on page N with the action menu centered directly below it
+- **AND** when the user scrolls or zooms, the highlight and menu SHALL move with page N and keep their position relative to the region
+
+#### Scenario: Highlight persists through upload and failure
+- **WHEN** the user chooses an action and the upload is in progress
+- **THEN** the highlight and the menu SHALL stay visible with the actions disabled
+- **AND** if the upload fails, the highlight and menu SHALL remain so the user can choose an action again
+
+#### Scenario: Highlight cleared after a successful action
+- **WHEN** a capture action completes successfully
+- **THEN** the highlight and the menu SHALL be removed
 
 ### Requirement: Configurable region-capture DPI
 The viewer SHALL render a captured region at a configurable DPI whose default is defined in `config.yml` (not hardcoded in the frontend), defaulting to 300. The render scale SHALL be derived from the DPI as `scale = dpi / 72` (PDF user-space units are 1/72 inch). To bound memory at high DPI, the viewer SHALL render only the captured region (a region-sized canvas), not the whole page rasterized then cropped.

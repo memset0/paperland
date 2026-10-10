@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { FileText, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Link2, Loader2, AlertTriangle, MoveHorizontal, MoveVertical, Crop, Languages, X, Copy, RefreshCw, MessageCircleQuestion, Plus, MessagesSquare, List, Image as ImageIcon } from '@lucide/vue'
-import type { QAImageInput, QATextSelectionInput, TranslateResponse, TranslationStreamStatus } from '@paperland/shared'
+import { FileText, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Link2, Loader2, AlertTriangle, MoveHorizontal, MoveVertical, Crop, Languages, X, Copy, RefreshCw, MessageCircleQuestion, Plus, MessagesSquare, List, Image as ImageIcon, Trash2 } from '@lucide/vue'
+import type { Highlight, HighlightColor, QAImageInput, QATextSelectionInput, TranslateResponse, TranslationStreamStatus } from '@paperland/shared'
 import { toast } from 'vue-sonner'
 import { loadPdfjs } from '@/lib/pdfjs'
 import {
@@ -26,6 +26,8 @@ import QAStreamingMarkdown from '@/components/QAStreamingMarkdown.vue'
 import { requestedPdfTarget, type PdfNavTarget } from '@/composables/usePdfNavigation'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
+import { useHighlightStore } from '@/stores/highlights'
+import HighlightScopeToggle from '@/components/HighlightScopeToggle.vue'
 import { configApi } from '@/api/client'
 import { uploadImage } from '@/utils/uploadImage'
 import StreamingTranslationText from '@/components/StreamingTranslationText.vue'
@@ -37,6 +39,7 @@ const rawUrl = computed(() => (props.pdfPath ? `/api/files/${encodeURIComponent(
 
 const theme = useThemeStore()
 const auth = useAuthStore()
+const hlStore = useHighlightStore()
 const qaStore = useQAStore()
 const paperStore = usePapersStore()
 const composer = useQAComposer()
@@ -173,6 +176,7 @@ async function renderPage(num: number) {
     await new pdfjs.TextLayer({ textContentSource: textContent, container: textLayer, viewport }).render()
 
     rendered.set(num, { scale: sc, dark, canvas, textLayer })
+    renderHighlightLayer(num)
   } catch {
     // RenderingCancelledException (zoom/scroll/theme churn) — ignore; a later pass re-renders.
   } finally {
@@ -186,6 +190,8 @@ function unrenderPage(num: number) {
   renderTasks.delete(num)
   const ex = rendered.get(num)
   if (ex) { ex.canvas.remove(); ex.textLayer.remove(); rendered.delete(num) }
+  pageEl(num)?.querySelector(':scope > .pdf-hl-layer')?.remove()
+  hlHits.delete(num)
 }
 
 /** Force a page to be rendered at the current scale and wait until its text layer exists. */
@@ -253,20 +259,32 @@ function scrollToPage(num: number) {
 
 /** Map page-text offsets to client rects via the rendered text layer (reuses highlight segments). */
 function offsetsToRects(textLayer: HTMLElement, start: number, end: number): DOMRect[] {
+  const range = offsetsToRange(textLayer, start, end)
+  return range ? Array.from(range.getClientRects()) : []
+}
+
+/** A DOM Range over a page-text offset range in a page's text layer (null if unmappable). */
+function offsetsToRange(textLayer: HTMLElement, start: number, end: number): Range | null {
   const segs = buildTextSegments(textLayer)
-  if (!segs.length) return []
-  const at = (offset: number) => {
-    for (const s of segs) if (offset <= s.offset + s.length) return { node: s.node, local: Math.min(s.length, Math.max(0, offset - s.offset)) }
+  if (!segs.length) return null
+  // A start offset on a node boundary maps to the START of the next node (not the end of the
+  // previous one), so the range doesn't begin with a stray line break / empty previous-line rect.
+  const at = (offset: number, isStart = false) => {
+    for (const s of segs) {
+      if (isStart ? offset < s.offset + s.length : offset <= s.offset + s.length) {
+        return { node: s.node, local: Math.min(s.length, Math.max(0, offset - s.offset)) }
+      }
+    }
     const last = segs[segs.length - 1]
     return { node: last.node, local: last.length }
   }
-  const a = at(start), b = at(end)
+  const a = at(start, true), b = at(end)
   const range = document.createRange()
   try {
     range.setStart(a.node, Math.min(a.local, (a.node.textContent || '').length))
     range.setEnd(b.node, Math.min(b.local, (b.node.textContent || '').length))
-  } catch { return [] }
-  return Array.from(range.getClientRects())
+  } catch { return null }
+  return range
 }
 
 /** Draw a transient (non-persisted) highlight over a page-text offset range. Returns false if not found. */
@@ -668,6 +686,175 @@ function copySelectionLink() {
   hideSelBtn()
 }
 
+// ---- Persistent PDF highlights (per user; stored in the shared `highlights` table) ----
+// A PDF highlight is a regular highlight row on the paper's pathname (`/papers/<id>`, which
+// PaperDetail already loads into the store) whose `content_hash` is `pdf:<fingerprint>:<page>`
+// and whose offsets are the page-text `ts/te`. The fingerprint ties offsets to this exact file,
+// so highlights made on a replaced PDF are simply not drawn. Scope (mine/all) is the store's.
+const HL_COLORS: { key: HighlightColor; label: string }[] = [
+  { key: 'yellow', label: '黄色' }, { key: 'green', label: '绿色' },
+  { key: 'blue', label: '蓝色' }, { key: 'pink', label: '粉色' },
+]
+const pdfFingerprint = ref<string | null>(null)
+const hlPathname = computed(() => (props.paperId ? `/papers/${props.paperId}` : null))
+const hlEnabled = computed(() => auth.isAuthenticated && !!props.paperId && !!pdfFingerprint.value)
+
+/** This file's highlights grouped by page. */
+const pdfHighlightsByPage = computed(() => {
+  const map = new Map<number, Highlight[]>()
+  const fp = pdfFingerprint.value
+  if (!fp || !hlPathname.value || !auth.isAuthenticated || hlStore.currentPathname !== hlPathname.value) return map
+  const prefix = `pdf:${fp}:`
+  for (const h of hlStore.highlights) {
+    if (!h.content_hash.startsWith(prefix)) continue
+    const page = Number(h.content_hash.slice(prefix.length))
+    if (!Number.isInteger(page)) continue
+    const list = map.get(page) ?? []
+    list.push(h)
+    map.set(page, list)
+  }
+  return map
+})
+
+const isOwnHighlight = (h: Highlight) => h.user_id != null && h.user_id === auth.user?.id
+
+/** Per rendered page: each highlight's rects in [0,1] page space (for click / hover hit-testing). */
+const hlHits = new Map<number, { h: Highlight; rects: { x: number; y: number; w: number; h: number }[] }[]>()
+
+/** (Re)draw a rendered page's highlight overlay, positioned in % of the page so CSS zoom keeps it aligned. */
+function renderHighlightLayer(num: number) {
+  const ex = rendered.get(num)
+  const el = pageEl(num)
+  if (!ex || !el) return
+  let layer = el.querySelector<HTMLElement>(':scope > .pdf-hl-layer')
+  const list = pdfHighlightsByPage.value.get(num) ?? []
+  hlHits.delete(num)
+  if (!list.length) { layer?.remove(); return }
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.className = 'pdf-hl-layer'
+    el.appendChild(layer)
+  }
+  layer.replaceChildren()
+  const pr = el.getBoundingClientRect()
+  if (!pr.width || !pr.height) return
+  const hits: { h: Highlight; rects: { x: number; y: number; w: number; h: number }[] }[] = []
+  for (const h of [...list].sort((a, b) => a.id - b.id)) {
+    const own = isOwnHighlight(h)
+    const rects = []
+    for (const rc of offsetsToRects(ex.textLayer, h.start_offset, h.end_offset)) {
+      if (rc.width < 1 || rc.height < 1) continue
+      const r = { x: (rc.left - pr.left) / pr.width, y: (rc.top - pr.top) / pr.height, w: rc.width / pr.width, h: rc.height / pr.height }
+      rects.push(r)
+      const d = document.createElement('div')
+      d.className = `pdf-hl pdf-hl-${h.color}${own ? '' : ' pdf-hl-foreign'}`
+      d.style.left = `${r.x * 100}%`
+      d.style.top = `${r.y * 100}%`
+      d.style.width = `${r.w * 100}%`
+      d.style.height = `${r.h * 100}%`
+      layer.appendChild(d)
+    }
+    if (rects.length) hits.push({ h, rects })
+  }
+  hlHits.set(num, hits)
+}
+
+watch(pdfHighlightsByPage, () => { for (const num of rendered.keys()) renderHighlightLayer(num) })
+
+// PaperDetail loads the paper's highlights; load them here too if the store holds another page's.
+watch([hlPathname, () => auth.isAuthenticated], ([path, authed]) => {
+  if (path && authed && hlStore.currentPathname !== path) void hlStore.loadForPathname(path)
+}, { immediate: true })
+
+/** Topmost (latest) highlight under a client point, or null. */
+function highlightAtPoint(clientX: number, clientY: number): { page: number; h: Highlight } | null {
+  const el = pageElAtPoint(clientX, clientY)
+  if (!el) return null
+  const page = Number(el.dataset.pdfPage)
+  const hits = hlHits.get(page)
+  if (!hits?.length) return null
+  const pr = el.getBoundingClientRect()
+  const x = (clientX - pr.left) / pr.width, y = (clientY - pr.top) / pr.height
+  for (let i = hits.length - 1; i >= 0; i--) {
+    if (hits[i].rects.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)) return { page, h: hits[i].h }
+  }
+  return null
+}
+
+/** Plain click on a highlight → select its passage so the normal selection toolbar opens for it. */
+function onPageClick(e: MouseEvent) {
+  if (captureMode.value || e.button !== 0 || e.detail > 1) return
+  const sel = window.getSelection()
+  if (sel && !sel.isCollapsed) return
+  const hit = highlightAtPoint(e.clientX, e.clientY)
+  const ex = hit ? rendered.get(hit.page) : null
+  if (!hit || !ex) return
+  const range = offsetsToRange(ex.textLayer, hit.h.start_offset, hit.h.end_offset)
+  if (!range || !sel) return
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+/** Show the owner of another user's highlight on hover (the overlay itself ignores pointer events). */
+let hoverRaf = 0
+function onPageHover(e: MouseEvent) {
+  if (hoverRaf || captureMode.value) return
+  const { clientX, clientY } = e
+  hoverRaf = requestAnimationFrame(() => {
+    hoverRaf = 0
+    const root = viewerRef.value
+    if (!root) return
+    const hit = highlightAtPoint(clientX, clientY)
+    const title = hit && !isOwnHighlight(hit.h) ? `${hit.h.display_name ?? hit.h.username ?? '其他用户'} 的高亮` : ''
+    if (root.title !== title) root.title = title
+  })
+}
+
+/** The user's own highlight exactly matching the current single-page selection, if any. */
+const selOwnHighlight = computed(() => {
+  const r = selRegion.value
+  if (!r || selMultiPage.value) return null
+  return (pdfHighlightsByPage.value.get(r.page) ?? [])
+    .filter((h) => isOwnHighlight(h) && h.start_offset === r.ts && h.end_offset === r.te)
+    .sort((a, b) => b.id - a.id)[0] ?? null
+})
+
+function finishHighlightAction() {
+  window.getSelection()?.removeAllRanges()
+  hideSelBtn()
+}
+
+async function applyHighlightColor(color: HighlightColor) {
+  const r = selRegion.value
+  const fp = pdfFingerprint.value
+  if (!r || !fp || !hlPathname.value || selMultiPage.value) return
+  const own = selOwnHighlight.value
+  try {
+    if (own) {
+      if (own.color !== color) await hlStore.update(own.id, { color })
+    } else {
+      await hlStore.create({
+        pathname: hlPathname.value, content_hash: `pdf:${fp}:${r.page}`,
+        start_offset: r.ts, end_offset: r.te, text: r.text, color,
+      })
+    }
+    finishHighlightAction()
+  } catch {
+    toast.error('高亮保存失败，请重试', { position: 'bottom-center' })
+  }
+}
+
+async function deleteSelHighlight() {
+  const own = selOwnHighlight.value
+  if (!own) return
+  try {
+    await hlStore.remove(own.id)
+    finishHighlightAction()
+  } catch {
+    toast.error('删除高亮失败，请重试', { position: 'bottom-center' })
+  }
+}
+
 // ---- Contextual Q&A: ask directly, or add the passage/screenshot to the question box ----
 /** Ask actions need a logged-in user, a paper, and a paper with usable full text. */
 const showAskActions = computed(() => auth.isAuthenticated && !!props.paperId)
@@ -817,6 +1004,7 @@ function toggleCaptureMode() {
   captureMode.value = !captureMode.value
   dragRect.value = null
   dragStart = null
+  captureMenu.value = null
   if (captureMode.value) {
     hideSelBtn()
     window.getSelection()?.removeAllRanges()
@@ -843,6 +1031,8 @@ function pageElAtPoint(clientX: number, clientY: number): HTMLElement | null {
 
 function onCaptureDown(e: MouseEvent) {
   if (!captureMode.value || capturing.value) return
+  // Clicks on the capture menu (rendered inside the page) must not start a new drag.
+  if ((e.target as Element | null)?.closest?.('.pdf-capture-menu')) return
   captureMenu.value = null // starting another drag discards an undecided capture
   const pageEl = pageElAtPoint(e.clientX, e.clientY)
   const root = viewerRef.value
@@ -895,23 +1085,29 @@ async function onCaptureUp(e: MouseEvent) {
     w: localW / pr.width,
     h: localH / pr.height,
   }
-  // Let the user choose: copy the screenshot link, ask about it, or add it to the question box.
-  const outer = viewerRoot()
-  if (!outer) return
-  const or = outer.getBoundingClientRect()
-  captureMenu.value = {
-    region,
-    rect: {
-      left: clampedLeft - or.left, top: clampedTop - or.top, right: clampedRight - or.left,
-      bottom: clampedBottom - or.top, width: localW, height: localH,
-    },
-    x: Math.min(clampedRight - or.left, outer.clientWidth - 8),
-    y: Math.min(clampedBottom - or.top + 6, outer.clientHeight - 40),
-  }
+  // Keep the region highlighted on its page with the action menu below it until the user
+  // picks an action, dismisses it, or starts another drag.
+  captureMenu.value = { region }
 }
 
 type CaptureRegion = { page: number; x: number; y: number; w: number; h: number }
-const captureMenu = ref<{ region: CaptureRegion; rect: RelativeRect; x: number; y: number } | null>(null)
+/** Pending (undecided or uploading) capture: highlighted on its page with the action menu below. */
+const captureMenu = ref<{ region: CaptureRegion } | null>(null)
+
+/** Capture-region box (in % of its page) for the in-page highlight and the menu below it. */
+function captureBoxStyle(region: CaptureRegion) {
+  return { left: `${region.x * 100}%`, top: `${region.y * 100}%`, width: `${region.w * 100}%`, height: `${region.h * 100}%` }
+}
+
+/** The region's current rect in `.pdf-viewer-root` coords (for placing the ask panel next to it). */
+function regionRootRect(region: CaptureRegion): RelativeRect | null {
+  const el = pageEl(region.page), outer = viewerRoot()
+  if (!el || !outer) return null
+  const pr = el.getBoundingClientRect(), or = outer.getBoundingClientRect()
+  const left = pr.left - or.left + region.x * pr.width, top = pr.top - or.top + region.y * pr.height
+  const width = region.w * pr.width, height = region.h * pr.height
+  return { left, top, right: left + width, bottom: top + height, width, height }
+}
 
 /** Render a region to PNG and upload it to the image host. */
 async function uploadRegion(region: CaptureRegion) {
@@ -928,17 +1124,18 @@ function regionInput(region: CaptureRegion, hash: string): Omit<QAImageInput, 'l
 }
 
 async function onCaptureAction(action: 'copy-url' | 'copy' | 'ask' | 'add') {
+  // The menu (and highlight) stays up while uploading and after a failure; success clears it.
   const menu = captureMenu.value
-  captureMenu.value = null
   if (!menu || !props.paperId) return
   if (action === 'copy' || action === 'copy-url') { await captureRegion(menu.region, action === 'copy-url'); return }
   if (askDisabled.value || capturing.value) return
   capturing.value = true
   try {
     const { image, url } = await uploadRegion(menu.region)
+    const rect = regionRootRect(menu.region)
     exitCaptureMode()
     if (action === 'ask') {
-      void startDirectAsk(regionInput(menu.region, image.hash), { kind: 'image', url }, menu.rect)
+      void startDirectAsk(regionInput(menu.region, image.hash), { kind: 'image', url }, rect ?? { left: 8, top: 8, right: 8, bottom: 8, width: 0, height: 0 })
     } else {
       composer.addAttachment({ ...regionInput(menu.region, image.hash), url })
     }
@@ -988,6 +1185,7 @@ async function loadDocument() {
     pdfjs = await loadPdfjs()
     loadingTask = pdfjs.getDocument({ url: `/api/files/${encodeURIComponent(props.pdfPath)}` })
     pdfDoc = await loadingTask.promise
+    pdfFingerprint.value = pdfDoc.fingerprints?.[0] ?? null
     numPages.value = pdfDoc.numPages
     const first = await pdfDoc.getPage(1)
     const vp1 = first.getViewport({ scale: 1 })
@@ -1021,6 +1219,8 @@ function cleanupDoc() {
   try { pdfDoc?.destroy?.() } catch { /* noop */ }
   pdfDoc = null
   loadingTask = null
+  pdfFingerprint.value = null
+  hlHits.clear()
 }
 
 let ro: ResizeObserver | null = null
@@ -1163,6 +1363,7 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
         >
           <Crop class="h-4 w-4" />
         </button>
+        <HighlightScopeToggle v-if="paperId" class="ml-1" size="sm" />
       </div>
 
       <!-- Scroll area -->
@@ -1172,12 +1373,45 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
         :class="{ 'pdf-capturing': captureMode }"
         @scroll="onScroll"
         @mousedown="onCaptureDown"
+        @click="onPageClick"
+        @mousemove="onPageHover"
       >
         <div
           v-for="p in pages" :key="p.num"
           class="pdf-page" :data-pdf-page="p.num"
           :style="pageStyle(p)"
-        />
+        >
+          <!-- Pending capture: keep the dragged region highlighted on its page (scrolls/zooms with it) -->
+          <div
+            v-if="captureMenu && captureMenu.region.page === p.num"
+            class="pdf-capture-sel" :style="captureBoxStyle(captureMenu.region)"
+          >
+            <!-- Capture action menu, centered below the highlighted region -->
+            <div class="pdf-sel-toolbar pdf-capture-menu">
+              <button class="pdf-sel-btn" :disabled="capturing" title="复制图床图片链接" @click="onCaptureAction('copy-url')">
+                <ImageIcon class="h-3.5 w-3.5" /> 复制图片链接
+              </button>
+              <button class="pdf-sel-btn" :disabled="capturing" title="复制带定位的 Markdown 图片链接" @click="onCaptureAction('copy')">
+                <Link2 class="h-3.5 w-3.5" /> 复制 Markdown
+              </button>
+              <button
+                v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
+                :title="askHint || '加入提问框'" @click="onCaptureAction('add')"
+              >
+                <Plus class="h-3.5 w-3.5" /> 加入提问框
+              </button>
+              <button
+                v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
+                :title="askHint || '用预设问题直接提问这张截图'" @click="onCaptureAction('ask')"
+              >
+                <MessageCircleQuestion class="h-3.5 w-3.5" /> 截图提问
+              </button>
+              <button class="pdf-sel-btn" title="取消" @click="captureMenu = null">
+                <X class="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
         <!-- Rubber-band selection rectangle (capture mode) -->
         <div
           v-if="dragRect"
@@ -1193,6 +1427,19 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
         class="pdf-sel-toolbar"
         :style="{ left: selBtnPos.x + 'px', top: selBtnPos.y + 'px' }"
       >
+        <template v-if="hlEnabled && !selMultiPage">
+          <button
+            v-for="c in HL_COLORS" :key="c.key"
+            class="pdf-hl-swatch" :class="[`pdf-hl-swatch-${c.key}`, { 'pdf-hl-swatch-active': selOwnHighlight?.color === c.key }]"
+            :title="selOwnHighlight ? `改为${c.label}高亮` : `${c.label}高亮`"
+            @mousedown.prevent
+            @click="applyHighlightColor(c.key)"
+          />
+          <button v-if="selOwnHighlight" class="pdf-sel-btn" title="删除高亮" @mousedown.prevent @click="deleteSelHighlight">
+            <Trash2 class="h-3.5 w-3.5" />
+          </button>
+          <span class="pdf-sel-sep" />
+        </template>
         <button
           v-if="auth.isAuthenticated && !selMultiPage"
           class="pdf-sel-btn"
@@ -1301,35 +1548,6 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
           </button>
         </footer>
       </aside>
-
-      <!-- Capture action menu: choose what to do with the dragged region (capture mode) -->
-      <div
-        v-if="captureMenu"
-        class="pdf-sel-toolbar pdf-capture-menu"
-        :style="{ left: captureMenu.x + 'px', top: captureMenu.y + 'px' }"
-      >
-        <button class="pdf-sel-btn" :disabled="capturing" title="复制图床图片链接" @click="onCaptureAction('copy-url')">
-          <ImageIcon class="h-3.5 w-3.5" /> 复制图片链接
-        </button>
-        <button class="pdf-sel-btn" :disabled="capturing" title="复制带定位的 Markdown 图片链接" @click="onCaptureAction('copy')">
-          <Link2 class="h-3.5 w-3.5" /> 复制 Markdown
-        </button>
-        <button
-          v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
-          :title="askHint || '加入提问框'" @click="onCaptureAction('add')"
-        >
-          <Plus class="h-3.5 w-3.5" /> 加入提问框
-        </button>
-        <button
-          v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
-          :title="askHint || '用预设问题直接提问这张截图'" @click="onCaptureAction('ask')"
-        >
-          <MessageCircleQuestion class="h-3.5 w-3.5" /> 截图提问
-        </button>
-        <button class="pdf-sel-btn" title="取消" @click="captureMenu = null">
-          <X class="h-3.5 w-3.5" />
-        </button>
-      </div>
 
       <!-- Direct ask: the passage/screenshot with its streamed answer, placed near the source -->
       <aside
@@ -1441,6 +1659,21 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
 .pdf-page :deep(.textLayer) { z-index: 2; }
 .pdf-page :deep(.textLayer ::selection) { background: rgba(37, 99, 235, 0.28); }
 
+/* Persistent PDF highlights: above the canvas, below the (selectable) text layer. Colors mirror
+   MarkdownContent's .hl-* (own = fill) and .hl-foreign-* (others = dashed underline). */
+.pdf-page :deep(.pdf-hl-layer) { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.pdf-page :deep(.pdf-hl) { position: absolute; border-radius: 1px; mix-blend-mode: multiply; }
+:global(.dark) .pdf-page :deep(.pdf-hl) { mix-blend-mode: screen; }
+.pdf-page :deep(.pdf-hl-yellow) { background: rgba(250, 204, 21, 0.35); }
+.pdf-page :deep(.pdf-hl-green) { background: rgba(74, 222, 128, 0.35); }
+.pdf-page :deep(.pdf-hl-blue) { background: rgba(96, 165, 250, 0.35); }
+.pdf-page :deep(.pdf-hl-pink) { background: rgba(244, 114, 182, 0.35); }
+.pdf-page :deep(.pdf-hl-foreign) { background: transparent; border-bottom: 2px dashed; mix-blend-mode: normal; }
+.pdf-page :deep(.pdf-hl-foreign.pdf-hl-yellow) { border-color: rgba(234, 179, 8, 0.8); }
+.pdf-page :deep(.pdf-hl-foreign.pdf-hl-green) { border-color: rgba(34, 197, 94, 0.8); }
+.pdf-page :deep(.pdf-hl-foreign.pdf-hl-blue) { border-color: rgba(59, 130, 246, 0.8); }
+.pdf-page :deep(.pdf-hl-foreign.pdf-hl-pink) { border-color: rgba(236, 72, 153, 0.8); }
+
 /* Transient region highlight (non-persisted, mirrors the Markdown anchor flash). */
 .pdf-page :deep(.pdf-region-flash) {
   position: absolute; z-index: 3; pointer-events: none;
@@ -1470,7 +1703,24 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
 
 /* Stable PDF selection translation; positioned in .pdf-viewer-root coordinates. */
 .pdf-sel-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.pdf-capture-menu { transform: translateX(-100%); }
+.pdf-hl-swatch {
+  width: 16px; height: 16px; margin: 0 2px; border-radius: 9999px; cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.15); padding: 0;
+}
+.pdf-hl-swatch:hover { transform: scale(1.12); }
+.pdf-hl-swatch-active { box-shadow: 0 0 0 2px var(--popover), 0 0 0 3.5px var(--foreground); }
+.pdf-hl-swatch-yellow { background: rgb(250, 204, 21); }
+.pdf-hl-swatch-green { background: rgb(74, 222, 128); }
+.pdf-hl-swatch-blue { background: rgb(96, 165, 250); }
+.pdf-hl-swatch-pink { background: rgb(244, 114, 182); }
+.pdf-sel-sep { width: 1px; align-self: stretch; margin: 2px 3px; background: var(--border); }
+.pdf-capture-sel {
+  position: absolute; z-index: 30; pointer-events: none;
+  outline: 2px solid var(--primary); outline-offset: 0; border-radius: 2px;
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+}
+/* Centered under the highlighted region; it lives inside the page so it scrolls with it. */
+.pdf-capture-menu { top: calc(100% + 6px); left: 50%; pointer-events: auto; cursor: default; }
 .pdf-ask-panel { max-height: min(420px, calc(100% - 16px)); }
 .pdf-ask-body { display: flex; flex-direction: column; gap: 8px; }
 .pdf-ask-quote {
