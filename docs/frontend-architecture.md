@@ -145,7 +145,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 - 路由 `/open/arxiv/:arxiv_id(.*)?token=<token>`（`views/OpenArxiv.vue`，`(.*)` 让旧式 id `hep-th/9901001` 保持为一个参数）。浏览器插件（`packages/browser-extension/`，见 `docs/browser-extension.md`）在 arxiv / Hugging Face / alphaXiv 页面一键打开该路径。
 - 页面调用 `POST /api/papers/open-arxiv { arxiv_id, token }`：不存在则创建（与方式一相同的 ingest 流程，自动触发服务）、存在则复用，随后 `router.replace` 到 `/papers/:id`，带 token 的 URL 不留在历史记录中。
-- 路由**不**设置 `requiresAuth`（守卫会跳回 `/` 丢失目标）；未登录时页面自行弹出登录框，登录成功后自动继续。token 无效 / id 无效时在页面内显示错误和返回列表链接，不创建论文。
+- 路由**不**设置 `requiresAuth`（守卫会跳回 `/` 丢失目标）；未登录时 App 显示整页登录页（登录墙），登录成功后路由原样渲染、自动继续。token 无效 / id 无效时在页面内显示错误和返回列表链接，不创建论文。
 - token 是每用户的 CSRF token：仅凭 token 无法操作（还需会话 cookie），用于防止第三方页面用链接诱导已登录用户创建论文。在 **Account settings → Browser Extension** 查看站点地址与 token（复制 / 重新生成）。
 - 生产托管：`frontend_hosting.ts` 对 `/open/` 前缀豁免「带扩展名即视为静态文件」规则（`2401.12345` 看起来像扩展名），保证该路径返回 SPA 入口。
 
@@ -929,12 +929,13 @@ models:
 
 ### 5.1 会话登录（取代 HTTP Basic Auth）
 
-网站 `/api/*` 改用**应用内会话登录**，支持"未登录只读 + 登录后操作 + 在线改密 / 用户名 + 角色区分"。
+网站 `/api/*` 改用**应用内会话登录**。**全站仅限成员**：未登录什么都看不到（只有登录 / 注册页；例外是已发布笔记的链接和图床 `/image/*`），支持自助注册 + 管理员审核、在线改密 / 用户名、角色区分。
 
-- **用户存储**：用户账户存于数据库 `users` 表（`id`、`username` 唯一、`nickname` 可空且可重复、`password_hash`、`role`、`created_at`），不再使用 `config.yml` 的 `auth.users`（该字段已弃用）。密码用 `Bun.password`（argon2id）哈希。
-- **首启 seeding**：数据库无用户时，自动创建 `admin`（随机强密码），并在**服务器日志打印明文密码一次**。仅支持登录、不支持注册——新用户由管理员添加。
-- **会话**：登录成功后写 `sessions` 表（随机不透明 token + 30 天过期）并下发 httpOnly cookie `paperland_session`（`SameSite=Lax; Path=/`）。前端 `fetch` 同源自动携带；401 时自动弹出登录框。
-- **角色**：`admin` 与 `user` 两种。管理员可管理用户（增 / 改角色 / 重置密码，**不支持删除**，且不能降级最后一个 admin）。
+- **用户存储**：用户账户存于数据库 `users` 表（`id`、`username` 唯一、`nickname` 可空且可重复、`password_hash`、`role`、`status`（`active` | `pending`，默认 `active`，迁移 0036）、`created_at`），不再使用 `config.yml` 的 `auth.users`（该字段已弃用）。密码用 `Bun.password`（argon2id）哈希。
+- **首启 seeding**：数据库无用户时，自动创建 `admin`（随机强密码），并在**服务器日志打印明文密码一次**。管理员创建的用户直接 `active`。
+- **自助注册 + 审核**：`POST /api/auth/register { username, password, nickname? }`（免登录；用户名去首尾空格、≤64 字符，重名 409；`config.yml` `auth.registration_enabled: false` 时 403）建一个 `role=user`、`status=pending` 的账号，**不登录、不发 cookie**。pending 账号登录时密码正确返回 `403 ACCOUNT_PENDING`（密码错误仍是通用 401，不泄露谁在待审核）；会话也只解析 `active` 账号。管理员在 Settings 审核：`POST /api/users/:id/approve` 置 `active` 并在此时放入初始论文（Attention）；`DELETE /api/users/:id` 拒绝 = 删除该 pending 账号（用户名释放；`active` 账号删除返回 400）。
+- **会话**：登录成功后写 `sessions` 表（随机不透明 token + 30 天过期）并下发 httpOnly cookie `paperland_session`（`SameSite=Lax; Path=/`）。前端 `fetch` 同源自动携带；401 时清空本地用户，界面切回登录页。
+- **角色**：`admin` 与 `user` 两种。管理员可管理用户（增 / 改角色 / 重置密码 / 审核注册，只能删除 pending 账号，且不能降级最后一个 admin）。
 - **开发期免登录**：`config.yml` `auth.enabled: false` 时跳过登录，所有 `/api/*` 以 admin 身份访问（本地开发用，启动会打印警告）；`true`（默认）启用会话登录与下方分层。
 
 #### 接口
@@ -943,23 +944,29 @@ models:
 |------|------|------|
 | POST | `/api/auth/login` | 公开。校验后建会话、下发 cookie |
 | POST | `/api/auth/logout` | 删会话、清 cookie |
-| GET | `/api/auth/me` | 公开。返回 `{ user }`（未登录为 `null`，不 401） |
+| POST | `/api/auth/register` | 公开。自助注册，建 pending 账号（见上） |
+| GET | `/api/auth/me` | 公开。返回 `{ user, registration_enabled }`（未登录 `user` 为 `null`，不 401） |
 | PATCH | `/api/auth/me` | 改本人用户名 / 昵称 / 密码（改密需校验 `current_password`；`nickname` 去首尾空格，空串清除，>32 字符 400） |
-| GET/POST/PATCH | `/api/users` `/api/users/:id` | **仅 admin**。列表 / 新建 / 改角色 / 改昵称 / 重置密码 |
+| GET/POST/PATCH | `/api/users` `/api/users/:id` | **仅 admin**。列表（含 `status`）/ 新建 / 改角色 / 改昵称 / 重置密码 |
+| POST | `/api/users/:id/approve` | **仅 admin**。通过注册（pending → active + 初始论文；已 active 为 no-op） |
+| DELETE | `/api/users/:id` | **仅 admin**。拒绝注册 = 删除 pending 账号；active 账号 400 |
 
-### 5.2 访问分层（三级矩阵）
+### 5.2 访问分层（登录墙）
 
-身份在请求钩子统一解析（注入 `request.user`），授权由各路由的 `requireUser` / `requireAdmin` preHandler 强制：
+身份与登录墙都在全局 `onRequest` 钩子（`auth/identity_hook.ts`）里处理：解析 `request.user` 后，**匿名请求只放行白名单**（按「方法 + 路由模式」匹配），其余 `/api/*` 一律在钩子里直接 401（路由 handler 不会执行）；不存在的路由仍走 404。管理员权限仍由各路由 `requireAdmin` 检查。`/external-api/*` 只认 Bearer Token，不受登录墙影响；`/image/*`（图床）与前端静态资源不在 `/api` 下，保持公开。
 
 | 层级 | 范围 |
 |------|------|
-| **公开（免登录）** | 论文列表 / 详情、模板问答（template Q&A）、PDF / 查看器、`/api/health`、`login`、`me`、**公开笔记读**（`GET /api/papers/:id/public-notes`、`GET /api/notes/:noteId` 公开/属主/管理员）、`GET /api/notes?scope=all`（匿名得公开部分） |
-| **公开但按 viewer 过滤** | `GET /api/papers/:id/qa`（template 全量；free 默认 mine，登录用户可显式 all；匿名无 free）、`GET /api/highlights`、`GET /api/papers/:id/tags`（匿名返回空、200）、`GET /api/papers/:id/note`（仅本人、含 `is_public`） |
-| **需登录（任意用户）** | 增 / 改 / 删论文、所有问答触发与重生成、高亮增改删、标签管理、`/qa` 列表、单篇论文服务状态 / 触发、改本人账户 |
+| **匿名可访问（白名单）** | `GET /api/health`、`POST /api/auth/login`、`POST /api/auth/register`、`GET /api/auth/me`、`GET /api/notes/:noteId`（匿名只返回已发布笔记，其余 404）；另有 `/api` 之外的 `/image/*` |
+| **需登录（任意用户）** | 其余全部 `/api/*`：论文列表 / 详情、问答、PDF（`/api/files/*`）、会议、模板、笔记、高亮、标签、翻译、图床上传…… |
 | **仅管理员** | 服务管理 Dashboard（`/api/services*`）、设置页 Token 管理（`/api/settings/tokens*`）、用户管理（`/api/users*`） |
 
-- 前端路由守卫：受限路由未登录弹登录框、非管理员访问管理员页提示无权限。
-- 侧边栏：未登录仍展示全部按钮（保持美观），点击受限项弹"需要登录"提示；登录后显示账户菜单（昵称 / 用户名、改名改昵称改密、登出）。
+- 各路由里原有的「匿名返回空 / 仅模板」分支保留但已不可达（匿名到不了这些路由）。
+- **`/api/files/*`**（`api/files.ts`，PDF 查看器）：需登录，且只服务**解析后位于项目 `data/` 目录内、扩展名为 `.pdf`** 的文件（论文 PDF `data/pdfs/…`、doc2x 译文 `data/doc2x/…/*.pdf`）；越界路径（`..`、绝对路径）、数据库 / 配置等非 PDF 一律 404。缓存头为 `private`。
+- **前端门禁**（`App.vue`）：`auth.loaded` 之前什么都不渲染（不发业务请求）；未登录时整页显示 `components/AuthScreen.vue`（Log in / Register 两个 tab，注册关闭时只有 Log in；注册成功提示等待管理员审核并切回登录；pending 账号登录显示「awaiting admin approval」），不渲染侧边栏和页面。登录成功只是设置用户，原本请求的路由随即渲染。路由守卫对匿名直接放行（由 App 挡住），只负责非管理员访问管理员页的拦截；登录后若当前路由是管理员页而用户不是管理员，跳回 `/`。
+- **已发布笔记链接**：匿名打开 `/papers/:id?note=:noteId` 时渲染 `components/notes/PublicNoteStandalone.vue`——只拉 `GET /api/notes/:noteId`，显示论文标题、作者显示名、日期和只读笔记（复用 `PublicNoteView`），右上角 Log in；笔记不可读（未发布 / 已删）或点 Log in 时切到登录页。登录用户打开同一链接仍走论文详情页右栏自动展开的原逻辑。
+- **审核入口**：Settings 用户表把 pending 账号排在最前（`Pending` 徽标），操作列为 Approve / Reject（Reject 先 `confirm`）。管理员侧边栏 Settings 图标右上角显示待审核数量（`composables/usePendingRegistrations.ts` 共享计数：App 在确认是管理员后拉一次，Settings 每次刷新用户表时更新）。
+- 侧边栏：登录后显示账户菜单（昵称 / 用户名、改名改昵称改密、登出）。
 
 ### 5.3 数据归属与多用户可见性
 

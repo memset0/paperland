@@ -2,7 +2,9 @@
 
 ## Purpose
 Authentication and authorization for Paperland. HTTP Basic Auth (optionally disabled) for website `/api/*` routes, Bearer Token auth for `/external-api/*` routes.
+
 ## Requirements
+
 ### Requirement: Auth enabled toggle in config
 The `auth` section in `config.yml` SHALL support an `enabled` field (boolean, default `true`). When `enabled` is `true` (or omitted), the website SHALL use session-based login with the tiered access model. When `enabled` is `false`, the website SHALL bypass login and treat every `/api/*` request as an authenticated admin (development convenience).
 
@@ -70,18 +72,22 @@ The Internal API SHALL provide an admin-only endpoint to list all API tokens wit
 - **THEN** the server SHALL return all tokens with the token value partially masked (e.g., "sk-xxxx...xxxx") and the owning user
 
 ### Requirement: Authorization tiers for website API
-The website Internal API SHALL enforce three access tiers. Public endpoints SHALL be reachable without authentication; login-required endpoints SHALL require an authenticated user; admin-only endpoints SHALL require the `admin` role. `/external-api/*` SHALL remain governed solely by Bearer Token auth and SHALL NOT be subject to website session auth. Identity SHALL be resolved once per request; authorization SHALL be enforced per route.
+The website Internal API SHALL require an authenticated, active user for every `/api/*` request, except for this anonymous allowlist: `GET /api/health`, `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me`, and `GET /api/notes/:noteId` (which still only returns published notes to anonymous callers). Any other `/api/*` request without a session SHALL be rejected with 401 before the route runs. Within the authenticated tier, admin-only endpoints SHALL additionally require the `admin` role. `/external-api/*` SHALL remain governed solely by Bearer Token auth and SHALL NOT be subject to website session auth. `/image/*` (image host) SHALL stay public. Identity SHALL be resolved once per request.
 
-- **Public (no login):** `GET /api/health`; `GET /api/papers`; `GET /api/papers/:id`; `GET /api/templates`; `GET /api/files/*`; `POST /api/auth/login`; `GET /api/auth/me`. Owner-scoped reads (`GET /api/papers/:id/qa`, `GET /api/highlights`, `GET /api/papers/:id/tags`) are reachable anonymously but return only public/template data plus the current user's private rows (empty when anonymous).
-- **Login required (any authenticated user):** creating/editing/deleting papers and `PUT /api/papers/:id/tags`; all QA generation/regeneration/result-deletion (`/api/papers/:id/qa/*`, `/api/qa/*`); highlight create/update/delete; tag management (`/api/tags*`); `GET /api/qa/free`; `GET /api/config/models`; per-paper service status/trigger (`/api/papers/:id/services*`); `POST /api/auth/logout`; `PATCH /api/auth/me`.
+- **Anonymous allowlist:** as listed above.
+- **Login required (any authenticated user):** everything else under `/api/*` that is not admin-only, including paper list/detail, Q&A, PDFs (`/api/files/*`), conferences, templates, notes, highlights, tags.
 - **Admin only:** the global Services dashboard (`GET /api/services`, `GET /api/services/executions`); token management (`/api/settings/tokens*`); user management (`/api/users*`).
 
 #### Scenario: Anonymous reads public paper data
-- **WHEN** an anonymous client calls `GET /api/papers` or `GET /api/papers/:id`
-- **THEN** the request SHALL succeed and return paper data
+- **WHEN** an anonymous client calls `GET /api/papers`, `GET /api/papers/:id`, `GET /api/templates`, or `GET /api/conferences`
+- **THEN** the server SHALL respond with 401 Unauthorized
+
+#### Scenario: Anonymous allowlist reachable
+- **WHEN** an anonymous client calls `GET /api/auth/me`, `POST /api/auth/login`, `POST /api/auth/register`, or `GET /api/notes/:noteId` for a published note
+- **THEN** the request SHALL reach its handler and behave as specified for anonymous callers
 
 #### Scenario: Anonymous write rejected
-- **WHEN** an anonymous client calls a login-required endpoint such as `POST /api/papers` or `POST /api/papers/:id/qa/free`
+- **WHEN** an anonymous client calls a write endpoint such as `POST /api/papers` or `POST /api/papers/:id/qa/free`
 - **THEN** the server SHALL respond with 401 Unauthorized
 
 #### Scenario: Non-admin blocked from admin endpoints
@@ -96,10 +102,17 @@ The website Internal API SHALL enforce three access tiers. Public endpoints SHAL
 - **WHEN** an `/external-api/*` request presents a valid Bearer Token but no session cookie
 - **THEN** the request SHALL be allowed (governed by token auth, not website session auth)
 
-### Requirement: Public read access without login
-Anonymous visitors SHALL be able to browse papers and view template Q&A and the paper viewers, but SHALL NOT be able to perform any write or LLM-triggering action.
+#### Scenario: Image host stays public
+- **WHEN** an anonymous client requests an existing `/image/<hash>` file
+- **THEN** the image SHALL be served without login
 
-#### Scenario: Anonymous views template QA
-- **WHEN** an anonymous visitor opens a paper detail page
-- **THEN** the paper's basic fields, template Q&A results, and viewers SHALL be visible, while free QA, highlights, and tags SHALL NOT be visible and action controls SHALL prompt for login
+### Requirement: PDF file serving confined to data directory
+`GET /api/files/*` SHALL require login (through the website login wall) and SHALL serve a file only when its resolved path lies inside the project `data/` directory and has a `.pdf` extension. Any other path — outside `data/` (including `..` traversal or absolute paths), a non-PDF file such as the database, or a missing file — SHALL respond 404.
 
+#### Scenario: Paper PDF served
+- **WHEN** a logged-in user requests `/api/files/data%2Fpdfs%2F<file>.pdf` for an existing file
+- **THEN** the PDF SHALL be served
+
+#### Scenario: Traversal or non-PDF rejected
+- **WHEN** a logged-in user requests `/api/files/..%2Fconfig.yml` or `/api/files/data%2Fpaperland.db`
+- **THEN** the server SHALL respond 404

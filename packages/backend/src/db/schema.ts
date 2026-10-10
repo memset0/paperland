@@ -8,6 +8,8 @@ export const users = sqliteTable('users', {
   nickname: text('nickname'),
   password_hash: text('password_hash').notNull(),
   role: text('role').notNull().default('user'), // 'admin' | 'user'
+  // 'active' | 'pending' — self-registered accounts start pending until an admin approves them.
+  status: text('status').notNull().default('active'),
   // Per-user CSRF token for the arxiv quick-open link (browser extension); lazily generated.
   open_token: text('open_token'),
   created_at: text('created_at').notNull(),
@@ -237,8 +239,6 @@ export const paperCitations = sqliteTable('paper_citations', {
   index('paper_citations_paper_dir_idx').on(table.paper_id, table.direction),
 ])
 
-// Translation cache: one row per (source-text content hash, target language). The English→Chinese
-// translation of a piece of text is cached here and shared across ALL users (no user_id), so the
 // Semantic Scholar metadata cache for papers referenced anywhere (e.g. `#cite:` links), independent
 // of the library. status = 'ok' (metadata present) | 'not_found' (negative entry: S2 has no record).
 // A row has at least one of s2_paper_id / corpus_id; not_found rows keep only the id that was asked.
@@ -265,6 +265,8 @@ export const s2Papers = sqliteTable('s2_papers', {
   created_at: text('created_at').notNull(),
 })
 
+// Translation cache: one row per (source-text content hash, target language). The English→Chinese
+// translation of a piece of text is cached here and shared across ALL users (no user_id), so the
 // same text is never translated twice. "Re-translate" overwrites the existing row in place.
 export const translations = sqliteTable('translations', {
   id: integer('id').primaryKey({ autoIncrement: true }),

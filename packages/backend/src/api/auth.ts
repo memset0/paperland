@@ -6,6 +6,13 @@ import { normalizeNickname } from '../auth/nickname.js'
 import { requireUser } from '../auth/guards.js'
 import { getOrCreateOpenToken, regenerateOpenToken } from '../auth/open_token.js'
 import type { SessionUser } from '@paperland/shared'
+import { getConfig } from '../config.js'
+
+const USERNAME_MAX_LENGTH = 64
+
+function registrationEnabled(): boolean {
+  try { return getConfig().auth.registration_enabled } catch { return true }
+}
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/auth/login — public
@@ -20,6 +27,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !ok) {
       // Do not reveal whether the username or the password was wrong.
       return reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Invalid username or password' } })
+    }
+    // Only after the password checks out, so pending usernames aren't revealed to strangers.
+    if (user.status !== 'active') {
+      return reply.code(403).send({ error: { code: 'ACCOUNT_PENDING', message: 'Your account is awaiting admin approval' } })
     }
     const token = createSession(user.id)
     reply.setCookie(SESSION_COOKIE, token, {
@@ -40,9 +51,42 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { success: true }
   })
 
+  // POST /api/auth/register — public self-registration. Creates a `pending` account (no session);
+  // an admin approves it in Settings before it can log in. 403 when auth.registration_enabled is off.
+  app.post<{ Body: { username?: string; password?: string; nickname?: string | null } }>('/api/auth/register', async (request, reply) => {
+    if (!registrationEnabled()) {
+      return reply.code(403).send({ error: { code: 'REGISTRATION_DISABLED', message: 'Registration is disabled' } })
+    }
+    const { password, nickname } = request.body || {}
+    const username = typeof request.body?.username === 'string' ? request.body.username.trim() : ''
+    if (!username || typeof password !== 'string' || !password) {
+      return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: 'username and password are required' } })
+    }
+    if (username.length > USERNAME_MAX_LENGTH) {
+      return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: `Username must be at most ${USERNAME_MAX_LENGTH} characters` } })
+    }
+    const normalized = normalizeNickname(nickname ?? null)
+    if ('error' in normalized) {
+      return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: normalized.error } })
+    }
+    const db = getDatabase()
+    if (db.select().from(schema.users).where(eq(schema.users.username, username)).get()) {
+      return reply.code(409).send({ error: { code: 'USERNAME_CONFLICT', message: 'Username already taken' } })
+    }
+    const created = db.insert(schema.users).values({
+      username,
+      nickname: normalized.value,
+      password_hash: Bun.password.hashSync(password),
+      role: 'user',
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    }).returning().get()
+    return reply.code(201).send({ user: { id: created.id, username: created.username, nickname: created.nickname, status: created.status } })
+  })
+
   // GET /api/auth/me — public, returns null user when anonymous (never 401)
   app.get('/api/auth/me', async (request) => {
-    return { user: request.user ?? null }
+    return { user: request.user ?? null, registration_enabled: registrationEnabled() }
   })
 
   // GET /api/auth/open-token — the current user's quick-open (CSRF) token for the

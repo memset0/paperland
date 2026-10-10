@@ -1,20 +1,4 @@
-# session-login Specification
-
-## Purpose
-TBD - created by archiving change add-user-auth. Update Purpose after archive.
-
-## Requirements
-
-### Requirement: Session-based website authentication
-The website `/api/*` routes SHALL authenticate via an opaque session stored in a `sessions` table (`id` text primary key holding a random token, `user_id` referencing `users.id`, `created_at`, `expires_at`) together with an httpOnly cookie named `paperland_session` carrying the session id. The cookie SHALL be set with `HttpOnly`, `SameSite=Lax`, and `Path=/`.
-
-#### Scenario: Identity resolved from session cookie
-- **WHEN** a request carries a valid, non-expired `paperland_session` cookie
-- **THEN** the system SHALL resolve the associated user and treat the request as authenticated as that user
-
-#### Scenario: Missing or invalid cookie is anonymous
-- **WHEN** a request has no `paperland_session` cookie, or one that does not match any session
-- **THEN** the system SHALL treat the request as anonymous (not authenticated)
+## MODIFIED Requirements
 
 ### Requirement: Login endpoint
 `POST /api/auth/login` SHALL accept `{ username, password }`, verify the credentials against the `users` table, and on success for an `active` account SHALL create a session row and set the `paperland_session` cookie. On failure it SHALL respond 401 without revealing whether the username or the password was incorrect. For a `pending` account with correct credentials it SHALL respond 403 `ACCOUNT_PENDING` without creating a session.
@@ -31,13 +15,6 @@ The website `/api/*` routes SHALL authenticate via an opaque session stored in a
 - **WHEN** `POST /api/auth/login` is called with the correct credentials of a pending account
 - **THEN** the system SHALL respond 403 with code `ACCOUNT_PENDING` and SHALL NOT create a session
 
-### Requirement: Logout endpoint
-`POST /api/auth/logout` SHALL delete the current session row and clear the `paperland_session` cookie.
-
-#### Scenario: Logout clears session
-- **WHEN** an authenticated user calls `POST /api/auth/logout`
-- **THEN** the session SHALL be deleted, the cookie cleared, and subsequent requests SHALL be anonymous
-
 ### Requirement: Current user endpoint
 `GET /api/auth/me` SHALL return the current authenticated user (`id`, `username`, `role`) or a null user when not authenticated, together with `registration_enabled` (boolean, from `auth.registration_enabled`), and SHALL NOT respond 401 for anonymous callers.
 
@@ -48,35 +25,6 @@ The website `/api/*` routes SHALL authenticate via an opaque session stored in a
 #### Scenario: Anonymous caller
 - **WHEN** an anonymous client calls `GET /api/auth/me`
 - **THEN** the response SHALL indicate no user (e.g., `{ "user": null, "registration_enabled": true }`) with HTTP 200
-
-### Requirement: Session expiry
-Sessions SHALL have an expiry (default 30 days from creation). A request presenting an expired or unknown session SHALL be treated as anonymous.
-
-#### Scenario: Expired session treated as anonymous
-- **WHEN** a request carries a `paperland_session` cookie whose session `expires_at` is in the past
-- **THEN** the system SHALL treat the request as anonymous and MAY remove the stale session row
-
-### Requirement: Development bypass when auth disabled
-When `config.yml` `auth.enabled` is `false`, the system SHALL bypass session login and treat every `/api/*` request as an authenticated admin (development convenience), and SHALL log a startup warning that authentication is bypassed.
-
-#### Scenario: Auth disabled bypasses login
-- **WHEN** `auth.enabled` is `false`
-- **THEN** all `/api/*` requests SHALL be permitted as an admin without any cookie, and a warning SHALL be logged at startup
-
-#### Scenario: Auth enabled requires login
-- **WHEN** `auth.enabled` is `true` (or omitted)
-- **THEN** session-based authentication and the authorization tiers SHALL apply
-
-### Requirement: Frontend authentication state
-The frontend SHALL maintain authentication state in a Pinia store that loads `GET /api/auth/me` on application startup and exposes at least `isAuthenticated`, `isAdmin`, and the current user, plus actions for login, logout, and account update.
-
-#### Scenario: State loaded on startup
-- **WHEN** the app loads
-- **THEN** the auth store SHALL call `GET /api/auth/me` and populate the current user (or null)
-
-#### Scenario: State updates after login and logout
-- **WHEN** the user logs in or out
-- **THEN** the store SHALL update `isAuthenticated`/`isAdmin` and the UI SHALL reflect the new state without a full reload
 
 ### Requirement: Route guards for restricted pages
 Every frontend route SHALL require authentication, and `/services`, `/settings` and `/translation-test` SHALL additionally require the `admin` role. When the visitor is anonymous, the app SHALL render a full-page Login / Register screen instead of the app shell (no sidebar, no page content), for any route; after a successful login the originally requested route SHALL render. The only exception is a published-note link (`/papers/:id?note=:noteId`), which renders the standalone public note view (see `public-notes`). When a non-admin navigates to an admin-only route, the system SHALL indicate the page requires admin.

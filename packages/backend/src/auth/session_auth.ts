@@ -50,7 +50,8 @@ export function resolveSessionUser(request: FastifyRequest): SessionUser | null 
     return null
   }
   const user = db.select().from(schema.users).where(eq(schema.users.id, session.user_id)).get()
-  return user ? toSessionUser(user) : null
+  // Only active accounts have a usable session (pending accounts never get one; defense in depth).
+  return user && user.status === 'active' ? toSessionUser(user) : null
 }
 
 // Dev-bypass identity: the lowest-id admin (memoized). Using a real user keeps

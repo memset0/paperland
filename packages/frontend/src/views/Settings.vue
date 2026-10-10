@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { usersApi } from '@/api/client'
 import type { User, UserRole } from '@paperland/shared'
 import { toast } from 'vue-sonner'
-import { Key, Plus, Trash2, Copy, Check, Users, ShieldCheck, Shield, KeyRound, Pencil } from '@lucide/vue'
+import { Key, Plus, Trash2, Copy, Check, Users, ShieldCheck, Shield, KeyRound, Pencil, UserCheck, UserX } from '@lucide/vue'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import AppPage from '@/components/AppPage.vue'
+import { usePendingRegistrations } from '@/composables/usePendingRegistrations'
 
 const store = useSettingsStore()
 const newToken = ref<string | null>(null)
@@ -22,8 +23,34 @@ const copied = ref(false)
 
 // ── Users ──
 const users = ref<User[]>([])
+const { setPendingCount } = usePendingRegistrations()
 async function fetchUsers() {
-  try { users.value = (await usersApi.list()).data } catch {}
+  try {
+    users.value = (await usersApi.list()).data
+    setPendingCount(users.value.filter((u) => u.status === 'pending').length)
+  } catch {}
+}
+// Pending self-registrations first (oldest first), then everyone else in id order.
+const sortedUsers = computed(() => [
+  ...users.value.filter((u) => u.status === 'pending'),
+  ...users.value.filter((u) => u.status !== 'pending'),
+])
+
+async function approve(u: User) {
+  try {
+    await usersApi.approve(u.id)
+    toast.success(`Approved ${u.username}`)
+    await fetchUsers()
+  } catch { /* handled */ }
+}
+
+async function reject(u: User) {
+  if (!window.confirm(`Reject the registration of "${u.username}"? The request will be deleted.`)) return
+  try {
+    await usersApi.reject(u.id)
+    toast.success(`Rejected ${u.username}`)
+    await fetchUsers()
+  } catch { /* handled */ }
 }
 
 const showCreate = ref(false)
@@ -123,8 +150,11 @@ function copyToken() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow v-for="u in users" :key="u.id">
-            <TableCell class="font-medium">{{ u.username }}</TableCell>
+          <TableRow v-for="u in sortedUsers" :key="u.id" :class="u.status === 'pending' && 'bg-amber-500/5'">
+            <TableCell class="font-medium">
+              {{ u.username }}
+              <Badge v-if="u.status === 'pending'" variant="outline" class="ml-1.5 border-amber-500/50 text-amber-600 dark:text-amber-400">Pending</Badge>
+            </TableCell>
             <TableCell class="text-sm" :class="!u.nickname && 'text-muted-foreground'">{{ u.nickname || '—' }}</TableCell>
             <TableCell>
               <Badge :variant="u.role === 'admin' ? 'default' : 'secondary'" class="gap-1">
@@ -134,7 +164,11 @@ function copyToken() {
               </Badge>
             </TableCell>
             <TableCell class="text-xs text-muted-foreground">{{ new Date(u.created_at).toLocaleString() }}</TableCell>
-            <TableCell class="text-right space-x-1">
+            <TableCell v-if="u.status === 'pending'" class="text-right space-x-1">
+              <Button size="xs" @click="approve(u)"><UserCheck />Approve</Button>
+              <Button variant="ghost" size="xs" class="text-destructive" @click="reject(u)"><UserX />Reject</Button>
+            </TableCell>
+            <TableCell v-else class="text-right space-x-1">
               <Button variant="ghost" size="xs" @click="toggleRole(u)">
                 {{ u.role === 'admin' ? '改为普通' : '设为管理员' }}
               </Button>

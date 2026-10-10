@@ -178,6 +178,7 @@ users
   open_token      text      nullable          // 浏览器插件快捷打开的每用户 CSRF token（首次请求时生成，可重新生成）
   created_at      text      not null
 
+  status          text      not null default 'active'  // "active" | "pending"（自助注册待审核，不能登录；迁移 0036）
 sessions
   id              text      primary key       // 随机不透明 token（httpOnly cookie）
   user_id         integer   → users.id, not null
@@ -364,7 +365,8 @@ database:
 
 # 认证（会话登录；用户存于数据库 users 表，不再使用 config 凭据）
 auth:
-  enabled: true                       # true=会话登录+三级分层；false=开发期免登录（请求视为 admin）
+  enabled: true                       # true=会话登录 + 登录墙（未登录只能登录/注册、看已发布笔记与图床）；false=开发期免登录（请求视为 admin）
+  registration_enabled: true          # 登录页自助注册（建 pending 账号，管理员在 Settings 审核）；false=关闭，POST /api/auth/register 返回 403
   # users: 已弃用 —— 用户改存数据库。首次启动若无用户会自动创建 admin
   #        并把随机初始密码打印到服务器日志（仅一次）。新用户由管理员在设置页添加。
 

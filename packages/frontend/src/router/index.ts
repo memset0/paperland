@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { FileText, MessageSquare, Activity, Settings, Tag, NotebookPen, Image as ImageIcon, Languages, Puzzle, Telescope } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
-import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { formatTitle } from '@/composables/usePageTitle'
 
 const routes = [

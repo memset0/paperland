@@ -5,8 +5,6 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve, sep } from 'path'
 import { loadConfig, getConfig } from './config.js'
 import { initDatabase } from './db/index.js'
-import { tokenAuth } from './auth/token_auth.js'
-import { resolveSessionUser, getDevAdmin } from './auth/session_auth.js'
 import { authRoutes } from './api/auth.js'
 import { sharingRoutes } from './api/sharing.js'
 import { userRoutes } from './api/users.js'
@@ -26,6 +24,8 @@ import { tagRoutes } from './api/tags.js'
 import { externalPaperRoutes } from './external-api/papers.js'
 import { externalTagRoutes } from './external-api/tags.js'
 import { startBackupScheduler } from './db/backup.js'
+import { identityHook } from './auth/identity_hook.js'
+import { fileRoutes } from './api/files.js'
 import { getDatabase, schema } from './db/index.js'
 import { inArray } from 'drizzle-orm'
 import { serviceRunner } from './services/service_runner.js'
@@ -102,38 +102,10 @@ async function main() {
   // External API health check (requires token auth — validates both connectivity and token)
   app.get('/external-api/v1/health', async () => ({ status: 'ok' }))
 
-  // Identity resolution hook. Authorization is enforced per-route via
-  // requireUser / requireAdmin preHandlers; this hook only attaches request.user.
-  app.addHook('onRequest', async (request, reply) => {
-    // Health check is always public
-    if (request.url === '/api/health') return
+  // Identity resolution + login wall (see auth/identity_hook.ts); admin checks stay per route.
+  app.addHook('onRequest', identityHook)
 
-    // External API uses Bearer token auth (resolves the token's owning user)
-    if (request.url.startsWith('/external-api/')) {
-      await tokenAuth(request, reply)
-      return
-    }
-
-    // Website API: when auth is enabled, resolve the session user (may be null);
-    // when disabled (dev bypass), act as the admin user.
-    if (request.url.startsWith('/api/')) {
-      request.user = getConfig().auth.enabled ? resolveSessionUser(request) : getDevAdmin()
-      return
-    }
-  })
-
-  // File serving for PDF viewer
-  app.get<{ Params: { '*': string } }>('/api/files/*', async (request, reply) => {
-    const filePath = resolve(process.cwd(), decodeURIComponent(request.params['*']))
-    if (!existsSync(filePath)) {
-      reply.code(404).send({ error: 'File not found' })
-      return
-    }
-    const buffer = readFileSync(filePath)
-    reply.header('Content-Type', 'application/pdf')
-    reply.header('Cache-Control', 'public, max-age=86400')
-    return reply.send(buffer)
-  })
+  await app.register(fileRoutes)
 
   // Public image host serving — NO auth by design (any holder of the link can view).
   // Lives outside /api/* so the identity hook leaves it open. Content-addressed files are

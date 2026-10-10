@@ -253,6 +253,13 @@
       "when": 1791587681054,
       "tag": "0035_drop_conferences",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1791588909632,
+      "tag": "0036_user_status",
+      "breakpoints": true
     }
   ]
 }

@@ -6,11 +6,11 @@ TBD - created by archiving change add-user-auth. Update Purpose after archive.
 ## Requirements
 
 ### Requirement: User account data model
-The system SHALL store user accounts in a `users` table with fields: `id` (autoincrement primary key), `username` (text, unique), `nickname` (nullable text, NOT unique), `password_hash` (text), `role` (text, one of `admin` or `user`), and `created_at` (ISO 8601 text). Ownership of user-private data SHALL reference `users.id` (immutable) rather than `username` (mutable), so renaming a user does not affect data ownership. A user's display name SHALL be their `nickname` when set, otherwise their `username`.
+The system SHALL store user accounts in a `users` table with fields: `id` (autoincrement primary key), `username` (text, unique), `nickname` (nullable text, NOT unique), `password_hash` (text), `role` (text, one of `admin` or `user`), `status` (text, one of `active` or `pending`, default `active`), and `created_at` (ISO 8601 text). Ownership of user-private data SHALL reference `users.id` (immutable) rather than `username` (mutable), so renaming a user does not affect data ownership. A user's display name SHALL be their `nickname` when set, otherwise their `username`. Accounts created by an admin or at first startup SHALL be `active`; self-registered accounts SHALL start `pending`.
 
 #### Scenario: User record structure
-- **WHEN** a user account is created
-- **THEN** the record SHALL contain a unique `username`, a hashed `password_hash`, a `role` of `admin` or `user`, a `created_at` timestamp, and a `nickname` of `null`
+- **WHEN** a user account is created by an admin
+- **THEN** the record SHALL contain a unique `username`, a hashed `password_hash`, a `role` of `admin` or `user`, `status` `active`, a `created_at` timestamp, and a `nickname` of `null`
 
 #### Scenario: Username uniqueness enforced
 - **WHEN** an attempt is made to create a user with a `username` that already exists
@@ -54,15 +54,15 @@ On startup, after migrations, if the `users` table contains no rows, the system 
 - **THEN** the system SHALL NOT create another admin and SHALL NOT print any password
 
 ### Requirement: Admin user management API
-The system SHALL provide admin-only Internal API endpoints to list users, create a user (with an initial password and role), update a user's role or nickname, and reset a user's password. The system SHALL NOT provide a user-deletion endpoint.
+The system SHALL provide admin-only Internal API endpoints to list users, create a user (with an initial password and role), update a user's role or nickname, reset a user's password, approve a pending user, and delete (reject) a pending user. The system SHALL NOT allow deleting an active user.
 
 #### Scenario: List users
 - **WHEN** an admin calls `GET /api/users`
-- **THEN** the system SHALL return all users with `id`, `username`, `nickname`, `role`, and `created_at` (no password material)
+- **THEN** the system SHALL return all users with `id`, `username`, `nickname`, `role`, `status`, and `created_at` (no password material)
 
 #### Scenario: Create user
 - **WHEN** an admin calls `POST /api/users` with `{ username, password, role }`
-- **THEN** the system SHALL create the user with a hashed password and return the created user
+- **THEN** the system SHALL create an active user with a hashed password and return the created user
 
 #### Scenario: Change role
 - **WHEN** an admin calls `PATCH /api/users/:id` with `{ role }`
@@ -75,6 +75,10 @@ The system SHALL provide admin-only Internal API endpoints to list users, create
 #### Scenario: Reset password
 - **WHEN** an admin calls `PATCH /api/users/:id` with `{ password }`
 - **THEN** the system SHALL set that user's password to the new hashed value
+
+#### Scenario: Approve and reject pending users
+- **WHEN** an admin calls `POST /api/users/:id/approve` or `DELETE /api/users/:id` on a pending user
+- **THEN** the user SHALL become active, or be deleted, respectively
 
 #### Scenario: Non-admin forbidden
 - **WHEN** a `user`-role account or an anonymous caller accesses any `/api/users` endpoint

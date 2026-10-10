@@ -5,10 +5,10 @@ import { requireAdmin } from '../auth/guards.js'
 import { normalizeNickname } from '../auth/nickname.js'
 import { resetDevAdminCache } from '../auth/session_auth.js'
 import { addStarterPaper } from '../services/user_library.js'
-import type { UserRole } from '@paperland/shared'
+import type { UserRole, UserStatus } from '@paperland/shared'
 
-function publicUser(u: { id: number; username: string; nickname: string | null; role: string; created_at: string }) {
-  return { id: u.id, username: u.username, nickname: u.nickname ?? null, role: u.role as UserRole, created_at: u.created_at }
+function publicUser(u: { id: number; username: string; nickname: string | null; role: string; status: string; created_at: string }) {
+  return { id: u.id, username: u.username, nickname: u.nickname ?? null, role: u.role as UserRole, status: u.status as UserStatus, created_at: u.created_at }
 }
 
 function countAdmins(db: ReturnType<typeof getDatabase>): number {
@@ -91,5 +91,38 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     }
   )
 
-  // Note: user deletion is intentionally NOT supported.
+  // POST /api/users/:id/approve — activate a self-registered (pending) account (admin only).
+  // It gets the starter paper now rather than at registration. Approving an active user is a no-op.
+  app.post<{ Params: { id: string } }>('/api/users/:id/approve', { preHandler: requireAdmin }, async (request, reply) => {
+    const db = getDatabase()
+    const id = parseInt(request.params.id, 10)
+    const user = db.select().from(schema.users).where(eq(schema.users.id, id)).get()
+    if (!user) {
+      return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'User not found' } })
+    }
+    if (user.status !== 'active') {
+      db.update(schema.users).set({ status: 'active' }).where(eq(schema.users.id, id)).run()
+      addStarterPaper(id)
+    }
+    return { data: publicUser(db.select().from(schema.users).where(eq(schema.users.id, id)).get()!) }
+  })
+
+  // DELETE /api/users/:id — reject a pending registration by deleting it (admin only). Active
+  // accounts are never deleted (they own data); a pending one has none — it never had a session.
+  app.delete<{ Params: { id: string } }>('/api/users/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const db = getDatabase()
+    const id = parseInt(request.params.id, 10)
+    const user = db.select().from(schema.users).where(eq(schema.users.id, id)).get()
+    if (!user) {
+      return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'User not found' } })
+    }
+    if (user.status !== 'pending') {
+      return reply.code(400).send({ error: { code: 'USER_ACTIVE', message: 'Only pending registrations can be deleted' } })
+    }
+    db.transaction((tx) => {
+      tx.delete(schema.sessions).where(eq(schema.sessions.user_id, id)).run()
+      tx.delete(schema.users).where(eq(schema.users.id, id)).run()
+    })
+    return { success: true, deleted_id: id }
+  })
 }

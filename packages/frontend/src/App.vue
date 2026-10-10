@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, watchEffect } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { FileText, MessageSquare, Activity, Settings, BookOpen, Menu, Tag, LogIn, CircleUser, NotebookPen, Image as ImageIcon, Sun, Moon, Monitor, Puzzle, Telescope } from '@lucide/vue'
 import { toast } from 'vue-sonner'
@@ -21,6 +21,9 @@ import LoginDialog from '@/components/LoginDialog.vue'
 import AccountDialog from '@/components/AccountDialog.vue'
 import AppVersion from '@/components/AppVersion.vue'
 import NoteWindowHost from '@/components/notes/NoteWindowHost.vue'
+import AuthScreen from '@/components/AuthScreen.vue'
+import PublicNoteStandalone from '@/components/notes/PublicNoteStandalone.vue'
+import { usePendingRegistrations } from '@/composables/usePendingRegistrations'
 
 const route = useRoute()
 const router = useRouter()
@@ -60,12 +63,34 @@ watchEffect(() => {
   }).catch(() => { tiersFetched = false })
 })
 
+// Members-only site: anonymous visitors get the login screen instead of the app. The one exception
+// is a published-note link (`/papers/:id?note=:noteId`), shown standalone; if that note can't be
+// read anonymously (or they click Log in) it falls back to the login screen.
+const noteFallback = ref(false)
+const anonymousNoteId = computed(() => {
+  if (noteFallback.value || !/^\/papers\/\d+$/.test(route.path)) return null
+  const n = Number(route.query.note)
+  return Number.isInteger(n) && n > 0 ? n : null
+})
+// After logging in on the gate, an admin-only route requested anonymously turns a non-admin away.
+watch(() => auth.user, (u) => {
+  if (u && (route.meta as { requiresAdmin?: boolean }).requiresAdmin && u.role !== 'admin') {
+    toast.error('Admin access required')
+    router.replace('/')
+  }
+})
+
+// Sidebar badge on Settings: self-registrations awaiting approval (admins only).
+const { pendingCount, refreshPending } = usePendingRegistrations()
+watch(() => auth.isAdmin, (admin) => { if (admin) refreshPending() }, { immediate: true })
+
 function onResize() { isMobile.value = window.innerWidth < 768 }
 let unsub: (() => void) | null = null
 onMounted(() => {
   window.addEventListener('resize', onResize)
   if (!auth.loaded) auth.fetchMe()
-  unsub = onUnauthorized(() => openLogin())
+  // A 401 means the session is gone: drop the user so the login screen replaces the app.
+  unsub = onUnauthorized(() => auth.clearUser())
 })
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
@@ -130,7 +155,19 @@ async function doLogout() {
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden" :style="bgColor ? { backgroundColor: bgColor } : {}" :class="!bgColor ? 'bg-muted/40' : ''">
+  <!-- Anonymous: login / register screen, or a standalone published note -->
+  <div v-if="auth.loaded && !auth.user" class="h-screen overflow-y-auto bg-muted/40">
+    <Toaster position="top-center" richColors />
+    <PublicNoteStandalone
+      v-if="anonymousNoteId"
+      :key="anonymousNoteId"
+      :note-id="anonymousNoteId"
+      @unavailable="noteFallback = true"
+      @login="noteFallback = true"
+    />
+    <AuthScreen v-else />
+  </div>
+  <div v-else-if="auth.loaded" class="flex h-screen overflow-hidden" :style="bgColor ? { backgroundColor: bgColor } : {}" :class="!bgColor ? 'bg-muted/40' : ''">
     <Toaster position="top-center" richColors />
     <LoginDialog />
     <AccountDialog v-model:open="accountOpen" />
@@ -150,13 +187,18 @@ async function doLogout() {
                 size="icon"
                 :class="isActive(item.path) ? 'bg-accent text-accent-foreground' : ''"
               >
-                <a :href="navHref(item)" @click="onNavClick($event, item)">
+                <a :href="navHref(item)" class="relative" @click="onNavClick($event, item)">
                   <component :is="item.icon" />
+                  <span
+                    v-if="item.path === '/settings' && pendingCount > 0"
+                    class="absolute -top-0.5 -right-0.5 min-w-4 h-4 rounded-full bg-destructive px-1 text-[10px] leading-4 text-white text-center"
+                  >{{ pendingCount }}</span>
                 </a>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
               {{ item.label }}
+              <span v-if="item.path === '/settings' && pendingCount > 0" class="opacity-70">({{ pendingCount }} pending)</span>
               <span v-if="item.requiresAdmin && !auth.isAdmin" class="opacity-70">(Admin only)</span>
               <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="opacity-70">(Login required)</span>
             </TooltipContent>
@@ -242,7 +284,11 @@ async function doLogout() {
                 <a :href="navHref(item)" @click="onNavClick($event, item)">
                   <component :is="item.icon" />
                   {{ item.label }}
-                  <span v-if="item.requiresAdmin && !auth.isAdmin" class="ml-auto text-xs text-muted-foreground">Admin only</span>
+                  <span
+                    v-if="item.path === '/settings' && pendingCount > 0"
+                    class="ml-auto rounded-full bg-destructive px-1.5 text-[10px] leading-4 text-white"
+                  >{{ pendingCount }}</span>
+                  <span v-else-if="item.requiresAdmin && !auth.isAdmin" class="ml-auto text-xs text-muted-foreground">Admin only</span>
                   <span v-else-if="item.requiresAuth && !auth.isAuthenticated" class="ml-auto text-xs text-muted-foreground">Login required</span>
                 </a>
               </Button>

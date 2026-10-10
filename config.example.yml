@@ -18,12 +18,15 @@ database:
 #   user_agent: paperland-link-preview/1.0
 
 auth:
-  # true  = 会话登录 + 三级访问分层（公开只读 / 登录 / 仅管理员）
+  # true  = 会话登录：未登录只能看到登录/注册页（公开笔记链接、图床除外）；登录用户 / 仅管理员两级
   # false = 开发期免登录（所有 /api 以 admin 身份访问）
   enabled: true
   # 'users' 已弃用：用户改存数据库。首次以 enabled:true 启动后端会自动创建 admin，
   # 并把随机初始密码打印到服务器日志（仅一次）；登录后到「账户菜单」改密码。
   # 新用户由管理员在「设置 → 用户管理」页面添加。
+  # 自助注册：未登录用户可在登录页注册，账号为待审核（pending），管理员在「Settings」通过后才能登录。
+  # false = 关闭注册入口（POST /api/auth/register 返回 403），只能由管理员创建用户。
+  registration_enabled: true
 
 services:
   arxiv_metadata_service:
