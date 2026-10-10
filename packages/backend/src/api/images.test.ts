@@ -159,3 +159,28 @@ describe('image routes', () => {
     expect(img.reference_count).toBe(0)
   })
 })
+
+describe('image list scope', () => {
+  it('shows a regular user only their own uploads and an admin everything with uploader names', async () => {
+    const alice = makeUser(db, 'alice')
+    const bob = makeUser(db, 'bob')
+    const a = storeImage(PNG_1x1, { userId: alice.id }).row
+    expect(storeImage(PNG_1x1, { userId: bob.id }).row.uploaded_by).toBe(alice.id) // same bytes dedupe to alice's row
+    // A different image for bob, and a legacy image without an uploader.
+    const JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
+    const bobs = storeImage(JPEG, { userId: bob.id }).row
+    const GIF = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+    const legacy = storeImage(GIF, {}).row
+
+    currentUser = bob
+    const forBob = (await app.inject({ method: 'GET', url: '/api/images' })).json().data
+    expect(forBob.map((i: any) => i.hash)).toEqual([bobs.hash])
+    expect(forBob[0].uploaded_by_name).toBe('bob')
+
+    currentUser = { id: alice.id, username: 'alice', role: 'admin' }
+    const forAdmin = (await app.inject({ method: 'GET', url: '/api/images' })).json().data
+    expect(forAdmin.map((i: any) => i.hash).sort()).toEqual([a.hash, bobs.hash, legacy.hash].sort())
+    expect(forAdmin.find((i: any) => i.hash === legacy.hash).uploaded_by_name).toBeNull()
+    expect(forAdmin.find((i: any) => i.hash === a.hash).uploaded_by_name).toBe('alice')
+  })
+})

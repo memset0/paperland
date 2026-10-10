@@ -553,6 +553,8 @@ export interface ImageWithUrl extends Image {
   reference_count?: number
   /** Number of Q&A image inputs using this image (list only). */
   qa_reference_count?: number
+  /** Uploader's display name (list only); null for legacy images without an uploader. */
+  uploaded_by_name?: string | null
 }
 
 // Highlight

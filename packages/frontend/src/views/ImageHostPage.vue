@@ -4,11 +4,13 @@ import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import { Upload, Copy, Link2 } from '@lucide/vue'
 import { useImagesStore } from '@/stores/images'
+import { useAuthStore } from '@/stores/auth'
 import { imageFromClipboard } from '@/utils/uploadImage'
 import AppPage from '@/components/AppPage.vue'
 import type { ImageWithUrl } from '@paperland/shared'
 
 const store = useImagesStore()
+const auth = useAuthStore()
 const { images, loading } = storeToRefs(store)
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -127,6 +129,9 @@ function formatDate(iso: string): string {
         <div class="p-3 flex flex-col gap-1 text-xs">
           <div class="font-medium truncate" :title="img.original_name ?? ''">
             {{ img.original_name || '(unnamed)' }}
+          </div>
+          <div v-if="auth.isAdmin" class="text-muted-foreground truncate" :title="'Uploaded by ' + (img.uploaded_by_name ?? 'unknown')">
+            by {{ img.uploaded_by_name ?? 'unknown' }}
           </div>
           <div class="text-muted-foreground flex flex-wrap gap-x-2">
             <span>{{ formatSize(img.size) }}</span>

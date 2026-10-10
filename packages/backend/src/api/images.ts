@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify'
-import { desc, isNotNull } from 'drizzle-orm'
+import { desc, eq, isNotNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { requireUser } from '../auth/guards.js'
+import { displayName } from '../auth/nickname.js'
 import { storeImage, ImageValidationError } from '../services/image_store.js'
 import { parseStoredInputs } from '../services/qa_inputs.js'
 
@@ -43,12 +44,20 @@ export async function imagesRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
-  // GET /api/images — list all images, newest first, each with a reference_count computed
-  // by scanning every note body for the image's hash (works for relative or absolute URLs), and a
-  // qa_reference_count of Q&A image inputs that use it.
-  app.get('/api/images', { preHandler: requireUser }, async () => {
+  // GET /api/images — list images, newest first: a non-admin gets only their own uploads, an admin
+  // gets every image. Each carries the uploader's display name, a reference_count computed by
+  // scanning every note body for the image's hash (works for relative or absolute URLs), and a
+  // qa_reference_count of Q&A image inputs that use it. Image URLs stay public; only the list is scoped.
+  app.get('/api/images', { preHandler: requireUser }, async (request) => {
     const db = getDatabase()
-    const images = db.select().from(schema.images).orderBy(desc(schema.images.created_at)).all()
+    const user = request.user!
+    const rows = db.select({ image: schema.images, nickname: schema.users.nickname, username: schema.users.username })
+      .from(schema.images)
+      .leftJoin(schema.users, eq(schema.users.id, schema.images.uploaded_by))
+      .where(user.role === 'admin' ? undefined : eq(schema.images.uploaded_by, user.id))
+      .orderBy(desc(schema.images.created_at))
+      .all()
+    const images = rows.map((r) => ({ ...r.image, uploaded_by_name: displayName(r.username != null ? { username: r.username, nickname: r.nickname } : null) }))
     const bodies = db.select({ body: schema.notes.body }).from(schema.notes).all()
     const qaReferences = new Map<string, number>()
     for (const row of db.select({ inputs: schema.qaEntries.inputs }).from(schema.qaEntries)
