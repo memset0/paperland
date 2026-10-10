@@ -1,5 +1,9 @@
-## ADDED Requirements
+# qa-panel-nav Specification
 
+## Purpose
+Provides a dot-style side navigation for the Q&A panel that highlights the current entry, expands on hover, and scrolls to and expands an entry on click, on desktop and touch devices.
+
+## Requirements
 ### Requirement: Sidebar navigation entry list
 The sidebar quick-jump navigation SHALL display entries in this order: template QA entries with results first, then all free QA entries. Template QA entries that have no generated results (no results array or empty results) SHALL be excluded from the navigation.
 

@@ -1,3 +1,9 @@
+# zotero-tag-sync Specification
+
+## Purpose
+Keeps a Zotero item's tags synced to its Paperland paper when the sidebar panel renders it, and shows the sync status.
+
+## Requirements
 ### Requirement: Zotero plugin syncs item tags to Paperland
 The Zotero plugin SHALL automatically sync the current Zotero item's tags to Paperland when the sidebar panel renders a paper.
 

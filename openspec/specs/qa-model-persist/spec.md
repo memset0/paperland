@@ -1,3 +1,9 @@
+# qa-model-persist Specification
+
+## Purpose
+Remembers the model chosen in the question box across sessions via localStorage, validating it against the available models and falling back safely when storage is unavailable.
+
+## Requirements
 ### Requirement: Persist selected models to localStorage
 The question box SHALL select exactly one model at a time; choosing another model SHALL replace the selection. The selection SHALL be written to localStorage (key: `paperland_selected_models`, stored as a one-element array) whenever it changes.
 

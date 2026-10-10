@@ -1,3 +1,9 @@
+# tag-visibility Specification
+
+## Purpose
+Lets users hide tags from the paper list filter bar through a per-tag visibility flag stored in the database and exposed in the API and tag management page.
+
+## Requirements
 ### Requirement: Tag visibility database field
 The `tags` table SHALL have a `visible` column (integer, NOT NULL, default 1) that controls whether the tag appears in the paper list filter bar.
 

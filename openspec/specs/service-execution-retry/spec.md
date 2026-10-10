@@ -1,5 +1,9 @@
-## ADDED Requirements
+# service-execution-retry Specification
 
+## Purpose
+Lets users retry failed or blocked service executions from the service dashboard, with loading state and error feedback.
+
+## Requirements
 ### Requirement: Retry button for failed and blocked executions
 The service dashboard execution history table SHALL display a retry action button for each execution with status `failed` or `blocked`. The button SHALL NOT appear for executions with status `done`, `running`, or `pending`.
 

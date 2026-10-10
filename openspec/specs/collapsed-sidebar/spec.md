@@ -1,5 +1,9 @@
-## ADDED Requirements
+# collapsed-sidebar Specification
 
+## Purpose
+Keeps desktop navigation compact with a fixed icon-only sidebar, hover tooltips, a GitHub link, and a header height shared across pages.
+
+## Requirements
 ### Requirement: Unified desktop header height
 The desktop sidebar header and the PaperDetail page header SHALL both use `h-12` (48px) height, matching the mobile navbar height. The bottom border of both headers SHALL be at the same vertical position when viewed side-by-side. Border color SHALL be `border-gray-200` consistently.
 

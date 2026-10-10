@@ -1,5 +1,9 @@
-## ADDED Requirements
+# zotero-sidebar-panel Specification
 
+## Purpose
+Shows the Paperland paper detail page for the selected Zotero item in a sidebar panel, with loading and placeholder states that follow item selection.
+
+## Requirements
 ### Requirement: Sidebar panel registration
 The plugin SHALL register a custom section in Zotero 7's item pane using `Zotero.ItemPaneManager.registerSection()`. The section SHALL be labeled "Paperland" and SHALL occupy the full available panel area.
 

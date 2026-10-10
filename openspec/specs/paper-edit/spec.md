@@ -1,5 +1,9 @@
-## ADDED Requirements
+# paper-edit Specification
 
+## Purpose
+Lets users edit a paper's basic fields and content from the paper detail page, backed by internal and external API endpoints.
+
+## Requirements
 ### Requirement: Edit paper basic fields via internal API
 The system SHALL provide a `PATCH /api/papers/:id` endpoint that accepts a JSON body with optional fields: `title` (string), `authors` (string[], comma-separated also accepted), `link` (string). Only provided fields SHALL be updated. The response SHALL return the updated paper object. `updated_at` SHALL be set to current ISO 8601 timestamp on every successful update.
 

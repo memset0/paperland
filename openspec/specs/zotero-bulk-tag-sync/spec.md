@@ -1,5 +1,9 @@
-## ADDED Requirements
+# zotero-bulk-tag-sync Specification
 
+## Purpose
+Lets the Zotero plugin sync tags for all arXiv items in the library to their matching Paperland papers in one run, with progress and result feedback.
+
+## Requirements
 ### Requirement: Bulk tag sync button in preferences
 The plugin preferences UI SHALL include a "Sync All Tags" button in a dedicated section below the API configuration. Clicking the button SHALL trigger a bulk tag sync operation.
 

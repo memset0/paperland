@@ -1,5 +1,9 @@
-## ADDED Requirements
+# zotero-paper-lookup Specification
 
+## Purpose
+Resolves a Zotero item to its Paperland paper by arXiv ID through the External API, caches the mapping, and builds the paper detail URL.
+
+## Requirements
 ### Requirement: arXiv ID extraction from Zotero item
 The plugin SHALL extract the arXiv ID from the selected Zotero item by checking these fields in order:
 1. `archiveID` field (format: `arXiv:XXXX.XXXXX`)
@@ -7,6 +11,14 @@ The plugin SHALL extract the arXiv ID from the selected Zotero item by checking 
 3. `url` field (parse from `arxiv.org/abs/XXXX.XXXXX` URL pattern)
 
 The `arXiv:` prefix SHALL be stripped before use with the Paperland API.
+
+#### Scenario: archiveID takes priority
+- **WHEN** a Zotero item has archiveID `arXiv:2401.10774` and a different arXiv ID in its `url`
+- **THEN** the plugin uses `2401.10774`
+
+#### Scenario: Fall back to extra and url
+- **WHEN** a Zotero item has no archiveID but its `extra` contains `arXiv: 2301.12345`, or only its `url` is `https://arxiv.org/abs/2301.12345`
+- **THEN** the plugin uses `2301.12345`
 
 ### Requirement: ArXiv ID extraction strips version suffix
 The `extractArxivId()` function SHALL strip any version suffix (e.g. `v1`, `v3`, `v12`) from the extracted arXiv ID before returning it. The returned ID MUST be the base ID without version information.

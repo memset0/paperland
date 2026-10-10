@@ -1,5 +1,9 @@
-## ADDED Requirements
+# markdown-it-rendering Specification
 
+## Purpose
+Renders Markdown in the frontend with a single markdown-it parser supporting GFM tables, strikethrough, task lists, soft breaks, linkify, and fenced code, without raw HTML passthrough.
+
+## Requirements
 ### Requirement: Markdown rendering via markdown-it
 The system SHALL use `markdown-it` as the markdown rendering engine in the `MarkdownContent` component, replacing `marked`.
 

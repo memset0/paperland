@@ -1,5 +1,9 @@
-## ADDED Requirements
+# zotero-plugin-preferences Specification
 
+## Purpose
+Provides a preferences pane in the Zotero plugin for the Paperland host URL, login credentials, and API token, stored persistently.
+
+## Requirements
 ### Requirement: Preferences pane for plugin configuration
 The plugin SHALL provide a preferences pane accessible from Zotero's Add-ons Manager (or Tools → Paperland Settings). The preferences pane SHALL allow users to configure the Paperland connection.
 

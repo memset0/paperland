@@ -1,3 +1,9 @@
+# zotero-ci-build Specification
+
+## Purpose
+Builds the Zotero plugin XPI automatically in CI on relevant changes or on demand, using a Bun-based environment.
+
+## Requirements
 ### Requirement: Automatic build on Zotero plugin changes
 The CI workflow SHALL automatically trigger a build when changes are pushed to the `main` branch that affect files under `packages/zotero-plugin/` or `.github/workflows/build-zotero-plugin.yml`.
 
