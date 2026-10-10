@@ -5,7 +5,9 @@ import { useQAStore } from '@/stores/qa'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { useQAWindow } from '@/composables/useQAWindow'
+import FloatingWindow from './FloatingWindow.vue'
 import { useQAComposer, inputPageLabel } from '@/composables/useQAComposer'
+import { useQAConversation } from '@/composables/useQAConversation'
 import { usePapersStore } from '@/stores/papers'
 import { NO_QA_CONTENT_HINT, paperHasQAContent } from '@/lib/qa-content'
 import { api } from '@/api/client'
@@ -14,13 +16,20 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card } from '@/components/ui/card'
 
-const props = defineProps<{ paperId: number }>()
+const props = defineProps<{
+  paperId: number
+  /** Docked at the bottom of the conversation view instead of floating. */
+  docked?: boolean
+  /** Why asking is unavailable right now (e.g. the thread's last answer is still running). */
+  blocked?: string | null
+}>()
 const store = useQAStore()
 const auth = useAuthStore()
 const { openLogin } = useLoginPrompt()
-const { isOpen, left, top, width, height, close, setGeometry } = useQAWindow()
+const { win, close } = useQAWindow()
 const isMobile = useMediaQuery('(max-width: 768px)')
 const composer = useQAComposer()
+const conversation = useQAConversation()
 const question = composer.question
 const availableModels = ref<Array<{ name: string; vision?: boolean }>>([])
 const textareaRef = ref<InstanceType<typeof Textarea> | null>(null)
@@ -100,53 +109,6 @@ const nonVisionSelected = computed(() => composer.hasImage()
 onBeforeUnmount(() => composer.registerInserter(null))
 watch(() => [auth.user?.id, props.paperId] as const, ([userId, paperId]) => composer.bind(userId, paperId), { immediate: true })
 
-// Desktop: a top-left anchored fixed card of the computed geometry (resizable).
-// Mobile: a fullscreen overlay (inset-0 via class). z-index sits at the notes-window
-// level (200) so it covers the launcher FAB and page chrome.
-const style = computed(() =>
-  isMobile.value
-    ? { zIndex: 200 }
-    : { left: left.value + 'px', top: top.value + 'px', width: width.value + 'px', height: height.value + 'px', zIndex: 200 },
-)
-
-// --- Move: drag any empty area of the card (not the textarea / buttons / grip) ---
-let moving = false, mx = 0, my = 0, ml = 0, mt = 0
-function onCardDown(e: PointerEvent) {
-  if (isMobile.value) return
-  const t = e.target as HTMLElement
-  if (t.closest('button, textarea, a, input, label, [data-qa-resize]')) return
-  moving = true
-  mx = e.clientX; my = e.clientY; ml = left.value; mt = top.value
-  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-}
-function onCardMove(e: PointerEvent) {
-  if (!moving) return
-  setGeometry({ left: ml + (e.clientX - mx), top: Math.max(0, mt + (e.clientY - my)) })
-}
-function onCardUp(e: PointerEvent) {
-  moving = false
-  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
-}
-
-// --- Resize: bottom-right grip changes the panel size ---
-let resizing = false, rx = 0, ry = 0, rw = 0, rh = 0
-function onResizeDown(e: PointerEvent) {
-  resizing = true
-  rx = e.clientX; ry = e.clientY; rw = width.value; rh = height.value
-  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-}
-function onResizeMove(e: PointerEvent) {
-  if (!resizing) return
-  setGeometry({
-    width: Math.max(300, rw + (e.clientX - rx)),
-    height: Math.max(120, rh + (e.clientY - ry)),
-  })
-}
-function onResizeUp(e: PointerEvent) {
-  resizing = false
-  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
-}
-
 onMounted(async () => {
   composer.registerInserter((text) => insertAtCursor(text))
   if (!auth.isAuthenticated) return // models endpoint requires login; anon sees a login prompt
@@ -157,48 +119,50 @@ onMounted(async () => {
     availableModels.value = [{ name: 'gpt-4o' }]
   }
   const names = availableModels.value.map(m => m.name)
-  const valid = store.selectedModels.filter(m => names.includes(m))
-  if (valid.length) {
-    store.selectedModels = valid
-  } else if (names.length) {
-    store.selectedModels = [names[0]]
-  }
+  // One model per question: keep the first still-available cached model, else the first model.
+  const valid = store.selectedModels.find(m => names.includes(m)) ?? names[0]
+  store.selectedModels = valid ? [valid] : []
 })
 
 async function submit() {
   if (!auth.isAuthenticated) { openLogin(); return }
-  if (!question.value.trim() || !store.selectedModels.length || nonVisionSelected.value.length || noContent.value) return
+  if (!question.value.trim() || !store.selectedModels.length || nonVisionSelected.value.length || noContent.value || props.blocked) return
   const res = await store.submitFreeQuestion(props.paperId, question.value.trim(), store.selectedModels, {
     inputs: composer.requestInputs(),
   })
-  if (res) composer.reset() // undefined = cancelled at the doc2x confirmation
+  if (!res) return // cancelled at the doc2x confirmation
+  composer.reset()
+  // In the conversation view the active tab follows the new answer.
+  const run = res.runs[0]
+  if (props.docked && run) conversation.setActiveTail(res.entry_id, run.result_id)
 }
 
-function toggleModel(name: string) {
-  if (store.selectedModels.includes(name)) {
-    store.selectedModels = store.selectedModels.filter(x => x !== name)
-  } else {
-    store.selectedModels.push(name)
-  }
+/** Model buttons are a single choice: picking a model replaces the selection. */
+function selectModel(name: string) {
+  store.selectedModels = [name]
 }
 </script>
 
 <template>
+  <!-- Floating: the shared FloatingWindow shell in its bare look (this card IS the window; drag
+       empty card areas to move, bottom-right grip to resize). Docked: a plain block. -->
+  <component
+    :is="docked ? 'div' : FloatingWindow"
+    v-if="docked || win"
+    v-bind="docked ? { class: 'h-full' } : { win, bare: true, minWidth: 300, minHeight: 120 }"
+  >
   <Card
-    v-if="isOpen"
     size="sm"
-    :style="style"
-    :class="['fixed flex flex-col px-2.5 md:px-3 shadow-2xl', isMobile ? 'inset-0 rounded-none' : 'rounded-lg cursor-move']"
-    @pointerdown="onCardDown"
-    @pointermove="onCardMove"
-    @pointerup="onCardUp"
+    :class="docked
+      ? 'relative flex h-full flex-col rounded-none border-0 border-t px-3 shadow-none ring-0'
+      : ['flex h-full flex-1 flex-col px-2.5 md:px-3 shadow-2xl', isMobile ? 'rounded-none' : 'rounded-lg']"
   >
     <template v-if="auth.isAuthenticated">
       <!-- Top row: Submit (left) · model selector · Close (top-right) -->
       <div class="flex items-center gap-1.5 shrink-0">
         <Button
           @click="submit"
-          :disabled="!question.trim() || !store.selectedModels.length || store.submitting || nonVisionSelected.length > 0 || noContent"
+          :disabled="!question.trim() || !store.selectedModels.length || store.submitting || nonVisionSelected.length > 0 || noContent || !!blocked"
           size="sm"
           class="gap-1.5 shrink-0"
         >
@@ -206,16 +170,28 @@ function toggleModel(name: string) {
         </Button>
         <div class="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
           <span class="text-[10px] text-muted-foreground uppercase tracking-wider mr-0.5">模型</span>
-          <Button
-            v-for="m in availableModels" :key="m.name"
-            :variant="store.selectedModels.includes(m.name) ? 'secondary' : 'outline'"
-            size="xs"
-            @click="toggleModel(m.name)"
+          <!-- Docked in the narrow conversation column: one compact dropdown instead of a button row -->
+          <select
+            v-if="docked"
+            :value="store.selectedModels[0] ?? ''"
+            class="h-6 min-w-0 flex-1 rounded-md border bg-background px-1.5 text-xs"
+            data-qa-model-select
+            @change="selectModel(($event.target as HTMLSelectElement).value)"
           >
-            {{ m.name }}
-          </Button>
+            <option v-for="m in availableModels" :key="m.name" :value="m.name">{{ m.name }}</option>
+          </select>
+          <template v-else>
+            <Button
+              v-for="m in availableModels" :key="m.name"
+              :variant="store.selectedModels.includes(m.name) ? 'secondary' : 'outline'"
+              size="xs"
+              @click="selectModel(m.name)"
+            >
+              {{ m.name }}
+            </Button>
+          </template>
         </div>
-        <Button variant="ghost" size="icon-sm" class="shrink-0" title="关闭" @click="close()">
+        <Button v-if="!docked" variant="ghost" size="icon-sm" class="shrink-0" title="关闭" @click="close()">
           <X />
         </Button>
       </div>
@@ -223,7 +199,7 @@ function toggleModel(name: string) {
       <div v-if="composer.followup.value" class="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground">
         <MessagesSquare class="h-3 w-3 shrink-0" />
         <span class="truncate">追问 QA-{{ composer.followup.value.entry_id }} · {{ composer.followup.value.model_name }} · {{ composer.followup.value.title }}</span>
-        <button type="button" class="ml-auto shrink-0 hover:text-foreground" title="取消追问" @click="composer.clearFollowup()">
+        <button v-if="!docked" type="button" class="ml-auto shrink-0 hover:text-foreground" title="取消追问" @click="composer.clearFollowup()">
           <X class="h-3 w-3" />
         </button>
       </div>
@@ -244,6 +220,8 @@ function toggleModel(name: string) {
           </button>
         </span>
       </div>
+      <p v-if="docked && !composer.followup.value && !blocked" class="shrink-0 text-[11px] text-muted-foreground">新对话：提交后创建新的提问</p>
+      <p v-if="blocked" class="shrink-0 text-[11px] text-muted-foreground">{{ blocked }}</p>
       <p v-if="noContent" class="shrink-0 text-[11px] text-muted-foreground">{{ NO_QA_CONTENT_HINT }}</p>
       <p v-if="nonVisionSelected.length" class="shrink-0 text-[11px] text-destructive">
         {{ nonVisionSelected.join(', ') }} 不支持图片输入，请换用支持图片的模型
@@ -293,20 +271,6 @@ function toggleModel(name: string) {
       </Button>
     </div>
 
-    <!-- Bottom-right grip: drag to RESIZE the panel (desktop only). The textarea
-         itself is not resizable; the panel is moved by dragging empty card areas. -->
-    <div
-      v-if="!isMobile"
-      data-qa-resize
-      class="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize text-muted-foreground/60 hover:text-muted-foreground"
-      title="拖动调整大小"
-      @pointerdown.stop="onResizeDown"
-      @pointermove="onResizeMove"
-      @pointerup="onResizeUp"
-    >
-      <svg viewBox="0 0 10 10" class="h-full w-full" aria-hidden="true">
-        <path d="M9 1 L1 9 M9 5 L5 9" stroke="currentColor" stroke-width="1" fill="none" />
-      </svg>
-    </div>
   </Card>
+  </component>
 </template>

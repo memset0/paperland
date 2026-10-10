@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import LoginDialog from '@/components/LoginDialog.vue'
 import AppVersion from '@/components/AppVersion.vue'
-import NoteWindowHost from '@/components/notes/NoteWindowHost.vue'
+import FloatingWindowHost from '@/components/FloatingWindowHost.vue'
 import AuthScreen from '@/components/AuthScreen.vue'
 import PublicNoteStandalone from '@/components/notes/PublicNoteStandalone.vue'
 import { usePendingRegistrations } from '@/composables/usePendingRegistrations'
@@ -327,7 +327,7 @@ async function doLogout() {
       </TooltipProvider>
     </main>
 
-    <!-- Floating note editor windows (above app chrome) -->
-    <NoteWindowHost />
+    <!-- Floating windows: note editors, Q&A tree (above app chrome) -->
+    <FloatingWindowHost />
   </div>
 </template>

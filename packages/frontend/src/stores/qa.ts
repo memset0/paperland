@@ -23,7 +23,8 @@ function loadCachedModels(): string[] {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) return parsed
+      // The question box asks one model at a time; older caches may hold several.
+      if (Array.isArray(parsed)) return parsed.slice(0, 1)
     }
   } catch { /* localStorage unavailable */ }
   return []

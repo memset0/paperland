@@ -12,9 +12,10 @@ import { useAuthStore } from '@/stores/auth'
 import { api } from '@/api/client'
 import {
   Play, RefreshCw, CheckCircle2, Circle, Loader2, AlertCircle,
-  ChevronsDownUp, ChevronsUpDown, User, Lock
+  ChevronsDownUp, ChevronsUpDown, User, Lock, Network
 } from '@lucide/vue'
 import QAResultView from './QAResultView.vue'
+import { useWindowsStore } from '@/stores/windows'
 import QAEntryBackgroundPicker from './QAEntryBackgroundPicker.vue'
 import HighlightScopeToggle from './HighlightScopeToggle.vue'
 import ScopeToggle from './ScopeToggle.vue'
@@ -255,6 +256,12 @@ async function openParent(entry: QAEntry) {
 function setPaperScope(scope: 'mine' | 'all') {
   store.setPaperScope(scope)
 }
+
+// The follow-up tree (mind map) opens in a floating window; the list itself is unchanged.
+const windows = useWindowsStore()
+function openTree() {
+  windows.openQATree(props.paperId, `Q&A Tree · ${papers.currentPaper?.title ?? ''}`)
+}
 </script>
 
 <template>
@@ -270,6 +277,9 @@ function setPaperScope(scope: 'mine' | 'all') {
       <div class="flex items-center gap-1.5">
         <!-- Page-wide highlight overlay scope (applies to every answer on this paper) -->
         <HighlightScopeToggle class="mr-1" size="sm" />
+        <Button variant="ghost" size="icon-sm" title="Q&A 树（浮动窗口）" @click="openTree">
+          <Network />
+        </Button>
         <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllOpen(templateEntries, true)">
           <ChevronsUpDown />
         </Button>
@@ -390,6 +400,9 @@ function setPaperScope(scope: 'mine' | 'all') {
           :disabled="store.loading"
           @update:model-value="setPaperScope"
         />
+        <Button variant="ghost" size="icon-sm" title="Q&A 树（浮动窗口）" @click="openTree">
+          <Network />
+        </Button>
         <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllOpen(freeEntries, true)">
           <ChevronsUpDown />
         </Button>

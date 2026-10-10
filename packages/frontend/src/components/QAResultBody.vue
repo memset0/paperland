@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { QAResult } from '@paperland/shared'
-import { Check, ChevronRight, Copy, FileSearch, Link2, Loader2, MessagesSquare, Pin, RefreshCw, Square, Telescope, Trash2 } from '@lucide/vue'
+import { Check, ChevronRight, Copy, FileSearch, Link2, Loader2, MessagesSquare, PanelRightOpen, Pin, RefreshCw, Square, Telescope, Trash2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
+import { useQAConversation } from '@/composables/useQAConversation'
 import QAModelInputDialog from './QAModelInputDialog.vue'
 import MarkdownContent from './MarkdownContent.vue'
 import QAStreamingMarkdown from './QAStreamingMarkdown.vue'
@@ -23,7 +24,9 @@ const props = withDefaults(defineProps<{
   highlightPathname?: string
   canManage?: boolean
   showModel?: boolean
-}>(), { canManage: true, showModel: false })
+  /** Rendered inside the conversation view (no "open in conversation" action). */
+  inConversation?: boolean
+}>(), { canManage: true, showModel: false, inConversation: false })
 
 const emit = defineEmits<{
   regenerate: [modelName: string]
@@ -34,6 +37,7 @@ const emit = defineEmits<{
 }>()
 
 const auth = useAuthStore()
+const conversation = useQAConversation()
 const copied = ref(false)
 const showModelInput = ref(false)
 const refsOpen = ref(false)
@@ -167,6 +171,14 @@ function timeAgo(iso: string): string {
           </Button>
         </TooltipTrigger>
         <TooltipContent>{{ result.status === 'done' ? '追问' : '回答完成后才能追问' }}</TooltipContent>
+      </Tooltip>
+      <Tooltip v-if="conversation.available.value && !inConversation">
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="icon-xs" @click="conversation.openThread(result.qa_entry_id, result.id)">
+            <PanelRightOpen />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>在对话视图中打开</TooltipContent>
       </Tooltip>
       <Tooltip v-if="auth.isAuthenticated && result.status === 'done'">
         <TooltipTrigger as-child>

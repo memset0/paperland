@@ -1,6 +1,7 @@
 import { ref, watch } from 'vue'
 import type { QAImageInput, QAInput, QAInputRequest, QATextSelectionInput, QATreeNode } from '@paperland/shared'
 import { api } from '@/api/client'
+import { useQAConversation } from './useQAConversation'
 
 /** A passage or screenshot attached to the question box, with its chain-unique label. */
 export type ComposerAttachment = QATextSelectionInput | QAImageInput
@@ -128,6 +129,9 @@ export function useQAComposer() {
 
   /** Continue a specific completed answer; optionally pre-fill the question (#moonlight links). */
   async function startFollowup(target: Omit<ComposerFollowup, 'ancestor_inputs'>, prefill?: string) {
+    // With the conversation view open, a follow-up continues that answer's thread in place.
+    const conversation = useQAConversation()
+    if (conversation.visible.value) conversation.openThread(target.entry_id, target.result_id)
     let ancestors: ContentInput[] = []
     try {
       const tree = await api.get<{ data: QATreeNode }>(`/api/qa/entries/${target.entry_id}/tree`)

@@ -3,6 +3,7 @@ import SparkMD5 from 'spark-md5'
 import { toast } from 'vue-sonner'
 import { useQAStore } from '@/stores/qa'
 import { buildTextSegments } from '@/composables/useHighlight'
+import { requestPaperInfo } from '@/composables/useQAConversation'
 
 /**
  * Shared anchor-jump state.
@@ -148,6 +149,8 @@ export function useBlockAnchor() {
 
     const found = findResultByHash(hash)
     if (found) {
+      requestPaperInfo()
+      await nextTick()
       const trigger = visibleEl(`[data-qa-entry="${found.entryKey}"]`)
       if (trigger && trigger.getAttribute('data-state') === 'closed') trigger.click()
       requestedResultId.value = found.resultId
@@ -185,6 +188,7 @@ export function useBlockAnchor() {
       toast.error('This Q&A is not visible')
       return
     }
+    requestPaperInfo()
     const trigger = await waitForEl(() => visibleEl(`[data-qa-entry="${key}"]`))
     if (!trigger) return
     if (trigger.getAttribute('data-state') === 'closed') trigger.click()

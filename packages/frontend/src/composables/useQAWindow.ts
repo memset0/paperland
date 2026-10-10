@@ -1,4 +1,5 @@
-import { ref } from 'vue'
+import { computed } from 'vue'
+import { useWindowsStore } from '@/stores/windows'
 
 export interface QAWindowGeometry {
   /** Distance from the viewport left edge (px). */
@@ -11,46 +12,32 @@ export interface QAWindowGeometry {
   height: number
 }
 
-const DEFAULT_WIDTH = 460
 export const QA_DEFAULT_HEIGHT = 132
-
-// Module-level singleton: there is at most one QA panel across the app.
-const isOpen = ref(false)
-const left = ref(0)
-const top = ref(0)
-const width = ref(DEFAULT_WIDTH)
-const height = ref(QA_DEFAULT_HEIGHT)
+export const QA_WINDOW_KEY = 'qa-ask'
 
 /**
- * State for the floating "提问" (Ask) panel. The panel IS the QAInput card itself
- * (no separate window chrome). It is top-left anchored and resizable from a
- * bottom-right grip; it is moved by dragging any empty (non-textarea/non-button)
- * area of the card. Unlike the notes window (`stores/windows.ts`) it never
- * remembers a previous position/size — each `open()` uses exactly the geometry it
- * is given, computed fresh by the caller from the current layout. Drag/resize
- * updates are in-memory only and discarded on close.
+ * The floating "提问" (Ask) panel is one of the app's floating windows (`stores/windows.ts`, kind
+ * `qa-ask`), drawn by the shared FloatingWindow shell in its `bare` look: the QAInput card itself
+ * is the window, moved by dragging empty card areas and resized from the bottom-right grip. Unlike
+ * other windows it never remembers a previous position/size — each `open()` uses exactly the
+ * geometry it is given, computed fresh by the caller from the current layout.
  */
 export function useQAWindow() {
+  const store = useWindowsStore()
+  const win = computed(() => store.get(QA_WINDOW_KEY) ?? null)
+  const isOpen = computed(() => win.value != null)
+
   /** Open the panel at a freshly-computed default geometry. */
   function open(geometry: QAWindowGeometry) {
-    left.value = geometry.left
-    top.value = geometry.top
-    width.value = geometry.width
-    height.value = geometry.height
-    isOpen.value = true
+    store.place({
+      key: QA_WINDOW_KEY, kind: 'qa-ask', paperId: 0, sectionId: null, title: '提问',
+      x: geometry.left, y: geometry.top, w: geometry.width, h: geometry.height,
+    })
   }
 
   function close() {
-    isOpen.value = false
+    store.close(QA_WINDOW_KEY)
   }
 
-  /** Update geometry while dragging/resizing (in-memory only, never persisted). */
-  function setGeometry(partial: Partial<QAWindowGeometry>) {
-    if (partial.left != null) left.value = partial.left
-    if (partial.top != null) top.value = partial.top
-    if (partial.width != null) width.value = partial.width
-    if (partial.height != null) height.value = partial.height
-  }
-
-  return { isOpen, left, top, width, height, open, close, setGeometry }
+  return { win, isOpen, open, close }
 }

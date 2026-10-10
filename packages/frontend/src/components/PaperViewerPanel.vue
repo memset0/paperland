@@ -10,12 +10,13 @@ import { useDoc2xStore } from '@/stores/doc2x'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { requestedPdfTarget } from '@/composables/usePdfNavigation'
 import { requestedPublicNote } from '@/composables/usePublicNoteOpen'
+import { paperInfoRequests } from '@/composables/useQAConversation'
 
 interface ViewerMode {
   id: string
   label: string
   available: boolean
-  type: 'pdf' | 'iframe' | 'walkthrough' | 'doc2x'
+  type: 'pdf' | 'iframe' | 'walkthrough' | 'doc2x' | 'metadata' | 'qa'
   url?: string | null
 }
 
@@ -25,6 +26,8 @@ const props = defineProps<{
   paperId?: number | null
   pdfStatus?: 'available' | 'fetching' | 'upload_required'
   pdfUnavailableReason?: 'closed_access' | 'download_failed' | 'not_found' | null
+  /** Paper + conversation layout: add "Metadata" and "Q&A" tabs rendering the same-named slots. */
+  infoTabs?: boolean
 }>()
 
 const doc2x = useDoc2xStore()
@@ -61,6 +64,8 @@ const modes = computed<ViewerMode[]>(() => {
     available: true,
     type: 'walkthrough',
   })
+  list.push({ id: 'metadata', label: 'Metadata', available: !!props.infoTabs, type: 'metadata' })
+  list.push({ id: 'qa', label: 'Q&A', available: !!props.infoTabs, type: 'qa' })
   return list
 })
 
@@ -110,6 +115,11 @@ watch(requestedPublicNote, (r) => {
   if (r) { activeId.value = 'walkthrough'; userChose.value = true }
 })
 
+// Revealing a Q&A entry needs the Q&A tab (when present) to be the active one.
+watch(paperInfoRequests, () => {
+  if (props.infoTabs) { activeId.value = 'qa'; userChose.value = true }
+})
+
 // Opened from the paper list's note-status link (`?view=note`): activate the "Note" tab.
 const route = useRoute()
 watch(() => route.query.view, (v) => {
@@ -153,6 +163,8 @@ watch(() => route.query.view, (v) => {
         />
         <Doc2xTranslationTab v-else-if="mode.type === 'doc2x'" />
         <NoteWalkthrough v-else-if="mode.type === 'walkthrough'" />
+        <slot v-else-if="mode.type === 'metadata'" name="metadata" />
+        <slot v-else-if="mode.type === 'qa'" name="qa" />
       </TabsContent>
     </Tabs>
   </div>

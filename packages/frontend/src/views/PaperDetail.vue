@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed, ref, watch, nextTick } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch, nextTick, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
@@ -9,7 +9,7 @@ import { usePdfNavigation } from '@/composables/usePdfNavigation'
 import { usePublicNoteOpen } from '@/composables/usePublicNoteOpen'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from 'vue-sonner'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot, BookmarkPlus, BookmarkCheck } from '@lucide/vue'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, Columns2, Columns3, MessagesSquare, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot, BookmarkPlus, BookmarkCheck } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
@@ -28,8 +28,12 @@ import QAInput from '@/components/QAInput.vue'
 import BilingualText from '@/components/BilingualText.vue'
 import PaperActionLauncher, { type LauncherAction } from '@/components/PaperActionLauncher.vue'
 import { useQAWindow, QA_DEFAULT_HEIGHT } from '@/composables/useQAWindow'
+import { useWindowsStore } from '@/stores/windows'
 import { useQAComposer } from '@/composables/useQAComposer'
 import QAPanelNav from '@/components/QAPanelNav.vue'
+import QAConversationPanel from '@/components/QAConversationPanel.vue'
+import { useQAConversation, clampSplitLeft, clampThree, type PaperLayout } from '@/composables/useQAConversation'
+import { createReusableTemplate } from '@vueuse/core'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useHighlightStore } from '@/stores/highlights'
 import { Card } from '@/components/ui/card'
@@ -74,10 +78,30 @@ const isWide = ref(window.innerWidth >= 900)
 function onResize() { isWide.value = window.innerWidth >= 900 }
 const showSplitView = computed(() => isWide.value && !isEmbed.value)
 
-const leftWidth = ref(45)
+// ---- Wide layouts: split / paper + conversation / three columns (see useQAConversation) ----
+const conversation = useQAConversation()
+watch(() => [auth.user?.id, paperId.value] as const, ([userId, id]) => conversation.bind(userId, id), { immediate: true })
+watch(() => showSplitView.value && auth.isAuthenticated, (value) => conversation.setAvailable(value), { immediate: true })
+
+/** The effective layout: conversation layouts only where the view is available. */
+const layout = computed<PaperLayout>(() => conversation.available.value ? conversation.layout.value : 'split')
+const layoutOptions: Array<{ value: PaperLayout; label: string; icon: Component }> = [
+  { value: 'split', label: '双栏', icon: Columns2 },
+  { value: 'split-conv', label: '论文 + 对话', icon: MessagesSquare },
+  { value: 'three', label: '三栏', icon: Columns3 },
+]
+
+/** Left (viewer) column width in % of the split container. */
+const leftWidth = computed(() => layout.value === 'three' ? conversation.three.value.left : conversation.splitLeft.value)
 const dragging = ref(false)
 const collapsed = ref(false)
-const savedWidth = ref(45)
+
+/** Pointer position as % of the split container width, from its left edge. */
+function containerPercent(clientX: number): number | null {
+  const rect = document.getElementById('split-container')?.getBoundingClientRect()
+  if (!rect || rect.width === 0) return null
+  return ((clientX - rect.left) / rect.width) * 100
+}
 
 function onPointerDown(e: PointerEvent) {
   if (collapsed.value) return
@@ -86,10 +110,10 @@ function onPointerDown(e: PointerEvent) {
 }
 function onPointerMove(e: PointerEvent) {
   if (!dragging.value) return
-  const el = document.getElementById('split-container')
-  if (!el) return
-  const rect = el.getBoundingClientRect()
-  leftWidth.value = Math.max(20, Math.min(80, ((e.clientX - rect.left) / rect.width) * 100))
+  const pct = containerPercent(e.clientX)
+  if (pct == null) return
+  if (layout.value === 'three') conversation.three.value = clampThree(pct, conversation.three.value.conv, 'left')
+  else conversation.splitLeft.value = clampSplitLeft(pct)
 }
 function onPointerUp(e: PointerEvent) {
   if (!dragging.value) return
@@ -98,18 +122,36 @@ function onPointerUp(e: PointerEvent) {
 }
 
 function toggleCollapse() {
-  if (collapsed.value) {
-    collapsed.value = false
-    leftWidth.value = savedWidth.value
-  } else {
-    savedWidth.value = leftWidth.value
-    collapsed.value = true
-    leftWidth.value = 0
-  }
+  collapsed.value = !collapsed.value
 }
+
+// Three-column layout: the divider between the Q&A column and the conversation column.
+const convDragging = ref(false)
+function onConvPointerDown(e: PointerEvent) {
+  convDragging.value = true
+  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+}
+function onConvPointerMove(e: PointerEvent) {
+  if (!convDragging.value) return
+  const pct = containerPercent(e.clientX)
+  if (pct == null) return
+  conversation.three.value = clampThree(conversation.three.value.left, 100 - pct, 'conv')
+}
+function onConvPointerUp(e: PointerEvent) {
+  if (!convDragging.value) return
+  convDragging.value = false
+  ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+}
+
+// The paper info & Q&A column is defined once and placed either whole as the middle column
+// (split, three) or split across the viewer's "Metadata" and "Q&A" tabs (paper + conversation).
+type PaperColumnPart = 'all' | 'metadata' | 'qa'
+const [DefineMetadata, Metadata] = createReusableTemplate()
+const [DefinePaperColumn, PaperColumn] = createReusableTemplate<{ part: PaperColumnPart }>()
 
 // ---- Paper-detail function launcher (top-right list / mobile FAB) + QA window ----
 const qaWin = useQAWindow()
+const floatingWindows = useWindowsStore()
 const composer = useQAComposer()
 
 /**
@@ -119,6 +161,8 @@ const composer = useQAComposer()
  * (bottom-right grip). Mobile opens fullscreen, so its geometry is a placeholder.
  */
 function openQA() {
+  // The conversation view docks the question box; there is no floating panel while it is open.
+  if (conversation.visible.value) return
   if (window.innerWidth < 768) {
     qaWin.open({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight })
     return
@@ -153,7 +197,7 @@ function openQA() {
 
 // PDF "加入提问框", answer 追问, and #moonlight links ask for the question box.
 watch(composer.openRequests, () => {
-  if (!qaWin.isOpen.value) openQA()
+  if (!qaWin.isOpen.value && !conversation.visible.value) openQA()
 })
 
 // Ordered per the paper-detail function order (引用 → 笔记 → 提问); only 提问 today.
@@ -260,6 +304,7 @@ onMounted(async () => {
 watch(() => [route.params.id, route.query.qa, route.query.result, route.query.note, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te, route.query.rx, route.query.ry, route.query.rw, route.query.rh], async (next, prev) => {
   if (next[0] !== prev[0]) {
     qaWin.close() // don't carry an open QA window across papers
+    floatingWindows.closeKind('qa-tree') // the tree shows the current paper's Q&A
     await loadPaperData()
   }
   await nextTick()
@@ -302,6 +347,7 @@ onUnmounted(() => {
   qaStore.stopPolling()
   doc2xStore.release()
   qaWin.close()
+  floatingWindows.closeKind('qa-tree')
 })
 
 const summaryFaqs = computed(() => {
@@ -337,7 +383,13 @@ function setAllKimiOpen(open: boolean) {
   }
 }
 
+/** Scroll container of the Q&A lists (middle column or Q&A tab), for QAPanelNav. */
 const wideScrollRef = ref<HTMLElement | null>(null)
+function setPaperScroll(el: unknown, part: PaperColumnPart) {
+  if (part === 'metadata') return
+  if (el) wideScrollRef.value = el as HTMLElement
+  else if (wideScrollRef.value && !wideScrollRef.value.isConnected) wideScrollRef.value = null
+}
 const narrowScrollRef = ref<HTMLElement | null>(null)
 
 const qaNavEntries = computed(() => {
@@ -446,6 +498,181 @@ async function promote() {
 
 <template>
   <div class="h-full flex flex-col overflow-hidden">
+    <!-- Paper info cards (everything above the Q&A lists) -->
+    <DefineMetadata>
+      <template v-if="store.currentPaper">
+        <Card class="p-5">
+          <template v-if="editing">
+            <div class="space-y-3">
+              <div class="space-y-1.5">
+                <Label>标题</Label>
+                <Input v-model="editForm.title" :disabled="isArxiv" />
+              </div>
+              <div class="space-y-1.5">
+                <Label>作者 (逗号分隔)</Label>
+                <Input v-model="editForm.authors" :disabled="isArxiv" />
+              </div>
+              <div class="space-y-1.5">
+                <Label>来源链接</Label>
+                <Input v-model="editForm.link" placeholder="https://..." />
+              </div>
+              <div class="space-y-1.5">
+                <Label>内容 (User Input)</Label>
+                <Textarea v-model="editForm.content" rows="10" placeholder="输入论文内容..." class="font-mono resize-y" />
+              </div>
+              <div class="flex justify-end gap-2">
+                <Button variant="outline" size="sm" @click="cancelEdit">
+                  <X />取消
+                </Button>
+                <Button size="sm" :disabled="saving" @click="saveEdit">
+                  <Save />{{ saving ? '保存中...' : '保存' }}
+                </Button>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <div class="flex items-start justify-between gap-3">
+              <h2 class="text-lg font-semibold leading-snug">{{ store.currentPaper.title }}</h2>
+              <div class="flex items-center gap-1 shrink-0">
+                <Button
+                  v-if="store.currentPaper.listed === false"
+                  size="sm"
+                  :disabled="promoting"
+                  @click="promote"
+                >
+                  {{ promoting ? '加入中…' : '加入列表' }}
+                </Button>
+                <Button
+                  v-if="auth.user"
+                  variant="ghost" size="icon-sm"
+                  :disabled="libraryBusy"
+                  :title="store.currentPaper.in_library ? 'In my list — click to remove from my list' : 'Add to my list'"
+                  :class="store.currentPaper.in_library ? 'text-primary' : ''"
+                  @click="toggleInLibrary"
+                >
+                  <BookmarkCheck v-if="store.currentPaper.in_library" />
+                  <BookmarkPlus v-else />
+                </Button>
+                <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">
+                  <Pencil />
+                </Button>
+                <Button variant="ghost" size="icon-sm" title="删除" class="hover:text-destructive" @click="showDeleteDialog = true; deleteConfirmId = ''">
+                  <Trash2 />
+                </Button>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
+              <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
+              <Badge variant="outline" class="gap-1">
+                <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
+              </Badge>
+            </div>
+            <div v-if="store.currentPaper.authors?.length" class="space-y-2">
+              <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <Users class="h-3 w-3" /> 作者
+              </div>
+              <div class="flex flex-wrap gap-1">
+                <Badge v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" variant="secondary">{{ a }}</Badge>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <Tag class="h-3 w-3" /> 标签
+                <Button v-if="!isEditingTags" variant="ghost" size="icon-xs" class="ml-auto" @click="startEditTags">
+                  <Pencil />
+                </Button>
+              </div>
+              <template v-if="isEditingTags">
+                <TagSelector v-model="editingTags" />
+                <div class="flex gap-2">
+                  <Button size="sm" :disabled="savingTags" @click="saveTags">
+                    {{ savingTags ? '保存中...' : '保存' }}
+                  </Button>
+                  <Button variant="ghost" size="sm" @click="cancelEditTags">取消</Button>
+                </div>
+              </template>
+              <template v-else>
+                <div v-if="(store.currentPaper as any).tags?.length" class="flex flex-wrap gap-1">
+                  <TagBadge v-for="t in (store.currentPaper as any).tags" :key="t.id || t" :tag-id="t.id || 0" :tag-name="t.name || t" clickable @click="navigateToTagFilter(t.id)" />
+                </div>
+                <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
+              </template>
+            </div>
+            <PaperFullTextCopy :paper-id="paperId" />
+            <ReferenceLinksSection :paper-id="paperId" />
+            <div v-if="store.currentPaper.abstract" class="space-y-2">
+              <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
+              <BilingualText :text="store.currentPaper.abstract || ''" />
+            </div>
+            <div v-if="s2meta" class="space-y-2">
+              <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Semantic Scholar</div>
+              <div class="flex flex-wrap gap-1.5">
+                <Badge v-if="s2meta.citationCount !== undefined" variant="secondary">引用 {{ s2meta.citationCount }}</Badge>
+                <Badge v-if="s2meta.influentialCount !== undefined" variant="outline">influential {{ s2meta.influentialCount }}</Badge>
+              </div>
+              <p v-if="s2meta.tldr" class="text-sm text-muted-foreground leading-relaxed"><span class="font-medium text-foreground">TL;DR </span>{{ s2meta.tldr }}</p>
+            </div>
+          </template>
+        </Card>
+
+        <PaperCitations :paper-id="paperId" />
+
+        <PaperNotesCard :paper-id="paperId" />
+
+        <Card v-if="summaryFaqs" class="overflow-hidden gap-0 py-0">
+          <div class="flex items-center justify-between border-b px-5 py-3">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-semibold">Kimi 自动摘要</h3>
+              <a v-if="papersCoolUrl" :href="papersCoolUrl" target="_blank" rel="noopener noreferrer"
+                class="inline-flex items-center gap-0.5 text-xs text-primary hover:underline">
+                (papers.cool) <ExternalLink class="h-2.5 w-2.5" />
+              </a>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllKimiOpen(true)">
+                <ChevronsUpDown />
+              </Button>
+              <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllKimiOpen(false)">
+                <ChevronsDownUp />
+              </Button>
+            </div>
+          </div>
+          <div class="divide-y">
+            <Collapsible
+              v-for="(faq, i) in summaryFaqs" :key="i"
+              :open="kimiOpenMap[i] || false"
+              @update:open="(v: boolean) => kimiOpenMap[i] = v"
+            >
+              <CollapsibleTrigger class="flex w-full items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/40 transition-colors text-left">
+                <span class="text-xs font-semibold shrink-0 text-muted-foreground">Q{{ i + 1 }}</span>
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-semibold">{{ faq.question }}</span>
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent class="px-5 pb-4 pt-1">
+                <MarkdownContent :content="faq.answer" :paper-id="paperId" class="text-sm" />
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+        </Card>
+      </template>
+    </DefineMetadata>
+
+    <!-- The info & Q&A column: whole (split / three columns) or one part per viewer tab (paper + conversation) -->
+    <DefinePaperColumn v-slot="{ part }">
+      <div :ref="(el) => setPaperScroll(el, part)" class="h-full overflow-y-auto relative" :data-paper-column="part">
+        <div v-if="store.loading" class="flex items-center justify-center h-full">
+          <Loader2 class="h-5 w-5 animate-spin text-primary" />
+        </div>
+        <div v-else-if="store.currentPaper" class="p-5 space-y-5 pb-40">
+          <Metadata v-if="part !== 'qa'" />
+          <QAList v-if="part !== 'metadata'" :paper-id="paperId" />
+        </div>
+        <QAPanelNav v-if="store.currentPaper && part !== 'metadata'" :entries="qaNavEntries" :scroll-container="wideScrollRef" :paper-id="paperId" />
+      </div>
+    </DefinePaperColumn>
+
     <!-- Embed: compact header -->
     <div v-if="isEmbed" class="flex h-6 items-center gap-1 border-b px-2 shrink-0">
       <div class="min-w-0 flex-1">
@@ -463,14 +690,35 @@ async function promote() {
       <div class="min-w-0 flex-1">
         <h1 class="text-sm font-semibold truncate">{{ store.currentPaper?.title || '加载中...' }}</h1>
       </div>
+      <div
+        v-if="store.currentPaper && conversation.available.value"
+        class="flex shrink-0 items-center rounded-md border p-0.5"
+        role="radiogroup"
+        aria-label="页面布局"
+        data-layout-selector
+      >
+        <Button
+          v-for="option in layoutOptions" :key="option.value"
+          variant="ghost" size="icon-sm"
+          role="radio"
+          :aria-checked="layout === option.value"
+          :title="option.label"
+          :data-layout="option.value"
+          :class="layout === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground'"
+          @click="conversation.setLayout(option.value)"
+        >
+          <component :is="option.icon" />
+        </Button>
+      </div>
       <PaperActionLauncher v-if="store.currentPaper" :actions="paperActions" />
     </div>
 
     <!-- Wide screen: split view -->
-    <div v-if="showSplitView" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging }">
+    <div v-if="showSplitView" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging || convDragging }">
       <div
         :style="{ width: collapsed ? '0%' : leftWidth + '%' }"
         class="shrink-0 overflow-hidden relative"
+        data-viewer-column
         :class="{ 'transition-[width] duration-300 ease-in-out': !dragging }"
       >
         <PaperViewerPanel
@@ -479,7 +727,11 @@ async function promote() {
           :paper-id="paperId"
           :pdf-status="store.currentPaper?.pdf_status"
           :pdf-unavailable-reason="store.currentPaper?.pdf_unavailable_reason"
-        />
+          :info-tabs="layout === 'split-conv'"
+        >
+          <template #metadata><PaperColumn part="metadata" /></template>
+          <template #qa><PaperColumn part="qa" /></template>
+        </PaperViewerPanel>
       </div>
 
       <div
@@ -505,171 +757,34 @@ async function promote() {
         </Button>
       </div>
 
-      <div ref="wideScrollRef" class="flex-1 overflow-y-auto relative">
-        <div v-if="store.loading" class="flex items-center justify-center h-full">
-          <Loader2 class="h-5 w-5 animate-spin text-primary" />
-        </div>
-        <div v-else-if="store.currentPaper" class="p-5 space-y-5 pb-40">
-          <Card class="p-5">
-            <template v-if="editing">
-              <div class="space-y-3">
-                <div class="space-y-1.5">
-                  <Label>标题</Label>
-                  <Input v-model="editForm.title" :disabled="isArxiv" />
-                </div>
-                <div class="space-y-1.5">
-                  <Label>作者 (逗号分隔)</Label>
-                  <Input v-model="editForm.authors" :disabled="isArxiv" />
-                </div>
-                <div class="space-y-1.5">
-                  <Label>来源链接</Label>
-                  <Input v-model="editForm.link" placeholder="https://..." />
-                </div>
-                <div class="space-y-1.5">
-                  <Label>内容 (User Input)</Label>
-                  <Textarea v-model="editForm.content" rows="10" placeholder="输入论文内容..." class="font-mono resize-y" />
-                </div>
-                <div class="flex justify-end gap-2">
-                  <Button variant="outline" size="sm" @click="cancelEdit">
-                    <X />取消
-                  </Button>
-                  <Button size="sm" :disabled="saving" @click="saveEdit">
-                    <Save />{{ saving ? '保存中...' : '保存' }}
-                  </Button>
-                </div>
-              </div>
-            </template>
-            <template v-else>
-              <div class="flex items-start justify-between gap-3">
-                <h2 class="text-lg font-semibold leading-snug">{{ store.currentPaper.title }}</h2>
-                <div class="flex items-center gap-1 shrink-0">
-                  <Button
-                    v-if="store.currentPaper.listed === false"
-                    size="sm"
-                    :disabled="promoting"
-                    @click="promote"
-                  >
-                    {{ promoting ? '加入中…' : '加入列表' }}
-                  </Button>
-                  <Button
-                    v-if="auth.user"
-                    variant="ghost" size="icon-sm"
-                    :disabled="libraryBusy"
-                    :title="store.currentPaper.in_library ? 'In my list — click to remove from my list' : 'Add to my list'"
-                    :class="store.currentPaper.in_library ? 'text-primary' : ''"
-                    @click="toggleInLibrary"
-                  >
-                    <BookmarkCheck v-if="store.currentPaper.in_library" />
-                    <BookmarkPlus v-else />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">
-                    <Pencil />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" title="删除" class="hover:text-destructive" @click="showDeleteDialog = true; deleteConfirmId = ''">
-                    <Trash2 />
-                  </Button>
-                </div>
-              </div>
-              <div class="flex flex-wrap gap-1.5">
-                <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
-                <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
-                <Badge variant="outline" class="gap-1">
-                  <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
-                </Badge>
-              </div>
-              <div v-if="store.currentPaper.authors?.length" class="space-y-2">
-                <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  <Users class="h-3 w-3" /> 作者
-                </div>
-                <div class="flex flex-wrap gap-1">
-                  <Badge v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" variant="secondary">{{ a }}</Badge>
-                </div>
-              </div>
-              <div class="space-y-2">
-                <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  <Tag class="h-3 w-3" /> 标签
-                  <Button v-if="!isEditingTags" variant="ghost" size="icon-xs" class="ml-auto" @click="startEditTags">
-                    <Pencil />
-                  </Button>
-                </div>
-                <template v-if="isEditingTags">
-                  <TagSelector v-model="editingTags" />
-                  <div class="flex gap-2">
-                    <Button size="sm" :disabled="savingTags" @click="saveTags">
-                      {{ savingTags ? '保存中...' : '保存' }}
-                    </Button>
-                    <Button variant="ghost" size="sm" @click="cancelEditTags">取消</Button>
-                  </div>
-                </template>
-                <template v-else>
-                  <div v-if="(store.currentPaper as any).tags?.length" class="flex flex-wrap gap-1">
-                    <TagBadge v-for="t in (store.currentPaper as any).tags" :key="t.id || t" :tag-id="t.id || 0" :tag-name="t.name || t" clickable @click="navigateToTagFilter(t.id)" />
-                  </div>
-                  <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
-                </template>
-              </div>
-              <PaperFullTextCopy :paper-id="paperId" />
-              <ReferenceLinksSection :paper-id="paperId" />
-              <div v-if="store.currentPaper.abstract" class="space-y-2">
-                <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
-                <BilingualText :text="store.currentPaper.abstract || ''" />
-              </div>
-              <div v-if="s2meta" class="space-y-2">
-                <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Semantic Scholar</div>
-                <div class="flex flex-wrap gap-1.5">
-                  <Badge v-if="s2meta.citationCount !== undefined" variant="secondary">引用 {{ s2meta.citationCount }}</Badge>
-                  <Badge v-if="s2meta.influentialCount !== undefined" variant="outline">influential {{ s2meta.influentialCount }}</Badge>
-                </div>
-                <p v-if="s2meta.tldr" class="text-sm text-muted-foreground leading-relaxed"><span class="font-medium text-foreground">TL;DR </span>{{ s2meta.tldr }}</p>
-              </div>
-            </template>
-          </Card>
-
-          <PaperCitations :paper-id="paperId" />
-
-          <PaperNotesCard :paper-id="paperId" />
-
-          <Card v-if="summaryFaqs" class="overflow-hidden gap-0 py-0">
-            <div class="flex items-center justify-between border-b px-5 py-3">
-              <div class="flex items-center gap-2">
-                <h3 class="text-sm font-semibold">Kimi 自动摘要</h3>
-                <a v-if="papersCoolUrl" :href="papersCoolUrl" target="_blank" rel="noopener noreferrer"
-                  class="inline-flex items-center gap-0.5 text-xs text-primary hover:underline">
-                  (papers.cool) <ExternalLink class="h-2.5 w-2.5" />
-                </a>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllKimiOpen(true)">
-                  <ChevronsUpDown />
-                </Button>
-                <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllKimiOpen(false)">
-                  <ChevronsDownUp />
-                </Button>
-              </div>
-            </div>
-            <div class="divide-y">
-              <Collapsible
-                v-for="(faq, i) in summaryFaqs" :key="i"
-                :open="kimiOpenMap[i] || false"
-                @update:open="(v: boolean) => kimiOpenMap[i] = v"
-              >
-                <CollapsibleTrigger class="flex w-full items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/40 transition-colors text-left">
-                  <span class="text-xs font-semibold shrink-0 text-muted-foreground">Q{{ i + 1 }}</span>
-                  <div class="flex-1 min-w-0">
-                    <span class="text-sm font-semibold">{{ faq.question }}</span>
-                  </div>
-                </CollapsibleTrigger>
-                <CollapsibleContent class="px-5 pb-4 pt-1">
-                  <MarkdownContent :content="faq.answer" :paper-id="paperId" class="text-sm" />
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          </Card>
-
-          <QAList :paper-id="paperId" />
-        </div>
-        <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="wideScrollRef" :paper-id="paperId" />
+      <div v-if="layout !== 'split-conv'" class="min-w-0 flex-1">
+        <PaperColumn part="all" />
       </div>
+
+      <!-- Conversation view: right column (paper + conversation) or resizable third column -->
+      <template v-if="conversation.visible.value && store.currentPaper">
+        <div
+          v-if="layout === 'three'"
+          class="shrink-0 relative touch-none cursor-col-resize bg-border transition-colors"
+          :class="convDragging ? 'bg-ring' : 'hover:bg-ring/60'"
+          :style="{ width: '2px' }"
+          title="拖动调整对话栏宽度"
+          data-conv-divider
+          @pointerdown.prevent="onConvPointerDown"
+          @pointermove="onConvPointerMove"
+          @pointerup="onConvPointerUp"
+        >
+          <div class="absolute inset-y-0 -left-[5px] -right-[5px]"></div>
+        </div>
+        <div
+          class="overflow-hidden"
+          :class="layout === 'three' ? 'shrink-0' : 'min-w-0 flex-1'"
+          :style="layout === 'three' ? { width: conversation.three.value.conv + '%' } : undefined"
+          data-conv-column
+        >
+          <QAConversationPanel :paper-id="paperId" />
+        </div>
+      </template>
     </div>
 
     <!-- Narrow screen -->
@@ -820,7 +935,7 @@ async function promote() {
       <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="narrowScrollRef" :paper-id="paperId" />
     </div>
 
-    <QAInput v-if="store.currentPaper" :paper-id="paperId" />
+    <QAInput v-if="store.currentPaper && !conversation.visible.value" :paper-id="paperId" />
 
     <Dialog v-model:open="showDeleteDialog">
       <DialogContent class="max-w-md">
