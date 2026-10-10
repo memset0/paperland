@@ -14,6 +14,7 @@ import { buildRepairInput, buildResearchInput, getResearchSystemPrompt, renderHi
 const PA = '204e3073870fae3d05bcbc2f6a8e263d9b72e776'
 const FAKE = 'f'.repeat(40)
 const realFetch = globalThis.fetch
+let db: ReturnType<typeof drizzle<typeof schema>>
 
 const LIST: ResearchPaperList = {
   title: 'Attention <survey> & more',
@@ -40,7 +41,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   const sqlite = new Database(':memory:')
-  const db = drizzle(sqlite, { schema })
+  db = drizzle(sqlite, { schema })
   migrate(db, { migrationsFolder: resolve(dirname(new URL(import.meta.url).pathname), '..', 'db', 'migrations') })
   setDatabaseForTesting(db)
   globalThis.fetch = (async (_url: unknown, init: any) => {
@@ -93,6 +94,22 @@ describe('buildResearchInput', () => {
     expect(t).toContain(`<paper s2_id="${FAKE}" verified="false">\n      <comment>dubious</comment>\n    </paper>`)
     expect(t).toContain('<link url="https://example.com/post?a=1&amp;b=2">')
     expect(t).toContain('<citation title="A post" author="Jane Doe and John Roe" year="2024" howpublished="Blog"/>')
+  })
+
+  it('gives library papers their in-app link and leaves other papers without one', async () => {
+    const now = new Date().toISOString()
+    const paper = db.insert(schema.papers).values({ title: 'Attention', authors: '[]', s2_paper_id: PA, created_at: now, updated_at: now }).returning().get()
+    const t = text(await buildResearchInput({ topic: 't', seed: null, history: [], current: { report: 'r', list: LIST }, request: 'go' }))
+    expect(t).toContain(`<paper s2_id="${PA}" verified="true" in_library="paperland://paper/${paper.id}"`)
+    expect(t).toContain(`<paper s2_id="${FAKE}" verified="false">`)
+  })
+
+  it('states the math, JSON escaping, and library link rules in the system prompt', async () => {
+    const system = getResearchSystemPrompt()
+    expect(system).toContain('`$...$` for inline math')
+    expect(system).toContain('Never use `\\(...\\)` or `\\[...\\]`')
+    expect(system).toContain('every backslash must be escaped')
+    expect(system).toContain('paperland://paper/<id>')
   })
 
   it('omits optional sections on the first round', async () => {

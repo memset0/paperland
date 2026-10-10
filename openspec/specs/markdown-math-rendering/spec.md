@@ -25,23 +25,16 @@ The system SHALL render text enclosed in double dollar signs (`$$...$$`) as disp
 - **WHEN** markdown content contains a `$$...$$` block spanning multiple lines
 - **THEN** the entire block SHALL be rendered as a single display math formula
 
-### Requirement: Inline math rendering with backslash-parenthesis
-The system SHALL render text enclosed in `\(...\)` as inline math formulas using KaTeX, natively handled by the `markdown-it` KaTeX plugin without manual delimiter conversion.
+### Requirement: Only dollar delimiters render as math
+Only `$...$` (inline) and `$$...$$` (display) SHALL be rendered as math. The system SHALL NOT convert `\(...\)` or `\[...\]` into math delimiters, so content using them is shown as text and formatting mistakes remain visible. Model prompts that produce Markdown (Q&A and Deep Research) SHALL instruct the model to use `$` / `$$`.
 
-#### Scenario: Backslash-parenthesis inline math
-- **WHEN** markdown content contains `The value \(\alpha + \beta\) is positive`
-- **THEN** the Greek letters alpha and beta SHALL be rendered as formatted inline math
+#### Scenario: Backslash-parenthesis is not rendered
+- **WHEN** markdown content contains `The value \(\alpha\) is positive`
+- **THEN** no KaTeX element SHALL be rendered for it
 
-#### Scenario: No preprocessing required
-- **WHEN** markdown content contains `\(...\)` delimiters
-- **THEN** the `markdown-it` KaTeX plugin SHALL handle them directly during tokenization, without any regex-based delimiter normalization
-
-### Requirement: Display math rendering with backslash-bracket
-The system SHALL render text enclosed in `\[...\]` as display (block) math formulas using KaTeX, natively handled by the `markdown-it` KaTeX plugin without manual delimiter conversion.
-
-#### Scenario: Backslash-bracket display math
-- **WHEN** markdown content contains `\[\sum_{i=1}^{n} x_i = S\]`
-- **THEN** the summation SHALL be rendered as a centered, display-style math block
+#### Scenario: Dollar math is rendered
+- **WHEN** markdown content contains `The value $\alpha$ is positive`
+- **THEN** alpha SHALL be rendered as inline math
 
 ### Requirement: Math inside code blocks is not rendered
 The system SHALL NOT process math delimiters that appear inside inline code or fenced code blocks. This SHALL be handled natively by the `markdown-it` tokenizer (math plugin only processes tokens outside code spans/blocks).

@@ -29,15 +29,20 @@ function attrs(values: Record<string, string | number | boolean | null | undefin
 /**
  * The list as shown to the agent inside `<current_version>`: XML-style, every paper enriched with
  * the S2 metadata the system fetched (title, authors, year, venue, arXiv id, citation count, TLDR,
- * abstract truncated to `abstractLimit`). Unverified papers carry `verified="false"` and only their
+ * abstract truncated to `abstractLimit`) and, for library papers, `in_library` with the in-app link. Unverified papers carry `verified="false"` and only their
  * id and comment, so the agent can correct or drop them.
  */
 export async function renderListForPrompt(list: ResearchPaperList, abstractLimit: number): Promise<string> {
   const ids = [...new Set(list.sections.flatMap((s) => s.items).flatMap((i) => i.kind === 'paper' ? [i.s2_id] : []))]
   const meta = new Map<string, S2PaperMeta>()
+  const libraryIds = new Map<string, number>()
   if (ids.length) {
     const results = await resolveS2Ids(ids, { allowFetch: true })
-    results.forEach((r, i) => { if (r.status === 'resolved' && r.paper) meta.set(ids[i], r.paper) })
+    results.forEach((r, i) => {
+      if (r.status !== 'resolved' || !r.paper) return
+      meta.set(ids[i], r.paper)
+      if (r.library_paper_id != null) libraryIds.set(ids[i], r.library_paper_id)
+    })
   }
   const lines = [`<paper_list${attrs({ title: list.title })}>`]
   list.sections.forEach((section, si) => {
@@ -49,7 +54,8 @@ export async function renderListForPrompt(list: ResearchPaperList, abstractLimit
         if (!p) {
           lines.push(`    <paper${attrs({ s2_id: item.s2_id, verified: 'false' })}>`)
         } else {
-          lines.push(`    <paper${attrs({ s2_id: item.s2_id, verified: 'true', arxiv_id: p.arxiv_id, year: p.year, venue: p.venue, citation_count: p.citation_count })}>`)
+          const libraryId = libraryIds.get(item.s2_id)
+          lines.push(`    <paper${attrs({ s2_id: item.s2_id, verified: 'true', in_library: libraryId != null ? `paperland://paper/${libraryId}` : null, arxiv_id: p.arxiv_id, year: p.year, venue: p.venue, citation_count: p.citation_count })}>`)
           if (p.title) lines.push(`      <title>${xmlEscape(p.title)}</title>`)
           if (p.authors.length) lines.push(`      <authors>${xmlEscape(p.authors.join(', '))}</authors>`)
           if (p.tldr) lines.push(`      <tldr>${xmlEscape(p.tldr)}</tldr>`)
