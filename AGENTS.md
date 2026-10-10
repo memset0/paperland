@@ -55,7 +55,7 @@ This file provides shared guidance for AI coding tools working in this repositor
 
 - The Paperland version is the `version` field of the root `package.json` (`MAJOR.MINOR.PATCH`). It identifies builds; it carries no strict compatibility promise. The frontend footer shows it together with the git short hash.
 - **MAJOR** (currently 2): change only when the developer explicitly asks.
-- **MINOR**: MUST be incremented when an archived change makes an incompatible database schema change; MAY also be incremented when the user asks. Reset PATCH to `0` when MINOR changes.
+- **MINOR**: MUST be incremented when an archived change makes a database schema change that is incompatible with the previous schema (e.g. dropping or renaming tables/columns, changing column meaning or constraints so existing data or code breaks). Purely additive changes (new tables, new nullable or defaulted columns, new indexes) do NOT require it. Otherwise MINOR changes only when the user explicitly asks. Reset PATCH to `0` when MINOR changes.
 - **PATCH**: increment when at least one OpenSpec change is archived. Several changes archived in the same commit bump PATCH once.
 - Update the version only when archiving (the agent doing the archive does it); never bump it during implementation. If another agent's archive already changed it concurrently, bump from the current on-disk value.
 
