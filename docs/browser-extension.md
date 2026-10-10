@@ -29,7 +29,7 @@
 1. 在 Paperland 的 **Extension** 页面 → **Configuration**（或 **Settings** 页 → **Browser Extension**，左下角头像 → Account settings 也会跳到这里）复制 **Site URL** 与 **Token**。
 2. 首次点击插件按钮会自动打开选项页（或在扩展管理页打开「选项」），填入两项并保存。
 
-Token 可在上述两处「重新生成」，旧 token 立即失效：需要回到插件选项页更新，或重新下载安装。
+Token 可在上述两处 "Regenerate"，旧 token 立即失效：需要回到插件选项页更新，或重新下载安装。
 
 ## 使用
 

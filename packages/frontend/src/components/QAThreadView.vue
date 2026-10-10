@@ -164,11 +164,11 @@ function onFollowup(message: Message, result: QAResult, prefill?: string) {
     <div v-if="loading && !steps.length" class="flex items-center justify-center py-10 text-muted-foreground">
       <Loader2 class="h-4 w-4 animate-spin" />
     </div>
-    <p v-else-if="failed" class="py-10 text-center text-xs text-muted-foreground">无法加载该对话（问答不存在或不可见）</p>
+    <p v-else-if="failed" class="py-10 text-center text-xs text-muted-foreground">Can't load this conversation (it doesn't exist or isn't visible).</p>
     <div v-else class="space-y-5">
       <template v-for="message in messages" :key="message.entryId">
         <div v-if="message.hidden" class="flex items-center justify-center gap-1.5 rounded-md border border-dashed py-3 text-xs text-muted-foreground">
-          <EyeOff class="h-3.5 w-3.5" /> QA-{{ message.entryId }} 当前不可见或已删除
+          <EyeOff class="h-3.5 w-3.5" /> QA-{{ message.entryId }} is hidden or deleted
         </div>
         <template v-else>
           <!-- Question (user message) -->
@@ -198,7 +198,7 @@ function onFollowup(message: Message, result: QAResult, prefill?: string) {
               <button
                 type="button"
                 class="mt-1 block w-full text-right text-[10px] text-muted-foreground hover:text-foreground"
-                title="在列表中定位"
+                title="Show in list"
                 @click="revealQAEntry(message.entryId, message.result?.id ?? null)"
               >QA-{{ message.entryId }}</button>
             </div>
@@ -216,7 +216,7 @@ function onFollowup(message: Message, result: QAResult, prefill?: string) {
               @followup="(result, prefill) => onFollowup(message, result, prefill)"
             />
           </div>
-          <p v-else class="text-xs text-muted-foreground">该回答已删除</p>
+          <p v-else class="text-xs text-muted-foreground">This answer was deleted</p>
         </template>
       </template>
     </div>

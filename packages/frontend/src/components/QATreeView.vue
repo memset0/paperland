@@ -40,7 +40,7 @@ const flat = computed<Flat[]>(() => {
   // Oldest first so siblings read in asking order.
   for (const entry of [...store.qaData.free].reverse()) {
     items.push({
-      entryId: entry.entry_id, label: entry.prompt || '自由提问', status: entry.status, isTemplate: false,
+      entryId: entry.entry_id, label: entry.prompt || 'Free question', status: entry.status, isTemplate: false,
       entryKey: `free-${entry.entry_id}`, parentEntryId: entry.parent_entry_id, results: entry.results,
     })
   }
@@ -132,7 +132,7 @@ watch(root, () => nextTick(recompute), { deep: true })
 
 <template>
   <div class="qt-canvas">
-    <p v-if="!root.children.length" class="py-6 text-center text-xs text-muted-foreground">暂无 Q&A</p>
+    <p v-if="!root.children.length" class="py-6 text-center text-xs text-muted-foreground">No Q&A yet</p>
     <div v-show="root.children.length" ref="innerRef" class="qt-inner">
       <svg class="qt-links">
         <path v-for="(d, i) in edges" :key="i" :d="d" fill="none" stroke="var(--border)" stroke-width="1.5" />

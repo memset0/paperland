@@ -169,7 +169,7 @@ function selectModel(name: string) {
           <Send /> Submit
         </Button>
         <div class="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
-          <span class="text-[10px] text-muted-foreground uppercase tracking-wider mr-0.5">模型</span>
+          <span class="text-[10px] text-muted-foreground uppercase tracking-wider mr-0.5">Model</span>
           <!-- Docked in the narrow conversation column: one compact dropdown instead of a button row -->
           <select
             v-if="docked"
@@ -191,15 +191,15 @@ function selectModel(name: string) {
             </Button>
           </template>
         </div>
-        <Button v-if="!docked" variant="ghost" size="icon-sm" class="shrink-0" title="关闭" @click="close()">
+        <Button v-if="!docked" variant="ghost" size="icon-sm" class="shrink-0" title="Close" @click="close()">
           <X />
         </Button>
       </div>
       <!-- Follow-up target and attachments sit between the controls and the input -->
       <div v-if="composer.followup.value" class="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground">
         <MessagesSquare class="h-3 w-3 shrink-0" />
-        <span class="truncate">追问 QA-{{ composer.followup.value.entry_id }} · {{ composer.followup.value.model_name }} · {{ composer.followup.value.title }}</span>
-        <button v-if="!docked" type="button" class="ml-auto shrink-0 hover:text-foreground" title="取消追问" @click="composer.clearFollowup()">
+        <span class="truncate">Following up on QA-{{ composer.followup.value.entry_id }} · {{ composer.followup.value.model_name }} · {{ composer.followup.value.title }}</span>
+        <button v-if="!docked" type="button" class="ml-auto shrink-0 hover:text-foreground" title="Cancel follow-up" @click="composer.clearFollowup()">
           <X class="h-3 w-3" />
         </button>
       </div>
@@ -215,16 +215,16 @@ function selectModel(name: string) {
           <img v-if="input.kind === 'image'" :src="input.url" alt="" class="h-4 w-6 shrink-0 rounded-sm object-cover" />
           <span v-else class="truncate text-muted-foreground">{{ preview(input) }}</span>
           <span v-if="inputPageLabel(input)" class="shrink-0 text-muted-foreground">{{ inputPageLabel(input) }}</span>
-          <button type="button" class="shrink-0 text-muted-foreground hover:text-foreground" title="移除" @click="composer.removeAttachment(input.label)">
+          <button type="button" class="shrink-0 text-muted-foreground hover:text-foreground" title="Remove" @click="composer.removeAttachment(input.label)">
             <X class="h-3 w-3" />
           </button>
         </span>
       </div>
-      <p v-if="docked && !composer.followup.value && !blocked" class="shrink-0 text-[11px] text-muted-foreground">新对话：提交后创建新的提问</p>
+      <p v-if="docked && !composer.followup.value && !blocked" class="shrink-0 text-[11px] text-muted-foreground">New conversation: submitting starts a new question</p>
       <p v-if="blocked" class="shrink-0 text-[11px] text-muted-foreground">{{ blocked }}</p>
       <p v-if="noContent" class="shrink-0 text-[11px] text-muted-foreground">{{ NO_QA_CONTENT_HINT }}</p>
       <p v-if="nonVisionSelected.length" class="shrink-0 text-[11px] text-destructive">
-        {{ nonVisionSelected.join(', ') }} 不支持图片输入，请换用支持图片的模型
+        {{ nonVisionSelected.join(', ') }} can't take images. Pick a model that supports images.
       </p>
       <div class="relative flex flex-1 min-h-0">
         <Textarea
@@ -234,7 +234,7 @@ function selectModel(name: string) {
           @input="updateMention"
           @click="updateMention"
           @blur="mention = null"
-          placeholder="输入问题，@ 引用选段或截图..."
+          placeholder="Ask a question; @ to reference a selection or screenshot…"
           rows="2"
           class="flex-1 min-h-0 w-full resize-none"
         />
@@ -252,7 +252,7 @@ function selectModel(name: string) {
             <TextQuote v-if="input.kind === 'text_selection'" class="h-3 w-3 shrink-0" />
             <ImageIcon v-else class="h-3 w-3 shrink-0" />
             <span class="font-medium">@{{ input.label }}</span>
-            <span class="truncate text-muted-foreground">{{ input.kind === 'text_selection' ? preview(input) : '截图' }}</span>
+            <span class="truncate text-muted-foreground">{{ input.kind === 'text_selection' ? preview(input) : 'Screenshot' }}</span>
             <span v-if="inputPageLabel(input)" class="ml-auto shrink-0 text-muted-foreground">{{ inputPageLabel(input) }}</span>
           </button>
         </div>
@@ -264,9 +264,9 @@ function selectModel(name: string) {
         class="flex flex-1 items-center justify-center gap-2 py-2 text-sm text-muted-foreground hover:text-foreground"
         @click="openLogin()"
       >
-        <LogIn class="h-4 w-4" /> 登录后可对论文提问
+        <LogIn class="h-4 w-4" /> Log in to ask about this paper
       </button>
-      <Button variant="ghost" size="icon-sm" class="shrink-0" title="关闭" @click="close()">
+      <Button variant="ghost" size="icon-sm" class="shrink-0" title="Close" @click="close()">
         <X />
       </Button>
     </div>

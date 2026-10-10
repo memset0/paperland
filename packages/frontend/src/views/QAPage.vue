@@ -65,7 +65,7 @@ async function onScopeChange(scope: 'mine' | 'all') {
             <RefreshCw :class="qaStore.feedLoading && 'animate-spin'" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>刷新</TooltipContent>
+        <TooltipContent>Refresh</TooltipContent>
       </Tooltip>
     </template>
 
@@ -128,8 +128,8 @@ async function onScopeChange(scope: 'mine' | 'all') {
     <div v-else class="flex-1 flex items-center justify-center">
       <div class="text-center text-muted-foreground">
         <MessageSquare class="h-10 w-10 mx-auto mb-3 stroke-1" />
-        <p class="text-sm">暂无自由提问记录</p>
-        <p class="text-xs mt-1">在论文详情页中提交自由提问</p>
+        <p class="text-sm">No questions yet</p>
+        <p class="text-xs mt-1">Ask questions from a paper's detail page</p>
       </div>
     </div>
   </AppPage>

@@ -61,11 +61,11 @@ const showCreate = ref(false)
 const createForm = ref<{ username: string; password: string; admin: boolean }>({ username: '', password: '', admin: false })
 const creating = ref(false)
 async function createUser() {
-  if (!createForm.value.username || !createForm.value.password) { toast.error('请输入用户名和密码'); return }
+  if (!createForm.value.username || !createForm.value.password) { toast.error('Enter a username and password.'); return }
   creating.value = true
   try {
     await usersApi.create({ username: createForm.value.username, password: createForm.value.password, role: createForm.value.admin ? 'admin' : 'user' })
-    toast.success('用户已创建')
+    toast.success('User created')
     showCreate.value = false
     createForm.value = { username: '', password: '', admin: false }
     await fetchUsers()
@@ -76,7 +76,7 @@ async function toggleRole(u: User) {
   const next: UserRole = u.role === 'admin' ? 'user' : 'admin'
   try {
     await usersApi.update(u.id, { role: next })
-    toast.success(`已将 ${u.username} 设为${next === 'admin' ? '管理员' : '普通用户'}`)
+    toast.success(`${u.username} is now ${next === 'admin' ? 'an admin' : 'a user'}`)
     await fetchUsers()
   } catch { /* handled */ }
 }
@@ -86,10 +86,10 @@ const resetTarget = ref<User | null>(null)
 const resetPw = ref('')
 function openReset(u: User) { resetTarget.value = u; resetPw.value = ''; showReset.value = true }
 async function doReset() {
-  if (!resetTarget.value || !resetPw.value) { toast.error('请输入新密码'); return }
+  if (!resetTarget.value || !resetPw.value) { toast.error('Enter a new password.'); return }
   try {
     await usersApi.update(resetTarget.value.id, { password: resetPw.value })
-    toast.success('密码已重置')
+    toast.success('Password reset')
     showReset.value = false
   } catch { /* handled */ }
 }
@@ -102,7 +102,7 @@ async function saveNickname() {
   if (!nicknameTarget.value) return
   try {
     await usersApi.update(nicknameTarget.value.id, { nickname: nicknameInput.value })
-    toast.success('昵称已更新')
+    toast.success('Nickname updated')
     showNickname.value = false
     await fetchUsers()
   } catch { /* handled */ }
@@ -145,21 +145,21 @@ function copyToken() {
       <div class="flex items-center justify-between border-b px-5 py-3">
         <div class="flex items-center gap-2">
           <Users class="h-4 w-4 text-muted-foreground" />
-          <h3 class="text-sm font-semibold">用户管理</h3>
+          <h3 class="text-sm font-semibold">User management</h3>
         </div>
         <Button size="sm" @click="showCreate = true">
-          <Plus />新增用户
+          <Plus />Add user
         </Button>
       </div>
 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>用户名</TableHead>
-            <TableHead>昵称</TableHead>
-            <TableHead class="w-28">角色</TableHead>
-            <TableHead class="w-40">创建时间</TableHead>
-            <TableHead class="w-64 text-right">操作</TableHead>
+            <TableHead>Username</TableHead>
+            <TableHead>Nickname</TableHead>
+            <TableHead class="w-28">Role</TableHead>
+            <TableHead class="w-40">Created</TableHead>
+            <TableHead class="w-64 text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -173,7 +173,7 @@ function copyToken() {
               <Badge :variant="u.role === 'admin' ? 'default' : 'secondary'" class="gap-1">
                 <ShieldCheck v-if="u.role === 'admin'" class="h-3 w-3" />
                 <Shield v-else class="h-3 w-3" />
-                {{ u.role === 'admin' ? '管理员' : '普通用户' }}
+                {{ u.role === 'admin' ? 'Admin' : 'User' }}
               </Badge>
             </TableCell>
             <TableCell class="text-xs text-muted-foreground">{{ new Date(u.created_at).toLocaleString() }}</TableCell>
@@ -183,19 +183,19 @@ function copyToken() {
             </TableCell>
             <TableCell v-else class="text-right space-x-1">
               <Button variant="ghost" size="xs" @click="toggleRole(u)">
-                {{ u.role === 'admin' ? '改为普通' : '设为管理员' }}
+                {{ u.role === 'admin' ? 'Remove admin' : 'Make admin' }}
               </Button>
               <Button variant="ghost" size="xs" @click="openNickname(u)">
-                <Pencil />昵称
+                <Pencil />Nickname
               </Button>
               <Button variant="ghost" size="xs" @click="openReset(u)">
-                <KeyRound />重置密码
+                <KeyRound />Reset password
               </Button>
             </TableCell>
           </TableRow>
         </TableBody>
       </Table>
-      <div v-if="!users.length" class="text-center py-10 text-sm text-muted-foreground">暂无用户</div>
+      <div v-if="!users.length" class="text-center py-10 text-sm text-muted-foreground">No users</div>
     </Card>
 
     <!-- ── API Token ── -->
@@ -206,13 +206,13 @@ function copyToken() {
           <h3 class="text-sm font-semibold">All API Tokens</h3>
         </div>
         <Button size="sm" :disabled="issuing" @click="issueNew">
-          <Plus />签发
+          <Plus />Issue token
         </Button>
       </div>
 
       <Alert v-if="newToken" class="m-5">
         <Check />
-        <AlertTitle>新 Token 已生成（仅显示一次）</AlertTitle>
+        <AlertTitle>New token created (shown only once)</AlertTitle>
         <AlertDescription>
           <div class="flex items-center gap-2 w-full">
             <code class="flex-1 rounded-md bg-muted px-3 py-1.5 text-xs font-mono break-all select-all">{{ newToken }}</code>
@@ -228,34 +228,35 @@ function copyToken() {
         <TableHeader>
           <TableRow>
             <TableHead>Token</TableHead>
-            <TableHead class="w-40">创建时间</TableHead>
-            <TableHead class="w-24">状态</TableHead>
-            <TableHead class="w-20 text-right">操作</TableHead>
+            <TableHead class="w-40">Created</TableHead>
+            <TableHead class="w-24">Status</TableHead>
+            <TableHead class="w-20 text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow v-for="t in store.tokens" :key="t.id">
             <TableCell>
               <code v-if="t.token" class="text-xs font-mono bg-muted rounded px-1.5 py-0.5">{{ t.token }}</code>
-              <span v-else class="text-xs text-muted-foreground">不可查看</span>
-              <Badge v-if="t.kind === 'agent'" variant="outline" class="ml-2" title="每个用户一个，Deep Research 注入 Codex 使用，只能由本人重置">Codex agent</Badge>
+              <span v-else class="text-xs text-muted-foreground">Hidden</span>
+              <Badge v-if="t.kind === 'agent'" variant="outline" class="ml-2" title="One per user, used by Codex in Deep Research; only its owner can reset it">Codex agent</Badge>
             </TableCell>
             <TableCell class="text-xs text-muted-foreground">{{ new Date(t.created_at).toLocaleString() }}</TableCell>
             <TableCell>
               <Badge :variant="t.revoked_at ? 'destructive' : 'secondary'">
-                {{ t.revoked_at ? '已撤销' : '有效' }}
+                {{ t.revoked_at ? 'Revoked' : 'Active' }}
               </Badge>
             </TableCell>
             <TableCell class="text-right">
               <Button v-if="!t.revoked_at && t.kind !== 'agent'" variant="ghost" size="xs" class="text-destructive" @click="store.revokeToken(t.id)">
-                <Trash2 />撤销
+                <Trash2 />Revoke
               </Button>
             </TableCell>
           </TableRow>
         </TableBody>
       </Table>
-      <div v-if="!store.tokens.length" class="text-center py-10 text-sm text-muted-foreground">暂无 Token</div>
+      <div v-if="!store.tokens.length" class="text-center py-10 text-sm text-muted-foreground">No tokens</div>
     </Card>
+
 
     </template>
 
@@ -263,26 +264,26 @@ function copyToken() {
     <Dialog v-model:open="showCreate">
       <DialogContent class="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>新增用户</DialogTitle>
-          <DialogDescription>创建一个新账户并设置初始密码。用户可登录后自行修改。</DialogDescription>
+          <DialogTitle>Add user</DialogTitle>
+          <DialogDescription>Create an account with an initial password. The user can change it after logging in.</DialogDescription>
         </DialogHeader>
         <form class="space-y-4" @submit.prevent="createUser">
           <div class="space-y-2">
-            <Label for="nu-name">用户名</Label>
+            <Label for="nu-name">Username</Label>
             <Input id="nu-name" v-model="createForm.username" autocomplete="off" />
           </div>
           <div class="space-y-2">
-            <Label for="nu-pw">初始密码</Label>
+            <Label for="nu-pw">Initial password</Label>
             <Input id="nu-pw" type="password" v-model="createForm.password" autocomplete="new-password" />
           </div>
           <div class="space-y-2">
-            <Label>角色</Label>
+            <Label>Role</Label>
             <div class="flex gap-2">
-              <Button type="button" size="sm" :variant="!createForm.admin ? 'secondary' : 'outline'" @click="createForm.admin = false">普通用户</Button>
-              <Button type="button" size="sm" :variant="createForm.admin ? 'secondary' : 'outline'" @click="createForm.admin = true">管理员</Button>
+              <Button type="button" size="sm" :variant="!createForm.admin ? 'secondary' : 'outline'" @click="createForm.admin = false">User</Button>
+              <Button type="button" size="sm" :variant="createForm.admin ? 'secondary' : 'outline'" @click="createForm.admin = true">Admin</Button>
             </div>
           </div>
-          <Button type="submit" class="w-full" :disabled="creating">{{ creating ? '创建中…' : '创建用户' }}</Button>
+          <Button type="submit" class="w-full" :disabled="creating">{{ creating ? 'Creating…' : 'Create user' }}</Button>
         </form>
       </DialogContent>
     </Dialog>
@@ -291,15 +292,15 @@ function copyToken() {
     <Dialog v-model:open="showNickname">
       <DialogContent class="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>修改昵称</DialogTitle>
-          <DialogDescription>为 {{ nicknameTarget?.username }} 设置昵称，留空则显示用户名。</DialogDescription>
+          <DialogTitle>Edit nickname</DialogTitle>
+          <DialogDescription>Set a nickname for {{ nicknameTarget?.username }}. Leave blank to show the username.</DialogDescription>
         </DialogHeader>
         <form class="space-y-4" @submit.prevent="saveNickname">
           <div class="space-y-2">
-            <Label for="nn-input">昵称</Label>
+            <Label for="nn-input">Nickname</Label>
             <Input id="nn-input" v-model="nicknameInput" maxlength="32" autocomplete="off" />
           </div>
-          <Button type="submit" class="w-full">保存</Button>
+          <Button type="submit" class="w-full">Save</Button>
         </form>
       </DialogContent>
     </Dialog>
@@ -307,15 +308,15 @@ function copyToken() {
     <Dialog v-model:open="showReset">
       <DialogContent class="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>重置密码</DialogTitle>
-          <DialogDescription>为 {{ resetTarget?.username }} 设置一个新密码。</DialogDescription>
+          <DialogTitle>Reset password</DialogTitle>
+          <DialogDescription>Set a new password for {{ resetTarget?.username }}.</DialogDescription>
         </DialogHeader>
         <form class="space-y-4" @submit.prevent="doReset">
           <div class="space-y-2">
-            <Label for="rp-pw">新密码</Label>
+            <Label for="rp-pw">New password</Label>
             <Input id="rp-pw" type="password" v-model="resetPw" autocomplete="new-password" />
           </div>
-          <Button type="submit" class="w-full">重置密码</Button>
+          <Button type="submit" class="w-full">Reset password</Button>
         </form>
       </DialogContent>
     </Dialog>

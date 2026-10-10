@@ -53,7 +53,7 @@ const citeItems = computed(() =>
 async function copyResultLink() {
   const url = `paperland://paper/${props.paperId}?qa=${props.result.qa_entry_id}&result=${props.result.id}`
   await navigator.clipboard.writeText(`[QA-${props.result.qa_entry_id} · ${props.result.model_name}](${url})`)
-  toast.success('已复制回答链接', { position: 'bottom-center' })
+  toast.success('Answer link copied', { position: 'bottom-center' })
 }
 
 function onMoonlight(question: string) {
@@ -87,12 +87,12 @@ function timeAgo(iso: string): string {
   const time = Date.parse(iso)
   if (!Number.isFinite(time)) return ''
   const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000))
-  if (seconds < 60) return '刚刚'
+  if (seconds < 60) return 'just now'
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}分钟前`
+  if (minutes < 60) return `${minutes}m ago`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}小时前`
-  return `${Math.floor(hours / 24)}天前`
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
 }
 </script>
 
@@ -150,7 +150,7 @@ function timeAgo(iso: string): string {
             <Pin />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{{ isPinned() ? '取消置顶' : '置顶' }}</TooltipContent>
+        <TooltipContent>{{ isPinned() ? 'Unpin' : 'Pin' }}</TooltipContent>
       </Tooltip>
       <Tooltip v-if="result.answer">
         <TooltipTrigger as-child>
@@ -158,7 +158,7 @@ function timeAgo(iso: string): string {
             <Check v-if="copied" /><Copy v-else />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{{ copied ? '已复制' : '复制' }}</TooltipContent>
+        <TooltipContent>{{ copied ? 'Copied' : 'Copy' }}</TooltipContent>
       </Tooltip>
       <Tooltip v-if="auth.isAuthenticated">
         <TooltipTrigger as-child>
@@ -170,7 +170,7 @@ function timeAgo(iso: string): string {
             <MessagesSquare />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{{ result.status === 'done' ? '追问' : '回答完成后才能追问' }}</TooltipContent>
+        <TooltipContent>{{ result.status === 'done' ? 'Follow up' : 'Available after the answer finishes' }}</TooltipContent>
       </Tooltip>
       <Tooltip v-if="conversation.available.value && !inConversation">
         <TooltipTrigger as-child>
@@ -178,7 +178,7 @@ function timeAgo(iso: string): string {
             <PanelRightOpen />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>在对话视图中打开</TooltipContent>
+        <TooltipContent>Open in conversation view</TooltipContent>
       </Tooltip>
       <Tooltip v-if="auth.isAuthenticated && result.status === 'done'">
         <TooltipTrigger as-child>
@@ -196,7 +196,7 @@ function timeAgo(iso: string): string {
             <Link2 />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>复制回答链接</TooltipContent>
+        <TooltipContent>Copy answer link</TooltipContent>
       </Tooltip>
       <Tooltip v-if="auth.isAuthenticated">
         <TooltipTrigger as-child>
@@ -204,7 +204,7 @@ function timeAgo(iso: string): string {
             <FileSearch />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>查看模型输入</TooltipContent>
+        <TooltipContent>View model input</TooltipContent>
       </Tooltip>
       <Tooltip v-if="result.can_cancel">
         <TooltipTrigger as-child>
@@ -220,7 +220,7 @@ function timeAgo(iso: string): string {
             <RefreshCw />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>重新生成</TooltipContent>
+        <TooltipContent>Regenerate</TooltipContent>
       </Tooltip>
       <Tooltip v-if="canManage && ['done', 'failed', 'cancelled'].includes(result.status)">
         <TooltipTrigger as-child>
@@ -228,7 +228,7 @@ function timeAgo(iso: string): string {
             <Trash2 />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>删除</TooltipContent>
+        <TooltipContent>Delete</TooltipContent>
       </Tooltip>
     </div>
     <QAModelInputDialog v-if="auth.isAuthenticated" v-model:open="showModelInput" :result-id="result.id" />

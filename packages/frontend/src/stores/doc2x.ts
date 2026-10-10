@@ -14,7 +14,7 @@ function isSettling(s: Doc2xStatus): boolean {
 
 /**
  * doc2x parse/translate status of the paper open in the detail page. One poller per page,
- * shared by the viewer's "对照翻译" tab and the "copy full text" buttons.
+ * shared by the viewer's "Bilingual PDF" tab and the "copy full text" buttons.
  */
 export const useDoc2xStore = defineStore('doc2x', () => {
   const paperId = ref<number | null>(null)

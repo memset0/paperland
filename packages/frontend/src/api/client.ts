@@ -17,8 +17,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
       },
     })
   } catch {
-    dispatchApiError('网络错误，请检查连接')
-    throw new Error('网络错误，请检查连接')
+    dispatchApiError('Network error. Check your connection.')
+    throw new Error('Network error. Check your connection.')
   }
 
   if (!response.ok) {
@@ -69,7 +69,7 @@ export const qaResultApi = {
       })
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') throw error
-      dispatchApiError('QA 流连接失败')
+      dispatchApiError('Q&A stream connection failed')
       throw error
     }
     if (!response.ok) {
@@ -154,8 +154,8 @@ export const translationApi = {
       })
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') throw error
-      dispatchApiError('网络错误，请检查连接')
-      throw new Error('网络错误，请检查连接')
+      dispatchApiError('Network error. Check your connection.')
+      throw new Error('Network error. Check your connection.')
     }
 
     if (!response.ok) {
@@ -214,7 +214,7 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     })
     const body = await res.json().catch(() => ({} as any))
-    if (!res.ok) throw new Error(body?.error?.message || '登录失败')
+    if (!res.ok) throw new Error(body?.error?.message || 'Login failed')
     return body
   },
 

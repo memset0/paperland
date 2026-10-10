@@ -60,7 +60,7 @@ const auth = useAuthStore()
 const paperId = computed(() => parseInt(route.params.id as string, 10))
 
 // Browser tab title follows the paper; shows a placeholder until it loads.
-usePageTitle(() => store.currentPaper?.title ?? '论文详情')
+usePageTitle(() => store.currentPaper?.title ?? 'Paper Detail')
 
 // Semantic Scholar enrichment surfaced from paper.metadata (null if none present).
 const s2meta = computed(() => {
@@ -86,9 +86,9 @@ watch(() => showSplitView.value && auth.isAuthenticated, (value) => conversation
 /** The effective layout: conversation layouts only where the view is available. */
 const layout = computed<PaperLayout>(() => conversation.available.value ? conversation.layout.value : 'split')
 const layoutOptions: Array<{ value: PaperLayout; label: string; icon: Component }> = [
-  { value: 'split', label: '双栏', icon: Columns2 },
-  { value: 'split-conv', label: '论文 + 对话', icon: MessagesSquare },
-  { value: 'three', label: '三栏', icon: Columns3 },
+  { value: 'split', label: 'Two columns', icon: Columns2 },
+  { value: 'split-conv', label: 'Paper + conversation', icon: MessagesSquare },
+  { value: 'three', label: 'Three columns', icon: Columns3 },
 ]
 
 /** Left (viewer) column width in % of the split container. */
@@ -155,7 +155,7 @@ const floatingWindows = useWindowsStore()
 const composer = useQAComposer()
 
 /**
- * Open the "提问" panel with a default geometry computed fresh from the current
+ * Open the "Ask" panel with a default geometry computed fresh from the current
  * layout (default-placed at the content's bottom-left; never remembered, unlike
  * the notes window). The panel is then movable (drag empty areas) and resizable
  * (bottom-right grip). Mobile opens fullscreen, so its geometry is a placeholder.
@@ -195,14 +195,14 @@ function openQA() {
   }
 }
 
-// PDF "加入提问框", answer 追问, and #moonlight links ask for the question box.
+// PDF "Add to question", answer "Follow up", and #moonlight links ask for the question box.
 watch(composer.openRequests, () => {
   if (!qaWin.isOpen.value && !conversation.visible.value) openQA()
 })
 
-// Ordered per the paper-detail function order (引用 → 笔记 → 提问); only 提问 today.
+// Ordered per the paper-detail function order (citations → notes → ask); only Ask today.
 const paperActions = computed<LauncherAction[]>(() => [
-  { key: 'ask', label: '提问', icon: Bot, onSelect: openQA },
+  { key: 'ask', label: 'Ask', icon: Bot, onSelect: openQA },
 ])
 
 /**
@@ -401,7 +401,7 @@ const qaNavEntries = computed(() => {
     }
   }
   for (const entry of qaStore.qaData.free) {
-    entries.push({ key: 'free-' + entry.entry_id, title: entry.prompt || '自由提问' })
+    entries.push({ key: 'free-' + entry.entry_id, title: entry.prompt || 'Free question' })
   }
   return entries
 })
@@ -505,27 +505,27 @@ async function promote() {
           <template v-if="editing">
             <div class="space-y-3">
               <div class="space-y-1.5">
-                <Label>标题</Label>
+                <Label>Title</Label>
                 <Input v-model="editForm.title" :disabled="isArxiv" />
               </div>
               <div class="space-y-1.5">
-                <Label>作者 (逗号分隔)</Label>
+                <Label>Authors (comma-separated)</Label>
                 <Input v-model="editForm.authors" :disabled="isArxiv" />
               </div>
               <div class="space-y-1.5">
-                <Label>来源链接</Label>
-                <Input v-model="editForm.link" placeholder="https://..." />
+                <Label>Source URL</Label>
+                <Input v-model="editForm.link" placeholder="https://…" />
               </div>
               <div class="space-y-1.5">
-                <Label>内容 (User Input)</Label>
-                <Textarea v-model="editForm.content" rows="10" placeholder="输入论文内容..." class="font-mono resize-y" />
+                <Label>Content (user input)</Label>
+                <Textarea v-model="editForm.content" rows="10" placeholder="Enter paper content…" class="font-mono resize-y" />
               </div>
               <div class="flex justify-end gap-2">
                 <Button variant="outline" size="sm" @click="cancelEdit">
-                  <X />取消
+                  <X />Cancel
                 </Button>
                 <Button size="sm" :disabled="saving" @click="saveEdit">
-                  <Save />{{ saving ? '保存中...' : '保存' }}
+                  <Save />{{ saving ? 'Saving…' : 'Save' }}
                 </Button>
               </div>
             </div>
@@ -540,7 +540,7 @@ async function promote() {
                   :disabled="promoting"
                   @click="promote"
                 >
-                  {{ promoting ? '加入中…' : '加入列表' }}
+                  {{ promoting ? 'Adding…' : 'Add to list' }}
                 </Button>
                 <Button
                   v-if="auth.user"
@@ -553,10 +553,10 @@ async function promote() {
                   <BookmarkCheck v-if="store.currentPaper.in_library" />
                   <BookmarkPlus v-else />
                 </Button>
-                <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">
+                <Button variant="ghost" size="icon-sm" title="Edit" @click="enterEditMode">
                   <Pencil />
                 </Button>
-                <Button variant="ghost" size="icon-sm" title="删除" class="hover:text-destructive" @click="showDeleteDialog = true; deleteConfirmId = ''">
+                <Button variant="ghost" size="icon-sm" title="Delete" class="hover:text-destructive" @click="showDeleteDialog = true; deleteConfirmId = ''">
                   <Trash2 />
                 </Button>
               </div>
@@ -570,7 +570,7 @@ async function promote() {
             </div>
             <div v-if="store.currentPaper.authors?.length" class="space-y-2">
               <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                <Users class="h-3 w-3" /> 作者
+                <Users class="h-3 w-3" /> Authors
               </div>
               <div class="flex flex-wrap gap-1">
                 <Badge v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" variant="secondary">{{ a }}</Badge>
@@ -578,7 +578,7 @@ async function promote() {
             </div>
             <div class="space-y-2">
               <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                <Tag class="h-3 w-3" /> 标签
+                <Tag class="h-3 w-3" /> Tags
                 <Button v-if="!isEditingTags" variant="ghost" size="icon-xs" class="ml-auto" @click="startEditTags">
                   <Pencil />
                 </Button>
@@ -587,28 +587,28 @@ async function promote() {
                 <TagSelector v-model="editingTags" />
                 <div class="flex gap-2">
                   <Button size="sm" :disabled="savingTags" @click="saveTags">
-                    {{ savingTags ? '保存中...' : '保存' }}
+                    {{ savingTags ? 'Saving…' : 'Save' }}
                   </Button>
-                  <Button variant="ghost" size="sm" @click="cancelEditTags">取消</Button>
+                  <Button variant="ghost" size="sm" @click="cancelEditTags">Cancel</Button>
                 </div>
               </template>
               <template v-else>
                 <div v-if="(store.currentPaper as any).tags?.length" class="flex flex-wrap gap-1">
                   <TagBadge v-for="t in (store.currentPaper as any).tags" :key="t.id || t" :tag-id="t.id || 0" :tag-name="t.name || t" clickable @click="navigateToTagFilter(t.id)" />
                 </div>
-                <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
+                <Button v-else variant="link" size="xs" @click="startEditTags">+ Add tag</Button>
               </template>
             </div>
             <PaperFullTextCopy :paper-id="paperId" />
             <ReferenceLinksSection :paper-id="paperId" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">
-              <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
+              <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Abstract</div>
               <BilingualText :text="store.currentPaper.abstract || ''" />
             </div>
             <div v-if="s2meta" class="space-y-2">
               <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Semantic Scholar</div>
               <div class="flex flex-wrap gap-1.5">
-                <Badge v-if="s2meta.citationCount !== undefined" variant="secondary">引用 {{ s2meta.citationCount }}</Badge>
+                <Badge v-if="s2meta.citationCount !== undefined" variant="secondary">{{ s2meta.citationCount }} {{ s2meta.citationCount === 1 ? 'citation' : 'citations' }}</Badge>
                 <Badge v-if="s2meta.influentialCount !== undefined" variant="outline">influential {{ s2meta.influentialCount }}</Badge>
               </div>
               <p v-if="s2meta.tldr" class="text-sm text-muted-foreground leading-relaxed"><span class="font-medium text-foreground">TL;DR </span>{{ s2meta.tldr }}</p>
@@ -623,17 +623,17 @@ async function promote() {
         <Card v-if="summaryFaqs" class="overflow-hidden gap-0 py-0">
           <div class="flex items-center justify-between border-b px-5 py-3">
             <div class="flex items-center gap-2">
-              <h3 class="text-sm font-semibold">Kimi 自动摘要</h3>
+              <h3 class="text-sm font-semibold">Kimi summary</h3>
               <a v-if="papersCoolUrl" :href="papersCoolUrl" target="_blank" rel="noopener noreferrer"
                 class="inline-flex items-center gap-0.5 text-xs text-primary hover:underline">
                 (papers.cool) <ExternalLink class="h-2.5 w-2.5" />
               </a>
             </div>
             <div class="flex items-center gap-1.5">
-              <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllKimiOpen(true)">
+              <Button variant="ghost" size="icon-sm" title="Expand all" @click="setAllKimiOpen(true)">
                 <ChevronsUpDown />
               </Button>
-              <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllKimiOpen(false)">
+              <Button variant="ghost" size="icon-sm" title="Collapse all" @click="setAllKimiOpen(false)">
                 <ChevronsDownUp />
               </Button>
             </div>
@@ -678,7 +678,7 @@ async function promote() {
       <div class="min-w-0 flex-1">
         <h1 class="text-[11px] font-medium text-muted-foreground truncate">{{ store.currentPaper?.title || '' }}</h1>
       </div>
-      <Button variant="ghost" size="icon-xs" title="刷新页面" @click="reloadPage">
+      <Button variant="ghost" size="icon-xs" title="Reload page" @click="reloadPage">
         <RefreshCw />
       </Button>
     </div>
@@ -688,13 +688,13 @@ async function promote() {
         <ArrowLeft />
       </Button>
       <div class="min-w-0 flex-1">
-        <h1 class="text-sm font-semibold truncate">{{ store.currentPaper?.title || '加载中...' }}</h1>
+        <h1 class="text-sm font-semibold truncate">{{ store.currentPaper?.title || 'Loading…' }}</h1>
       </div>
       <div
         v-if="store.currentPaper && conversation.available.value"
         class="flex shrink-0 items-center rounded-md border p-0.5"
         role="radiogroup"
-        aria-label="页面布局"
+        aria-label="Page layout"
         data-layout-selector
       >
         <Button
@@ -768,7 +768,7 @@ async function promote() {
           class="shrink-0 relative touch-none cursor-col-resize bg-border transition-colors"
           :class="convDragging ? 'bg-ring' : 'hover:bg-ring/60'"
           :style="{ width: '2px' }"
-          title="拖动调整对话栏宽度"
+          title="Drag to resize the conversation panel"
           data-conv-divider
           @pointerdown.prevent="onConvPointerDown"
           @pointermove="onConvPointerMove"
@@ -797,27 +797,27 @@ async function promote() {
           <template v-if="editing">
             <div class="space-y-3">
               <div class="space-y-1.5">
-                <Label>标题</Label>
+                <Label>Title</Label>
                 <Input v-model="editForm.title" :disabled="isArxiv" />
               </div>
               <div class="space-y-1.5">
-                <Label>作者 (逗号分隔)</Label>
+                <Label>Authors (comma-separated)</Label>
                 <Input v-model="editForm.authors" :disabled="isArxiv" />
               </div>
               <div class="space-y-1.5">
-                <Label>来源链接</Label>
-                <Input v-model="editForm.link" placeholder="https://..." />
+                <Label>Source URL</Label>
+                <Input v-model="editForm.link" placeholder="https://…" />
               </div>
               <div class="space-y-1.5">
-                <Label>内容 (User Input)</Label>
-                <Textarea v-model="editForm.content" rows="10" placeholder="输入论文内容..." class="font-mono resize-y" />
+                <Label>Content (user input)</Label>
+                <Textarea v-model="editForm.content" rows="10" placeholder="Enter paper content…" class="font-mono resize-y" />
               </div>
               <div class="flex justify-end gap-2">
                 <Button variant="outline" size="sm" @click="cancelEdit">
-                  <X />取消
+                  <X />Cancel
                 </Button>
                 <Button size="sm" :disabled="saving" @click="saveEdit">
-                  <Save />{{ saving ? '保存中...' : '保存' }}
+                  <Save />{{ saving ? 'Saving…' : 'Save' }}
                 </Button>
               </div>
             </div>
@@ -826,10 +826,10 @@ async function promote() {
             <div class="flex items-start justify-between gap-3">
               <h2 :class="[isEmbed ? 'text-sm' : 'text-lg', 'font-semibold leading-snug']">{{ store.currentPaper.title }}</h2>
               <div v-if="!isEmbed" class="flex items-center gap-1 shrink-0">
-                <Button variant="ghost" size="icon-sm" title="编辑" @click="enterEditMode">
+                <Button variant="ghost" size="icon-sm" title="Edit" @click="enterEditMode">
                   <Pencil />
                 </Button>
-                <Button variant="ghost" size="icon-sm" title="删除" class="hover:text-destructive" @click="showDeleteDialog = true; deleteConfirmId = ''">
+                <Button variant="ghost" size="icon-sm" title="Delete" class="hover:text-destructive" @click="showDeleteDialog = true; deleteConfirmId = ''">
                   <Trash2 />
                 </Button>
               </div>
@@ -843,7 +843,7 @@ async function promote() {
             </div>
             <div v-if="store.currentPaper.authors?.length" class="space-y-2">
               <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                <Users class="h-3 w-3" /> 作者
+                <Users class="h-3 w-3" /> Authors
               </div>
               <div class="flex flex-wrap gap-1">
                 <Badge v-for="a in (Array.isArray(store.currentPaper.authors) ? store.currentPaper.authors : [])" :key="a" variant="secondary">{{ a }}</Badge>
@@ -851,7 +851,7 @@ async function promote() {
             </div>
             <div class="space-y-2">
               <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                <Tag class="h-3 w-3" /> 标签
+                <Tag class="h-3 w-3" /> Tags
                 <Button v-if="!isEditingTags" variant="ghost" size="icon-xs" class="ml-auto" @click="startEditTags">
                   <Pencil />
                 </Button>
@@ -860,28 +860,28 @@ async function promote() {
                 <TagSelector v-model="editingTags" />
                 <div class="flex gap-2">
                   <Button size="sm" :disabled="savingTags" @click="saveTags">
-                    {{ savingTags ? '保存中...' : '保存' }}
+                    {{ savingTags ? 'Saving…' : 'Save' }}
                   </Button>
-                  <Button variant="ghost" size="sm" @click="cancelEditTags">取消</Button>
+                  <Button variant="ghost" size="sm" @click="cancelEditTags">Cancel</Button>
                 </div>
               </template>
               <template v-else>
                 <div v-if="(store.currentPaper as any).tags?.length" class="flex flex-wrap gap-1">
                   <TagBadge v-for="t in (store.currentPaper as any).tags" :key="t.id || t" :tag-id="t.id || 0" :tag-name="t.name || t" clickable @click="navigateToTagFilter(t.id)" />
                 </div>
-                <Button v-else variant="link" size="xs" @click="startEditTags">+ 添加标签</Button>
+                <Button v-else variant="link" size="xs" @click="startEditTags">+ Add tag</Button>
               </template>
             </div>
             <PaperFullTextCopy :paper-id="paperId" />
             <ReferenceLinksSection :paper-id="paperId" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">
-              <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">摘要</div>
+              <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Abstract</div>
               <BilingualText :text="store.currentPaper.abstract || ''" />
             </div>
             <div v-if="s2meta" class="space-y-2">
               <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Semantic Scholar</div>
               <div class="flex flex-wrap gap-1.5">
-                <Badge v-if="s2meta.citationCount !== undefined" variant="secondary">引用 {{ s2meta.citationCount }}</Badge>
+                <Badge v-if="s2meta.citationCount !== undefined" variant="secondary">{{ s2meta.citationCount }} {{ s2meta.citationCount === 1 ? 'citation' : 'citations' }}</Badge>
                 <Badge v-if="s2meta.influentialCount !== undefined" variant="outline">influential {{ s2meta.influentialCount }}</Badge>
               </div>
               <p v-if="s2meta.tldr" class="text-sm text-muted-foreground leading-relaxed"><span class="font-medium text-foreground">TL;DR </span>{{ s2meta.tldr }}</p>
@@ -896,17 +896,17 @@ async function promote() {
         <Card v-if="summaryFaqs" class="overflow-hidden gap-0 py-0">
           <div class="flex items-center justify-between border-b px-5 py-3">
             <div class="flex items-center gap-2">
-              <h3 class="text-sm font-semibold">Kimi 自动摘要</h3>
+              <h3 class="text-sm font-semibold">Kimi summary</h3>
               <a v-if="papersCoolUrl" :href="papersCoolUrl" target="_blank" rel="noopener noreferrer"
                 class="inline-flex items-center gap-0.5 text-xs text-primary hover:underline">
                 (papers.cool) <ExternalLink class="h-2.5 w-2.5" />
               </a>
             </div>
             <div class="flex items-center gap-1.5">
-              <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllKimiOpen(true)">
+              <Button variant="ghost" size="icon-sm" title="Expand all" @click="setAllKimiOpen(true)">
                 <ChevronsUpDown />
               </Button>
-              <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllKimiOpen(false)">
+              <Button variant="ghost" size="icon-sm" title="Collapse all" @click="setAllKimiOpen(false)">
                 <ChevronsDownUp />
               </Button>
             </div>
@@ -940,20 +940,20 @@ async function promote() {
     <Dialog v-model:open="showDeleteDialog">
       <DialogContent class="max-w-md">
         <DialogHeader>
-          <DialogTitle class="text-destructive">删除论文</DialogTitle>
+          <DialogTitle class="text-destructive">Delete paper</DialogTitle>
           <DialogDescription>
-            你确定要删除论文 <span class="font-semibold">"{{ store.currentPaper?.title }}"</span> 吗？
-            此操作不可撤销。该论文下的所有 Q&A 条目、回答结果、服务执行记录、标签关联和高亮标注都将被永久删除。
+            Delete the paper <span class="font-semibold">"{{ store.currentPaper?.title }}"</span>?
+            This cannot be undone. All Q&A entries, answers, service runs, tag links, and highlights of this paper will be permanently deleted.
           </DialogDescription>
         </DialogHeader>
         <div class="space-y-1.5">
-          <Label>请输入论文内部 ID <span class="font-mono font-semibold">{{ store.currentPaper?.id }}</span> 以确认删除：</Label>
-          <Input v-model="deleteConfirmId" placeholder="输入论文 ID" class="font-mono" />
+          <Label>Type the paper's internal ID <span class="font-mono font-semibold">{{ store.currentPaper?.id }}</span> to confirm:</Label>
+          <Input v-model="deleteConfirmId" placeholder="Paper ID" class="font-mono" />
         </div>
         <DialogFooter>
-          <Button variant="ghost" @click="showDeleteDialog = false">取消</Button>
+          <Button variant="ghost" @click="showDeleteDialog = false">Cancel</Button>
           <Button variant="destructive" :disabled="!deleteIdMatch || deleting" @click="confirmDelete">
-            {{ deleting ? '删除中...' : '确认删除' }}
+            {{ deleting ? 'Deleting…' : 'Delete permanently' }}
           </Button>
         </DialogFooter>
       </DialogContent>

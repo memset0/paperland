@@ -12,12 +12,12 @@ defineProps<{
     <span
       v-if="highlightCount > 0"
       class="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
-      :aria-label="`高亮 ${highlightCount}`"
-    ><Highlighter class="h-2.5 w-2.5" />高亮 {{ highlightCount }}</span>
+      :aria-label="`${highlightCount} ${highlightCount === 1 ? 'highlight' : 'highlights'}`"
+    ><Highlighter class="h-2.5 w-2.5" />{{ highlightCount }} {{ highlightCount === 1 ? 'highlight' : 'highlights' }}</span>
     <span
       v-if="noteAnchorCount > 0"
       class="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
-      :aria-label="`笔记引用 ${noteAnchorCount}`"
-    ><NotebookPen class="h-2.5 w-2.5" />笔记引用 {{ noteAnchorCount }}</span>
+      :aria-label="`${noteAnchorCount} ${noteAnchorCount === 1 ? 'note reference' : 'note references'}`"
+    ><NotebookPen class="h-2.5 w-2.5" />{{ noteAnchorCount }} {{ noteAnchorCount === 1 ? 'note reference' : 'note references' }}</span>
   </div>
 </template>

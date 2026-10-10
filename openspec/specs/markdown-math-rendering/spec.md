@@ -2,7 +2,9 @@
 
 ## Purpose
 Markdown/KaTeX math rendering (inline and display formulas) and the click-to-copy + hover affordance in the shared `MarkdownContent` component.
+
 ## Requirements
+
 ### Requirement: Inline math rendering with dollar signs
 The system SHALL render text enclosed in single dollar signs (`$...$`) as inline math formulas using KaTeX, via the `markdown-it` KaTeX plugin (`@traptitech/markdown-it-katex`).
 
@@ -97,7 +99,7 @@ The system SHALL copy the LaTeX source code of a math formula to the clipboard w
 #### Scenario: Click inline math to copy
 - **WHEN** the user clicks on an inline math formula (e.g., rendered from `$E=mc^2$`)
 - **THEN** the LaTeX source text `E=mc^2` SHALL be copied to the clipboard
-- **AND** a toast notification "LaTeX 已复制到剪贴板" SHALL appear at the bottom center of the screen
+- **AND** a toast notification "LaTeX copied" SHALL appear at the bottom center of the screen
 
 #### Scenario: Click display math to copy
 - **WHEN** the user clicks on a display math formula (e.g., rendered from `$$\int_0^1 f(x)\,dx$$`)
@@ -125,4 +127,3 @@ The system SHALL copy the LaTeX source code of a math formula to the clipboard w
 - **WHEN** a display math formula's rendered width exceeds the available container width
 - **THEN** the formula's block SHALL cap at 100% of the container width and provide horizontal scrolling (`overflow-x: auto`) so the full formula remains reachable
 - **AND** the start (left edge) of the formula SHALL remain reachable when scrolling
-

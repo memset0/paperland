@@ -16,7 +16,7 @@ export const QA_DEFAULT_HEIGHT = 132
 export const QA_WINDOW_KEY = 'qa-ask'
 
 /**
- * The floating "提问" (Ask) panel is one of the app's floating windows (`stores/windows.ts`, kind
+ * The floating "Ask" panel is one of the app's floating windows (`stores/windows.ts`, kind
  * `qa-ask`), drawn by the shared FloatingWindow shell in its `bare` look: the QAInput card itself
  * is the window, moved by dragging empty card areas and resized from the bottom-right grip. Unlike
  * other windows it never remembers a previous position/size — each `open()` uses exactly the
@@ -30,7 +30,7 @@ export function useQAWindow() {
   /** Open the panel at a freshly-computed default geometry. */
   function open(geometry: QAWindowGeometry) {
     store.place({
-      key: QA_WINDOW_KEY, kind: 'qa-ask', paperId: 0, sectionId: null, title: '提问',
+      key: QA_WINDOW_KEY, kind: 'qa-ask', paperId: 0, sectionId: null, title: 'Ask',
       x: geometry.left, y: geometry.top, w: geometry.width, h: geometry.height,
     })
   }

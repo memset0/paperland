@@ -1,3 +1,10 @@
+# paper-detail-tag-edit Specification
+
+## Purpose
+Lets users edit a paper's tags inline on the paper detail page instead of in a separate dialog.
+
+## Requirements
+
 ### Requirement: Paper detail page supports inline tag editing
 The paper detail page SHALL allow users to edit a paper's tags via an inline editor.
 
@@ -23,4 +30,4 @@ The paper detail page SHALL allow users to edit a paper's tags via an inline edi
 
 #### Scenario: Paper with no tags shows add button
 - **WHEN** a paper has no tags
-- **THEN** the detail page shows a "+ 添加标签" button that enters edit mode
+- **THEN** the detail page shows a "+ Add tag" button that enters edit mode

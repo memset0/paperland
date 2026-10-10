@@ -16,13 +16,13 @@ const counts = computed(() => {
 
 <template>
   <span v-if="counts.text_selection || counts.image || counts.history" class="inline-flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-    <span v-if="counts.text_selection" class="inline-flex items-center gap-0.5" title="选段">
+    <span v-if="counts.text_selection" class="inline-flex items-center gap-0.5" title="Selection">
       <TextQuote class="h-3 w-3" />{{ counts.text_selection }}
     </span>
-    <span v-if="counts.image" class="inline-flex items-center gap-0.5" title="截图">
+    <span v-if="counts.image" class="inline-flex items-center gap-0.5" title="Screenshot">
       <ImageIcon class="h-3 w-3" />{{ counts.image }}
     </span>
-    <span v-if="counts.history" class="inline-flex items-center gap-0.5" title="对话历史">
+    <span v-if="counts.history" class="inline-flex items-center gap-0.5" title="Conversation history">
       <MessagesSquare class="h-3 w-3" />{{ counts.history }}
     </span>
   </span>

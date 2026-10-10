@@ -74,7 +74,7 @@ The system SHALL expose `GET /api/papers/:id/reference-links?scope=mine|all` (de
 - **THEN** the system SHALL respond with an empty list and no error
 
 ### Requirement: Reference links section in the paper detail page
-The paper detail page SHALL present a "参考链接" section that lists reference links for the paper, with a Mine / All selector for authenticated users (default Mine). The controls to add links SHALL be presented only to an authenticated user, and edit/delete controls SHALL be presented only on the viewer's own links; an unauthenticated viewer SHALL NOT see add/edit/delete affordances. Links owned by someone else SHALL show the owner's username (and, for an admin viewing an unshared link, a "Private" marker). Each link SHALL render as a hyperlink to its `url` that opens in a new tab with `rel="noopener noreferrer"`, using a display label resolved by the fallback chain `title → description → url`. After a successful add/edit/delete the displayed list SHALL reflect the change without a full page reload.
+The paper detail page SHALL present a "Reference links" section that lists reference links for the paper, with a Mine / All selector for authenticated users (default Mine). The controls to add links SHALL be presented only to an authenticated user, and edit/delete controls SHALL be presented only on the viewer's own links; an unauthenticated viewer SHALL NOT see add/edit/delete affordances. Links owned by someone else SHALL show the owner's username (and, for an admin viewing an unshared link, a "Private" marker). Each link SHALL render as a hyperlink to its `url` that opens in a new tab with `rel="noopener noreferrer"`, using a display label resolved by the fallback chain `title → description → url`. After a successful add/edit/delete the displayed list SHALL reflect the change without a full page reload.
 
 #### Scenario: Link label uses the fallback chain
 - **WHEN** a link has no title but has a description
@@ -82,7 +82,7 @@ The paper detail page SHALL present a "参考链接" section that lists referenc
 
 #### Scenario: Management controls hidden when unauthenticated
 - **WHEN** an unauthenticated user views the paper detail page
-- **THEN** the 参考链接 section SHALL NOT show add, edit, or delete controls
+- **THEN** the "Reference links" section SHALL NOT show add, edit, or delete controls
 
 #### Scenario: Others' links are read-only and attributed
 - **WHEN** a user switches the section to All and another user's link appears

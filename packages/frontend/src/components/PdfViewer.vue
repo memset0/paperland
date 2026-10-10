@@ -371,7 +371,7 @@ function copyPageLink() {
   if (!props.paperId) return
   const url = `paperland://paper/${props.paperId}?pdf=${currentPage.value}`
   navigator.clipboard.writeText(`[PDF p.${currentPage.value}](${url})`)
-  toast.success('已复制本页链接', { position: 'bottom-center' })
+  toast.success('Page link copied', { position: 'bottom-center' })
 }
 
 // ---- Selection capture → toolbar (copy link + on-demand streaming translation) ----
@@ -527,7 +527,7 @@ function activateTranslation(snapshot: PdfSelectionSnapshot) {
   void nextTick(updateTranslationPanelPlacement)
 }
 
-/** Toolbar 「翻译」: the only entry point that starts a selection translation. */
+/** Toolbar "Translate": the only entry point that starts a selection translation. */
 function translateSelection() {
   const snapshot = currentSelection
   if (!snapshot || isMultiPageSelection(snapshot) || activeTranslation.value?.identity === snapshot.identity) return
@@ -650,7 +650,7 @@ function restorePdfSelection() {
 async function copySelectionTranslation() {
   if (!translationText.value) return
   await navigator.clipboard.writeText(translationText.value)
-  toast.success('已复制翻译', { position: 'bottom-center' })
+  toast.success('Translation copied', { position: 'bottom-center' })
 }
 
 function onTranslationStatus(status: TranslationStreamStatus) {
@@ -681,7 +681,7 @@ function copySelectionLink() {
   const { page, ts, te, text } = selRegion.value
   const url = `paperland://paper/${props.paperId}?pdf=${page}&ts=${ts}&te=${te}`
   navigator.clipboard.writeText(`${text.trim()} [#](${url})`)
-  toast.success('已复制选区链接', { position: 'bottom-center' })
+  toast.success('Selection link copied', { position: 'bottom-center' })
   window.getSelection()?.removeAllRanges()
   hideSelBtn()
 }
@@ -692,8 +692,8 @@ function copySelectionLink() {
 // and whose offsets are the page-text `ts/te`. The fingerprint ties offsets to this exact file,
 // so highlights made on a replaced PDF are simply not drawn. Scope (mine/all) is the store's.
 const HL_COLORS: { key: HighlightColor; label: string }[] = [
-  { key: 'yellow', label: '黄色' }, { key: 'green', label: '绿色' },
-  { key: 'blue', label: '蓝色' }, { key: 'pink', label: '粉色' },
+  { key: 'yellow', label: 'Yellow' }, { key: 'green', label: 'Green' },
+  { key: 'blue', label: 'Blue' }, { key: 'pink', label: 'Pink' },
 ]
 const pdfFingerprint = ref<string | null>(null)
 const hlPathname = computed(() => (props.paperId ? `/papers/${props.paperId}` : null))
@@ -805,7 +805,7 @@ function onPageHover(e: MouseEvent) {
     const root = viewerRef.value
     if (!root) return
     const hit = highlightAtPoint(clientX, clientY)
-    const title = hit && !isOwnHighlight(hit.h) ? `${hit.h.display_name ?? hit.h.username ?? '其他用户'} 的高亮` : ''
+    const title = hit && !isOwnHighlight(hit.h) ? `${hit.h.display_name ?? hit.h.username ?? 'Another user'}'s highlight` : ''
     if (root.title !== title) root.title = title
   })
 }
@@ -840,7 +840,7 @@ async function applyHighlightColor(color: HighlightColor) {
     }
     finishHighlightAction()
   } catch {
-    toast.error('高亮保存失败，请重试', { position: 'bottom-center' })
+    toast.error('Failed to save highlight. Try again.', { position: 'bottom-center' })
   }
 }
 
@@ -851,7 +851,7 @@ async function deleteSelHighlight() {
     await hlStore.remove(own.id)
     finishHighlightAction()
   } catch {
-    toast.error('删除高亮失败，请重试', { position: 'bottom-center' })
+    toast.error('Failed to delete highlight. Try again.', { position: 'bottom-center' })
   }
 }
 
@@ -912,7 +912,7 @@ async function startDirectAsk(
     if (!res) { closeAskPanel(); return } // cancelled at the doc2x confirmation
     if (askPanel.value) askPanel.value.entryId = res.entry_id
   } catch (e) {
-    if (askPanel.value) askPanel.value.error = e instanceof Error ? e.message : '提问失败'
+    if (askPanel.value) askPanel.value.error = e instanceof Error ? e.message : 'Failed to ask'
   }
   void nextTick(updateAskPanelPlacement)
 }
@@ -923,7 +923,7 @@ function selectionInput(): Omit<QATextSelectionInput, 'label'> | null {
   return { kind: 'text_selection', text: snapshot.text, pdf: snapshot.segments.map(({ page, ts, te }) => ({ page, ts, te })) }
 }
 
-/** Toolbar 「提问」: ask about the selected passage right away. */
+/** Toolbar "Ask": ask about the selected passage right away. */
 function askSelection() {
   const input = selectionInput()
   const snapshot = currentSelection
@@ -934,7 +934,7 @@ function askSelection() {
   void startDirectAsk(input, { kind: 'text', text: input.text }, rect)
 }
 
-/** Toolbar 「加入提问框」: attach the passage to the question box (token inserted at the caret). */
+/** Toolbar "Add to question": attach the passage to the question box (token inserted at the caret). */
 function addSelectionToQuestion() {
   const input = selectionInput()
   if (!input || askDisabled.value) return
@@ -1140,7 +1140,7 @@ async function onCaptureAction(action: 'copy-url' | 'copy' | 'ask' | 'add') {
       composer.addAttachment({ ...regionInput(menu.region, image.hash), url })
     }
   } catch {
-    toast.error('截图上传失败，请重试', { position: 'bottom-center' })
+    toast.error('Screenshot upload failed. Try again.', { position: 'bottom-center' })
   } finally {
     capturing.value = false
   }
@@ -1153,10 +1153,10 @@ async function captureRegion(region: { page: number; x: number; y: number; w: nu
     const { url } = await uploadRegion(region)
     const anchor = `paperland://paper/${props.paperId}?pdf=${region.page}&rx=${r4(region.x)}&ry=${r4(region.y)}&rw=${r4(region.w)}&rh=${r4(region.h)}`
     await navigator.clipboard.writeText(urlOnly ? url : `[![](${url})](${anchor})`)
-    toast.success(urlOnly ? '已复制图片链接' : '已复制截图 Markdown', { position: 'bottom-center' })
+    toast.success(urlOnly ? 'Image link copied' : 'Screenshot Markdown copied', { position: 'bottom-center' })
     exitCaptureMode()
   } catch {
-    toast.error('截图上传失败，请重试', { position: 'bottom-center' })
+    toast.error('Screenshot upload failed. Try again.', { position: 'bottom-center' })
   } finally {
     capturing.value = false
   }
@@ -1311,22 +1311,22 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
     <!-- Empty: no PDF yet -->
     <div v-if="!pdfPath" class="pdf-state">
       <FileText class="h-12 w-12 mb-3 stroke-1" />
-      <p class="text-sm">暂无 PDF</p>
-      <p class="text-xs mt-1">等待 arxiv 服务下载...</p>
+      <p class="text-sm">No PDF yet</p>
+      <p class="text-xs mt-1">Waiting for the arXiv service to download it…</p>
     </div>
 
     <!-- Error: pdf.js failed; offer the raw file -->
     <div v-else-if="error" class="pdf-state">
       <AlertTriangle class="h-12 w-12 mb-3 stroke-1 text-destructive" />
-      <p class="text-sm">PDF 加载失败</p>
-      <a v-if="rawUrl" :href="rawUrl" target="_blank" rel="noopener" class="text-xs mt-1 text-primary underline">打开原始 PDF</a>
+      <p class="text-sm">Failed to load PDF</p>
+      <a v-if="rawUrl" :href="rawUrl" target="_blank" rel="noopener" class="text-xs mt-1 text-primary underline">Open original PDF</a>
     </div>
 
     <template v-else>
       <!-- Toolbar -->
       <div class="pdf-toolbar">
         <div class="pdf-tb-group">
-          <button class="pdf-tb-btn" title="上一页" @click="prevPage"><ChevronUp class="h-4 w-4" /></button>
+          <button class="pdf-tb-btn" title="Previous page" @click="prevPage"><ChevronUp class="h-4 w-4" /></button>
           <span class="pdf-tb-page">
             <input
               class="pdf-tb-input"
@@ -1336,29 +1336,29 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
             />
             <span class="text-muted-foreground">/ {{ numPages || '–' }}</span>
           </span>
-          <button class="pdf-tb-btn" title="下一页" @click="nextPage"><ChevronDown class="h-4 w-4" /></button>
+          <button class="pdf-tb-btn" title="Next page" @click="nextPage"><ChevronDown class="h-4 w-4" /></button>
         </div>
         <div class="pdf-tb-group">
-          <button class="pdf-tb-btn" title="缩小" @click="zoomOut"><ZoomOut class="h-4 w-4" /></button>
+          <button class="pdf-tb-btn" title="Zoom out" @click="zoomOut"><ZoomOut class="h-4 w-4" /></button>
           <span class="pdf-tb-zoom">{{ zoomPct }}%</span>
-          <button class="pdf-tb-btn" title="放大" @click="zoomIn"><ZoomIn class="h-4 w-4" /></button>
+          <button class="pdf-tb-btn" title="Zoom in" @click="zoomIn"><ZoomIn class="h-4 w-4" /></button>
         </div>
         <button
           class="pdf-tb-btn"
-          :title="fitMode === 'width' ? '当前：适配宽度（点击切换为适配高度）' : '当前：适配高度（点击切换为适配宽度）'"
+          :title="fitMode === 'width' ? 'Fit width (click for fit height)' : 'Fit height (click for fit width)'"
           @click="toggleFitMode"
         >
           <MoveHorizontal v-if="fitMode === 'width'" class="h-4 w-4" />
           <MoveVertical v-else class="h-4 w-4" />
         </button>
-        <button v-if="paperId" class="pdf-tb-btn" title="复制本页链接" @click="copyPageLink">
+        <button v-if="paperId" class="pdf-tb-btn" title="Copy page link" @click="copyPageLink">
           <Link2 class="h-4 w-4" />
         </button>
         <button
           v-if="paperId"
           class="pdf-tb-btn"
           :class="{ 'pdf-tb-btn-active': captureMode }"
-          :title="captureMode ? '框选截图模式（Esc 取消）' : '框选截图（截取一块区域并上传图床）'"
+          :title="captureMode ? 'Capturing — press Esc to cancel' : 'Capture region (upload a screenshot to Images)'"
           @click="toggleCaptureMode"
         >
           <Crop class="h-4 w-4" />
@@ -1388,25 +1388,25 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
           >
             <!-- Capture action menu, centered below the highlighted region -->
             <div class="pdf-sel-toolbar pdf-capture-menu">
-              <button class="pdf-sel-btn" :disabled="capturing" title="复制图床图片链接" @click="onCaptureAction('copy-url')">
-                <ImageIcon class="h-3.5 w-3.5" /> 复制图片链接
+              <button class="pdf-sel-btn" :disabled="capturing" title="Copy image link" @click="onCaptureAction('copy-url')">
+                <ImageIcon class="h-3.5 w-3.5" /> Copy image link
               </button>
-              <button class="pdf-sel-btn" :disabled="capturing" title="复制带定位的 Markdown 图片链接" @click="onCaptureAction('copy')">
-                <Link2 class="h-3.5 w-3.5" /> 复制 Markdown
-              </button>
-              <button
-                v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
-                :title="askHint || '加入提问框'" @click="onCaptureAction('add')"
-              >
-                <Plus class="h-3.5 w-3.5" /> 加入提问框
+              <button class="pdf-sel-btn" :disabled="capturing" title="Copy Markdown image with anchor link" @click="onCaptureAction('copy')">
+                <Link2 class="h-3.5 w-3.5" /> Copy Markdown
               </button>
               <button
                 v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
-                :title="askHint || '用预设问题直接提问这张截图'" @click="onCaptureAction('ask')"
+                :title="askHint || 'Add to question'" @click="onCaptureAction('add')"
               >
-                <MessageCircleQuestion class="h-3.5 w-3.5" /> 截图提问
+                <Plus class="h-3.5 w-3.5" /> Add to question
               </button>
-              <button class="pdf-sel-btn" title="取消" @click="captureMenu = null">
+              <button
+                v-if="showAskActions" class="pdf-sel-btn" :disabled="capturing || askDisabled"
+                :title="askHint || 'Ask the preset question about this screenshot'" @click="onCaptureAction('ask')"
+              >
+                <MessageCircleQuestion class="h-3.5 w-3.5" /> Ask about screenshot
+              </button>
+              <button class="pdf-sel-btn" title="Cancel" @click="captureMenu = null">
                 <X class="h-3.5 w-3.5" />
               </button>
             </div>
@@ -1431,11 +1431,11 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
           <button
             v-for="c in HL_COLORS" :key="c.key"
             class="pdf-hl-swatch" :class="[`pdf-hl-swatch-${c.key}`, { 'pdf-hl-swatch-active': selOwnHighlight?.color === c.key }]"
-            :title="selOwnHighlight ? `改为${c.label}高亮` : `${c.label}高亮`"
+            :title="selOwnHighlight ? `Change to ${c.label.toLowerCase()}` : `${c.label} highlight`"
             @mousedown.prevent
             @click="applyHighlightColor(c.key)"
           />
-          <button v-if="selOwnHighlight" class="pdf-sel-btn" title="删除高亮" @mousedown.prevent @click="deleteSelHighlight">
+          <button v-if="selOwnHighlight" class="pdf-sel-btn" title="Delete highlight" @mousedown.prevent @click="deleteSelHighlight">
             <Trash2 class="h-3.5 w-3.5" />
           </button>
           <span class="pdf-sel-sep" />
@@ -1444,40 +1444,40 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
           v-if="auth.isAuthenticated && !selMultiPage"
           class="pdf-sel-btn"
           :class="{ 'pdf-sel-btn-active': activeTranslation }"
-          title="翻译选区"
+          title="Translate selection"
           @mousedown.prevent
           @click="translateSelection"
         >
-          <Languages class="h-3.5 w-3.5" /> 翻译
+          <Languages class="h-3.5 w-3.5" /> Translate
         </button>
         <button
           v-if="showAskActions"
           class="pdf-sel-btn"
           :disabled="askDisabled"
-          :title="askHint || '用预设问题直接提问这段内容'"
+          :title="askHint || 'Ask the preset question about this selection'"
           @mousedown.prevent
           @click="askSelection"
         >
-          <MessageCircleQuestion class="h-3.5 w-3.5" /> 提问
+          <MessageCircleQuestion class="h-3.5 w-3.5" /> Ask
         </button>
         <button
           v-if="showAskActions"
           class="pdf-sel-btn"
           :disabled="askDisabled"
-          :title="askHint || '加入提问框，可继续添加选段或截图后再提问'"
+          :title="askHint || 'Add to question; you can add more selections or screenshots before asking'"
           @mousedown.prevent
           @click="addSelectionToQuestion"
         >
-          <Plus class="h-3.5 w-3.5" /> 加入提问框
+          <Plus class="h-3.5 w-3.5" /> Add to question
         </button>
         <button
           v-if="paperId && !selMultiPage"
           class="pdf-sel-btn"
-          title="复制选区链接"
+          title="Copy selection link"
           @mousedown.prevent
           @click="copySelectionLink"
         >
-          <Link2 class="h-3.5 w-3.5" /> 复制选区链接
+          <Link2 class="h-3.5 w-3.5" /> Copy selection link
         </button>
       </div>
 
@@ -1502,7 +1502,7 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
           <span class="pdf-selection-translation-state">{{ translationStatus }}</span>
           <button
             class="pdf-selection-translation-icon"
-            title="关闭翻译"
+            title="Close translation"
             @mousedown.prevent
             @click="closeTranslationPanel()"
           >
@@ -1536,7 +1536,7 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
             @mousedown.prevent
             @click="copySelectionTranslation"
           >
-            <Copy class="h-3.5 w-3.5" /> 复制翻译
+            <Copy class="h-3.5 w-3.5" /> Copy translation
           </button>
           <button
             class="pdf-selection-translation-action"
@@ -1544,7 +1544,7 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
             @mousedown.prevent
             @click="retrySelectionTranslation"
           >
-            <RefreshCw class="h-3.5 w-3.5" /> 重试
+            <RefreshCw class="h-3.5 w-3.5" /> Retry
           </button>
         </footer>
       </aside>
@@ -1562,7 +1562,7 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
             <MessageCircleQuestion class="h-3.5 w-3.5" /> Ask<template v-if="askEntry"> · QA-{{ askEntry.entry_id }}</template>
           </span>
           <span class="pdf-selection-translation-state">{{ askResult?.status ?? (askPanel.error ? 'failed' : 'submitting') }}</span>
-          <button class="pdf-selection-translation-icon" title="关闭" @mousedown.prevent @click="closeAskPanel()">
+          <button class="pdf-selection-translation-icon" title="Close" @mousedown.prevent @click="closeAskPanel()">
             <X class="h-3.5 w-3.5" />
           </button>
         </header>
@@ -1588,13 +1588,13 @@ watch(requestedPdfTarget, (t) => applyTarget(t))
         </div>
         <footer class="pdf-selection-translation-actions">
           <button class="pdf-selection-translation-action" :disabled="!askEntry" @mousedown.prevent @click="showAskInList">
-            <List class="h-3.5 w-3.5" /> 在列表中查看
+            <List class="h-3.5 w-3.5" /> Show in list
           </button>
           <button
             class="pdf-selection-translation-action" :disabled="!askFollowupTarget"
             @mousedown.prevent @click="followUpAsk()"
           >
-            <MessagesSquare class="h-3.5 w-3.5" /> 追问
+            <MessagesSquare class="h-3.5 w-3.5" /> Follow up
           </button>
         </footer>
       </aside>

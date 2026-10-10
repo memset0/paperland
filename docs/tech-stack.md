@@ -85,6 +85,7 @@ paperland/
 │   │   │   │   ├── research_prompt.ts       # 回合输入组装（<topic>/<seed>/<history>/<current_version>/<request>）与修复请求
 │   │   │   │   ├── research_list.ts         # 列表格式边界：解析回答、带 S2 元数据的 <paper_list> XML、标题编辑、修复合并
 │   │   │   │   ├── agent_tools.ts           # agent 只读工具：本站论文检索 / 全文分页 / QA，S2 搜索 / 匹配 / 批量 / 引用 / 透传（共享 S2 限速、写缓存）
+│   │   │   │   ├── model_usage.ts           # model_usage 账本：按 pricing 估算费用、记录（不抛错）、个人汇总 / 排行榜
 │   │   │   │   ├── api_tokens.ts            # api_tokens 两种 kind：personal（自管）/ agent（每用户一个、只供 /mcp、原地重置），Bearer 校验
 │   │   │   │   ├── paperlist.ts             # paperlist 块解析与校验（zod、批量解析 s2_id、段内去重）
 │   │   │   │   ├── s2_paper_cache.test.ts
@@ -268,6 +269,18 @@ research_steps                                // 线性步骤：agent 回合 / o
   error           text      nullable
   created_at / started_at / first_chunk_at / finished_at / updated_at   text
 
+model_usage                                   // 每次模型调用的 token 用量与估算费用（独立账本，不加在请求表上），迁移 0038
+  id              integer   primary key autoincrement
+  category        text      not null          // qa | research | translation
+  user_id         integer   nullable → users.id ON DELETE SET NULL          // 计费归属
+  qa_result_id    integer   nullable → qa_results.id ON DELETE SET NULL     // category = qa
+  research_step_id integer  nullable → research_steps.id ON DELETE SET NULL // category = research（回合与修复各一行）
+  translation_id  integer   nullable → translations.id ON DELETE SET NULL   // category = translation
+  model_name      text      not null
+  input_tokens / cached_input_tokens / output_tokens / reasoning_tokens / total_tokens  integer default 0  // input 含 cached，output 含 reasoning
+  cost_usd        real      nullable          // 写入时按模型 pricing 估算；模型没配 pricing 为 null
+  created_at      text      not null          // 索引：user_id、created_at
+
 qa_user_preferences
   user_id         integer   → users.id
   qa_entry_id     integer   → qa_entries.id
@@ -331,7 +344,7 @@ notes                                          // 按用户归属的论文笔记
   user_id         integer   → users.id, not null     // 属主
   paper_id        integer   → papers.id, not null
   body            text      not null default ''       // 整篇 Markdown；结构由标题派生，锚点以 paperland:// 链接内联于 body
-  completed       integer   not null default 0         // 1 = 用户标记该笔记「精读完成」（论文列表 note-status 列 + 详情页功能栏切换）
+  completed       integer   not null default 0         // 1 = 用户标记该笔记 "Done reading"（论文列表 note-status 列 + 详情页功能栏切换）
   is_public       integer   not null default 0         // 1 = 已发布（任何人含匿名可只读思维导图+全文，且无视共享开关始终出现在 All 列表）；属主经 PUT .../note/visibility 切换（迁移 0020）
   created_at      text      not null
   updated_at      text      not null
@@ -438,6 +451,10 @@ models:
       reasoning_effort: low
       timeout: 1800
       vision: true                 # 能接收图片输入（截图提问）；缺省 false
+      pricing:                     # 可选：美元 / 百万 token，只用于估算 model_usage.cost_usd；缺省则费用为空
+        input: 1.25
+        cached_input: 0.125        # 可选，缺省按 input 计
+        output: 10
 
 # BREAKING：原 claude_cli / codex_cli generic provider 已移除；Codex 统一迁移到 type: codex。
 
@@ -513,7 +530,7 @@ translation:
   prompt: |
     ...（保留格式的英译中 prompt，含 {TEXT} 占位符）
 
-# 「参考链接」描述自动抓取（爬取链接页 <title> 生成 `${title} (${hostname})` 描述）。
+# "Reference links" 描述自动抓取（爬取链接页 <title> 生成 `${title} (${hostname})` 描述）。
 # 整块可省略，省略时用下列默认值（注意：内层默认靠 config.ts 的显式 .default 提供）。
 reference_links:
   fetch_timeout_ms: 8000              # 单次抓取超时（毫秒）
@@ -544,19 +561,21 @@ notes:
 
 `qa_service` 与 `translation_service` 继续共用 `services/model_invoke.ts` 的 `callModel(input, modelName, options?)` 门面，内部只路由到独立 `OpenAIProvider` / `CodexProvider`。`input` 可以是字符串（单条 user 文本，翻译仍这样用），也可以是结构化 `ModelInput { system?, user: (text | image{path,mime})[], web_search? }`：OpenAI 发 `role: system` + 多 part user 消息（图片读本地图床文件转 base64 data URL）；Codex app-server 用 `developerInstructions`、`config.web_search: "live"`、`localImage`；Codex exec 用 `-c developer_instructions=…`、`-c web_search="live"`、`--image <path>`，文本仍走 stdin（`--image` 接收多值，不能把问题写在它后面）。`stream` 缺省为 false；Codex exec 与 app-server 都强制 ephemeral，app-server 还会在 `turn/start` 前验证 `thread.ephemeral === true`，不污染个人 Codex 历史。
 
-**PDF 划词翻译**：纯前端复用上述 Internal SSE API 与全局 `translations` cache，不新增 provider、endpoint、表或 migration。`PdfViewer` 以 60ms 选区捕获显示选区工具栏（复制链接 + 翻译），仅在登录用户点击「翻译」后对单页 text-layer 选区 identity 挂载 `StreamingTranslationText`，不再有 500ms 自动触发。Vue scoped slot 在 translated text 仍为空时显示 immutable selection snapshot 的原文，首个非空 delta 或 cache result 到达后切换为译文；这只是现有 SSE 消费端的 fallback，不改变 backend、数据库、provider、配置或依赖。面板内 pointer focus transfer 导致的 collapsed selection 不清理 active child；普通外部点击与不同的新选区都会立即 abort 旧 child。其他 viewer 生命周期变化仍会 abort；匿名用户不显示翻译按钮、不请求或弹登录。
+**PDF 划词翻译**：纯前端复用上述 Internal SSE API 与全局 `translations` cache，不新增 provider、endpoint、表或 migration。`PdfViewer` 以 60ms 选区捕获显示选区工具栏（复制链接 + 翻译），仅在登录用户点击 "Translate" 后对单页 text-layer 选区 identity 挂载 `StreamingTranslationText`，不再有 500ms 自动触发。Vue scoped slot 在 translated text 仍为空时显示 immutable selection snapshot 的原文，首个非空 delta 或 cache result 到达后切换为译文；这只是现有 SSE 消费端的 fallback，不改变 backend、数据库、provider、配置或依赖。面板内 pointer focus transfer 导致的 collapsed selection 不清理 active child；普通外部点击与不同的新选区都会立即 abort 旧 child。其他 viewer 生命周期变化仍会 abort；匿名用户不显示翻译按钮、不请求或弹登录。
 
 **QA prompt 持久化**：`qa_entries` 是问题文本的持久化来源。free QA 在创建 Entry 时写入 `prompt`，后续重跑只读该字段；template QA 每次运行前从 `config.yml` 读取最新模板并更新 Entry。历史 `qa_results.prompt` 仍保存每次成功调用实际使用的快照。迁移通过最新历史 Result 回填可恢复的 Entry；没有任何 Result 的旧失败 free QA 不会伪造原文，只有在用户明确授权且生成当前一致性备份后，才按精确 ID 清理。
 
 **QA ↔ Service execution**：QA 保持 ServiceRunner pure service。`executePureService` 把刚创建的 `executionId` 作为 typed callback context 传入，QA 成功后直接写入该 id；同 paper 并发或同 model 重跑不会再通过“最新 execution”误关联。历史错连缺少确定性映射信息，原样保留。Services 页面继续负责统一监控，不提供 QA 专属重试。
 
-**上下文提问（contextual QA）**：QA = system prompt（`prompts/system/*.md`）+ 有序 inputs（PDF 选段、图床截图、对话历史引用）+ 问题。`services/qa_formatter.ts` 按 `<paper>`（无全文时所有提问 409）→ `<references>`（`paper_citations` 中本论文引用的文献，S2 paperId + 论文库链接）→ `<inputs>`（整条追问链的截图在前、选段在后，各一次）→ `<history>`（祖先问题 + 被选中的回答，只用标号引用输入）→ `<question>` 组装，运行和「查看模型输入」（`GET /api/qa/results/:id/model-input`，按当前配置重建、不存储、全文只给来源和长度）共用。追问只接续 done 的回答（否则 409），可接续他人共享的回答，归属追问者；后端沿 `history.result_id` 回溯时不过滤可见性和软删除。删除回答改为软删除（`deleted_at`）；图床不再提供删除接口，`GET /api/images` 额外返回 `qa_reference_count`。新增 `GET /api/qa/entries/:id/tree`、`GET /api/qa/entries/:id/locate`；`POST /api/papers/:id/qa/free` 接受 `instruction`、`inputs`、`direct_ask`。迁移 `0030_contextual_qa`（加列 + `qa_result_cites`）。
+**上下文提问（contextual QA）**：QA = system prompt（`prompts/system/*.md`）+ 有序 inputs（PDF 选段、图床截图、对话历史引用）+ 问题。`services/qa_formatter.ts` 按 `<paper>`（无全文时所有提问 409）→ `<references>`（`paper_citations` 中本论文引用的文献，S2 paperId + 论文库链接）→ `<inputs>`（整条追问链的截图在前、选段在后，各一次）→ `<history>`（祖先问题 + 被选中的回答，只用标号引用输入）→ `<question>` 组装，运行和 "View model input"（`GET /api/qa/results/:id/model-input`，按当前配置重建、不存储、全文只给来源和长度）共用。追问只接续 done 的回答（否则 409），可接续他人共享的回答，归属追问者；后端沿 `history.result_id` 回溯时不过滤可见性和软删除。删除回答改为软删除（`deleted_at`）；图床不再提供删除接口，`GET /api/images` 额外返回 `qa_reference_count`。新增 `GET /api/qa/entries/:id/tree`、`GET /api/qa/entries/:id/locate`；`POST /api/papers/:id/qa/free` 接受 `instruction`、`inputs`、`direct_ask`。迁移 `0030_contextual_qa`（加列 + `qa_result_cites`）。
 
 **S2 论文元数据缓存**：`services/s2_paper_cache.ts` 的 `resolveS2Ids(ids, { allowFetch })` 把 S2 id（paperId、CorpusId、`CorpusId:<n>`、S2 URL，经 `utils/s2_ids.ts` 规范化）解析为元数据，每个 id 依次查：论文库 `papers`（`source: library`，不出网）→ `s2_papers` 新鲜条目（`cache`）→ 剩余 id 合并为一次 S2 `POST /paper/batch`（每块 ≤500，`semantic_scholar_service.ts` 的 `s2PostBatch`，与其他 S2 调用共用 API key、限流和退避）。S2 返回 null 记为 `not_found` 负缓存；抓取失败时有旧数据返回 `stale_cache`，否则 `unavailable`。同一 id 的并发抓取共享一个 in-flight 请求。QA 回答完成后 `api/qa.ts` 异步调用 `warmCites(answer)` 预热回答里所有 `#cite:` id，失败只记日志。
 
 **Deep Research**：`api/research.ts` + `services/research_runtime.ts`。回合在模块内用 `Semaphore` / `RateLimiter`（`services.research`）调度——不走 `executePureService`，因为 `service_executions.paper_id` 是指向 `papers` 的非空外键而研究回合不属于论文；每个排队/运行中的步骤有一个 AbortController 供取消。状态机、200ms 局部写入、独立的 `QAResultStreamBroker` 实例、SSE（`start → (delta|tool)* → [repairing] → done|error`）和启动恢复照搬 QA 的写法。输入由 `research_prompt.ts` 组装：`<topic>`、`<seed>`、`<history>`（用户文本 + `changes` / 标题编辑记录，按 `history_char_budget` 截断）、`<current_version>`（当前报告 + `research_list.ts` 渲染的 `<paper_list>` XML：已验证论文附 `resolveS2Ids` 取得的标题、作者、年份、venue、arXiv id、被引数、TLDR、截断摘要；未验证论文 `verified="false"` 只给 id 与 comment；已在论文库的论文带 `in_library="paperland://paper/<id>"`）、`<request>`；Codex 联网搜索开启。system prompt（`prompts/system/research.md`）除列表格式外还规定：公式一律 `$...$` / `$$...$$`、禁止 `\(...\)` / `\[...\]`；`paperlist` JSON 字符串里的反斜杠必须转义（否则 `\frac`、`\theta` 等会被当成 `\f`、`\t` JSON 转义悄悄损坏）；`in_library` 论文可用 `[📄 标题](paperland://paper/<id>)` 链接。完成后 `paperlist.ts` 拆分报告与最后一个 ```` ```paperlist ```` 块，zod 校验（论文只取 `s2_id` + comment，链接要 BibTeX 风格 `citation`），批量解析 id（解析不到标 unverified，不做标题匹配），段内去重；报告与列表缺一则在同一回合内用同一模型**自动修复一次**（非流式、不联网；只缺/坏列表时只要 `paperlist` 并沿用原报告，缺报告时要完整输出），仍失败则记 `parse_error`、不产生新版本。解析与修复都在标记 done 之前完成。列表格式的知识集中在 `research_list.ts` / `paperlist.ts`（前端对应 `lib/research-list.ts`）。
 
 **Agent 工具（MCP）**：`agent_tools.enabled` 时每个研究回合额外获得本站 MCP 服务器 `paperland` 与 S2 检索 skill。`api/mcp.ts` 自行实现 MCP 的最小子集（Streamable HTTP、无状态：每个 POST 一条 JSON-RPC 或一个批量，直接回 `application/json`；`initialize` / `ping` / `tools/list` / `tools/call`，通知回 202，`GET` / `DELETE` 405），没有引入 `@modelcontextprotocol/sdk`。路径在 `/api` 之外，不经登录墙，任何来源都可访问（含经 Caddy 转发），只靠 Bearer token 鉴权：复用 `api_tokens`（`services/api_tokens.ts#checkBearerToken`，接受 personal 与 agent 两种 kind，要求 token 未撤销、属主存在且 active），按属主的身份与可见性执行工具。每个用户恰好一个 **Codex agent token**（`kind = 'agent'`，部分唯一索引保证；迁移 `0037_agent_tokens` 为 active 用户回填，admin 新建 / 注册审核通过时创建，`db/index.ts` 启动时为缺失的 active 用户兜底，运行时 `ensureAgentToken` get-or-create，均幂等）：任何接口都不返回它的值，只能原地重置（`rotated_at`，旧值立即失效），External API（`auth/token_auth.ts`）不接受它。用户在 Settings 页 Account 区管理自己的 personal token（`api/tokens.ts`）。工具全部只读、声明 `readOnlyHint`（`services/agent_tools.ts`）：本站 `search_papers`（已列出论文，标题 / 作者 / 摘要逐词匹配）、`get_paper`、`read_paper`（按 `content_priority` 取全文，分页，`outline` 模式给章节标题与偏移）、`get_paper_qa`（按 QA 共享规则过滤）；S2 `s2_search`、`s2_match`、`s2_papers`（走 `resolveS2Ids`）、`s2_citations` / `s2_references`、`s2_get`（仅 `s2_get_path_prefixes` 下的 GET，路径不得含 `..` / 查询串，响应截断）。S2 工具都走 `semantic_scholar_service.ts` 新导出的 `s2ApiGet`（同一个 key、共享限速与退避，key 不进工具输入输出），搜索 / 匹配 / 引用结果经 `s2_paper_cache.ts` 的 `cacheS2Records` 合并写入 `s2_papers`（不覆盖已有非空字段）。注入方式（已用 codex 0.162.1 实测）：`codex_provider.ts` 在 `thread/start` 的 `config.mcp_servers.paperland = { url, bearer_token_env_var }` 里引用环境变量 `PAPERLAND_MCP_TOKEN_PAPERLAND`，值是会话所有者的 agent token，只放在 app-server 子进程环境里；`thread/start` 之前发 `skills/extraRoots/set` 把 `agent_tools.skills_dir`（仓库 `prompts/skills/`，含 `s2-literature-search/SKILL.md`）加为本进程的 skill 根目录——不写 `CODEX_HOME`，不影响用户自己的 Codex。app-server 的 `mcpToolCall` / `webSearch` 条目经 `onToolCall` 回调变成研究 SSE 的 `tool` 事件（不落库），前端显示当前工具调用。exec（`stream: false`）路径不接工具。
+
+**Token 用量与估算费用**：每次模型调用写一行 `model_usage`（`services/model_usage.ts#recordModelUsage`，写入失败只打日志、不影响运行）。provider 经 `ModelInvokeOptions.onUsage` 上报一次用量：Codex app-server 取本轮最后一条 `thread/tokenUsage/updated` 的 `total`（线程内所有请求累计，含工具调用往返；`inputTokens` 含命中缓存的 `cachedInputTokens`，一轮里除首个请求外大多命中缓存），在 `finally` 里上报，失败 / 取消的回合也记；OpenAI 兼容 API 取 JSON 响应的 `usage`，流式请求带 `stream_options: { include_usage: true }`、从最后一个 chunk 取 `usage`；Codex exec 模式拿不到用量，不记。费用 = (未命中输入 × input + 命中输入 × cached_input + 输出 × output) / 1e6，reasoning 算在输出里，写入时按当时 `models.available[].pricing` 固定。归属：QA → `qa_results.requested_by_user_id`（`api/qa.ts#runQA`）；Deep Research → 会话所有者（`research_runtime.ts`，修复请求另记一行）；翻译 → 触发未命中缓存翻译的登录用户（`translateText({ userId })`，命中缓存不调模型不记）。Codex 内置画图的消耗不在 `tokenUsage` 里，不记。旧调用不回填。`api/usage.ts`：`GET /api/usage/me`（本人汇总，总计 + 按类别）、`GET /api/usage/leaderboard`（admin，按估算费用、再按 token 降序；无归属的合为一行），都支持 `?days=N`。
 
 **QA durable streaming runtime**：每次调用通过 pure-service `onCreated` 在排队前插入一个 exact Result；execution context 带 `AbortSignal`，semaphore/rate-limit/provider 都可精确取消。provider delta 以约 200ms 合并，先 append 到 `qa_results.answer` 再发布 SSE；终态 flush 后由权威 final 覆盖并生成 hash。Internal `GET /api/qa/results/:resultId/stream` 使用 `start → delta* → done|error`，断开只取消订阅；`POST /api/qa/results/:resultId/cancel` 才取消运行。`thinking_duration_ms` 由 started/first_chunk/finished 时间戳派生，不写入数据库。启动时 stale active Result 保留局部内容后标为 failed，并重算 Entry 汇总状态。
 
@@ -565,7 +584,7 @@ notes:
 **QA 前端流式渲染**：Pinia 为当前可见 active Result 管理一个可重连 SSE observer，delta 先经 animation-frame batch；`QAThinkingTimer` 只更新固定宽度计时文本。`QAStreamingMarkdown` 保留稳定 Markdown block DOM、只解析尾部，流式期禁用不稳定的 hash 高亮/锚点；done 等待 pending paint 后切到标准 `MarkdownContent` 做一次 canonical render。不自动滚动或对答案容器做 transition。
 新增流式 UI copy 统一为英文：`Queued / Thinking / Streaming / Done / Stopped / Failed`、`Thought for · mm:ss`、`This model will display its answer when complete`、`Agent is thinking…`。
 
-**QA 对话 / 树视图**：纯前端，无新依赖。对话视图的 thread 不落库，由尾回答经已有的 `GET /api/qa/entries/:id/tree` 推导；Q&A 树沿用笔记思维导图的手写布局（嵌套 flex + DOM 实测 SVG 连线），不引入图形库，并在全站共用的浮动窗口机制（`stores/windows.ts` + `FloatingWindow.vue`）中打开。提问框一次只选一个模型（后端接口仍支持多模型）。论文页三种布局（双栏 / 论文 + 对话 / 三栏）中，论文信息 + Q&A 栏用 VueUse 已有的 `createReusableTemplate` 只定义一次，不新增依赖。
+**QA 对话 / 树视图**：纯前端，无新依赖。对话视图的 thread 不落库，由尾回答经已有的 `GET /api/qa/entries/:id/tree` 推导；Q&A 树沿用笔记思维导图的手写布局（嵌套 flex + DOM 实测 SVG 连线），不引入图形库，并在全站共用的浮动窗口机制（`stores/windows.ts` + `FloatingWindow.vue`）中打开。提问框一次只选一个模型（后端接口仍支持多模型）。论文页三种布局（"Two columns" / "Paper + conversation" / "Three columns"）中，论文信息 + Q&A 栏用 VueUse 已有的 `createReusableTemplate` 只定义一次，不新增依赖。
 
 **QA 多回答选择**：`QAResultView` 对所有状态都按 `created_at`（缺失回退 `completed_at`）+ result id 判定最新回答（按提问时间，不按完成时间）。多模型提交时后端按模型列表逆序创建 Result，排在前面的模型默认被选中；默认追问对象额外限定为 done（`defaultFollowupResult`）。首次显示和新增 Result 时激活最新；status、Thinking 计时、answer delta 和等价轮询都不进入 selection signature，因此不重置手动 tab；删除当前 Result 回退最新；`requestedResultId` 锚点为一次性高优先级选择。
 
@@ -584,7 +603,7 @@ notes:
 | better-sqlite3 | SQLite driver |
 | js-yaml | 解析 config.yml |
 | pdf-parse | Node.js PDF 解析 (可选方案) |
-| pdf-lib | 把 doc2x 左右对照 PDF 每页裁成右半边，生成「仅译文」PDF |
+| pdf-lib | 把 doc2x 左右对照 PDF 每页裁成右半边，生成 "Translation only" PDF |
 | doc2x CLI（外部，`@noedgeai-org/doc2x-cli`） | doc2x 精确解析 / 对照翻译；以子进程 `Bun.spawn` 调用，OAuth 登录态取自 `~/.config/doc2x/` |
 | `Bun.password` (内置) | 密码哈希（argon2id），无需第三方依赖 |
 
@@ -605,7 +624,7 @@ notes:
 | class-variance-authority + clsx + tailwind-merge | cn() 与变体管理 |
 | vue-sonner | Toast 通知（由 `<Toaster>` 组件包装） |
 | pdfjs-dist | 嵌入式 PDF 查看器（替代浏览器原生插件）：canvas 渲染 + 文本层选区，支撑 `paperland://…?pdf=…` 页面/选区锚点。**版本精确 pin**（`ts/te` 为 pdf.js 文本偏移，需跨版本稳定）；动态 `import()` code-split，worker 经 `pdf.worker.min.mjs?url` 注册到 `GlobalWorkerOptions.workerSrc` |
-| turndown + turndown-plugin-gfm | 选区 HTML→Markdown 还原（「复制为锚点链接」：GFM 表格、数学按 `$`/`$$` 还原） |
+| turndown + turndown-plugin-gfm | 选区 HTML→Markdown 还原（"Copy content and anchor link"：GFM 表格、数学按 `$`/`$$` 还原） |
 | monaco-editor | 笔记编辑器（`MonacoMarkdownEditor.vue`，浮窗 + 左面板 edit/split）：Markdown 语法高亮（`lib/monaco.ts` 用 `withMath` 扩展自带文法，加 `$…$`/`$$…$$` LaTeX 数学 token）、显示行号、跟随明暗主题。**懒加载**：`lib/monaco.ts` 动态 `import()` 仅取 `editor.api` + markdown 文法（独立 async chunk，不进首包），`editor.worker?worker` 注册到 `self.MonacoEnvironment`，`vite.config.ts` 设 `worker.format:'es'` |
 
 ### Python (scripts/)

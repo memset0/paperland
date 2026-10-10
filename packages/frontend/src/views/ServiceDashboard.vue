@@ -65,10 +65,10 @@ async function backfillS2() {
   backfillMsg.value = null
   try {
     const r = await api.post<{ success: boolean; queued: number }>('/api/services/backfill/semantic_scholar_service')
-    backfillMsg.value = `已入队 ${r.queued} 篇论文的 S2 回填`
+    backfillMsg.value = `Queued S2 backfill for ${r.queued} ${r.queued === 1 ? 'paper' : 'papers'}`
     await fetchAll()
   } catch (err: any) {
-    backfillMsg.value = err.message || '回填失败'
+    backfillMsg.value = err.message || 'Backfill failed'
   } finally {
     backfilling.value = false
   }
@@ -81,7 +81,7 @@ async function retryExecution(e: Execution) {
     await api.post(`/api/papers/${e.paper_id}/services/${e.service_name}/trigger`)
     await fetchAll()
   } catch (err: any) {
-    retryError.value = err.message || '重试失败'
+    retryError.value = err.message || 'Retry failed'
   } finally {
     retryingId.value = null
   }
@@ -94,7 +94,7 @@ async function retryExecution(e: Execution) {
       <div class="flex flex-col items-end gap-1">
         <Button variant="outline" size="sm" :disabled="backfilling" @click="backfillS2">
           <Loader2 v-if="backfilling" class="animate-spin" /><RefreshCw v-else />
-          回填 S2 数据
+          Backfill S2 data
         </Button>
         <span v-if="backfillMsg" class="text-xs text-muted-foreground">{{ backfillMsg }}</span>
       </div>
@@ -107,9 +107,9 @@ async function retryExecution(e: Execution) {
           <span class="text-sm font-semibold">{{ svc.name }}</span>
         </div>
         <div class="space-y-1.5 text-xs">
-          <div class="flex justify-between"><span class="text-muted-foreground">类型</span><span class="font-medium">{{ svc.type }}</span></div>
-          <div class="flex justify-between"><span class="text-muted-foreground">并发</span><span class="font-mono">{{ svc.running }}/{{ svc.max_concurrency }}</span></div>
-          <div class="flex justify-between"><span class="text-muted-foreground">排队</span><span class="font-mono">{{ svc.pending }}</span></div>
+          <div class="flex justify-between"><span class="text-muted-foreground">Type</span><span class="font-medium">{{ svc.type }}</span></div>
+          <div class="flex justify-between"><span class="text-muted-foreground">Concurrency</span><span class="font-mono">{{ svc.running }}/{{ svc.max_concurrency }}</span></div>
+          <div class="flex justify-between"><span class="text-muted-foreground">Queued</span><span class="font-mono">{{ svc.pending }}</span></div>
         </div>
       </Card>
     </div>
@@ -124,18 +124,18 @@ async function retryExecution(e: Execution) {
 
     <Card class="overflow-hidden gap-0 py-0">
       <div class="border-b px-5 py-3 flex items-center gap-4">
-        <h3 class="text-sm font-semibold shrink-0">执行历史</h3>
+        <h3 class="text-sm font-semibold shrink-0">Run history</h3>
         <Select v-model="filterService" @update:model-value="fetchExecs()">
-          <SelectTrigger class="w-32"><SelectValue placeholder="全部服务" /></SelectTrigger>
+          <SelectTrigger class="w-32"><SelectValue placeholder="All services" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">全部服务</SelectItem>
+            <SelectItem value="all">All services</SelectItem>
             <SelectItem v-for="s in services" :key="s.name" :value="s.name">{{ s.name }}</SelectItem>
           </SelectContent>
         </Select>
         <Select v-model="filterStatus" @update:model-value="fetchExecs()">
-          <SelectTrigger class="w-32"><SelectValue placeholder="全部状态" /></SelectTrigger>
+          <SelectTrigger class="w-32"><SelectValue placeholder="All statuses" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">全部状态</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
             <SelectItem v-for="s in ['pending','running','done','failed','blocked']" :key="s" :value="s">{{ s }}</SelectItem>
           </SelectContent>
         </Select>
@@ -144,12 +144,12 @@ async function retryExecution(e: Execution) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>服务</TableHead>
-            <TableHead class="w-16">论文</TableHead>
-            <TableHead class="w-24">状态</TableHead>
-            <TableHead>时间</TableHead>
-            <TableHead>错误</TableHead>
-            <TableHead class="w-16">操作</TableHead>
+            <TableHead>Service</TableHead>
+            <TableHead class="w-16">Paper</TableHead>
+            <TableHead class="w-24">Status</TableHead>
+            <TableHead>Time</TableHead>
+            <TableHead>Error</TableHead>
+            <TableHead class="w-16">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -169,7 +169,7 @@ async function retryExecution(e: Execution) {
                 v-if="e.status === 'failed' || e.status === 'blocked'"
                 variant="ghost" size="icon-sm"
                 :disabled="retryingId === e.id"
-                title="重试"
+                title="Retry"
                 @click="retryExecution(e)"
               >
                 <Loader2 v-if="retryingId === e.id" class="animate-spin" />

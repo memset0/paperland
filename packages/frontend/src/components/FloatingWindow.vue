@@ -116,7 +116,7 @@ function onResizeUp(e: PointerEvent) {
       v-if="!isMobile"
       data-window-resize
       class="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize text-muted-foreground/60 hover:text-muted-foreground"
-      title="拖动调整大小"
+      title="Drag to resize"
       @pointerdown.stop="onResizeDown"
       @pointermove="onResizeMove"
       @pointerup="onResizeUp"

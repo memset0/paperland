@@ -36,22 +36,22 @@ const modes = computed<ViewerMode[]>(() => {
   const list: ViewerMode[] = []
   list.push({
     id: 'pdf',
-    label: 'PDF 原文',
+    label: 'PDF',
     // Always shown: without a PDF the tab renders PdfUploadPanel (fetching / upload required).
     available: true,
     type: 'pdf',
   })
   // doc2x preserved-layout translation (bilingual / translation-only). Never the auto-default:
-  // pickDefault() takes the first non-Note mode and "PDF 原文" always precedes it.
+  // pickDefault() takes the first non-Note mode and "PDF" always precedes it.
   list.push({
     id: 'doc2x',
-    label: '对照翻译',
+    label: 'Bilingual PDF',
     available: !!props.pdfPath && !!doc2x.status?.enabled,
     type: 'doc2x',
   })
   list.push({
     id: 'translation',
-    label: '幻觉翻译',
+    label: 'hjfy.top',
     available: !!props.arxivId,
     type: 'iframe',
     url: props.arxivId ? `https://hjfy.top/arxiv/${props.arxivId}` : null,
@@ -134,8 +134,8 @@ watch(() => route.query.view, (v) => {
   <div class="h-full flex flex-col bg-muted/40">
     <div v-if="availableModes.length === 0" class="flex flex-col items-center justify-center h-full text-muted-foreground">
       <FileText class="h-12 w-12 mb-3 stroke-1" />
-      <p class="text-sm">暂无可用的查看模式</p>
-      <p class="text-xs mt-1">等待服务下载 PDF 或补充 arXiv ID...</p>
+      <p class="text-sm">No view available</p>
+      <p class="text-xs mt-1">Waiting for the PDF download or an arXiv ID…</p>
     </div>
 
     <Tabs v-else :model-value="activeId" @update:model-value="selectMode" class="h-full flex flex-col gap-0">

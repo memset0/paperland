@@ -2,17 +2,19 @@
 
 ## Purpose
 Multi-mode paper viewing in the detail page left panel, supporting PDF and translation iframe modes with tab-based switching.
+
 ## Requirements
+
 ### Requirement: Multi-mode viewer in wide layout
 The paper detail page left panel SHALL support multiple viewing modes via a tab bar. Each mode renders different content in the same viewer area.
 
 #### Scenario: PDF mode displayed
 - **WHEN** a paper has a `pdf_path`
-- **THEN** the viewer SHALL show a "PDF 原文" tab that renders the PDF via the embedded pdf.js viewer (the `pdfjs-viewer` capability), NOT a native PDF iframe
+- **THEN** the viewer SHALL show a "PDF" tab that renders the PDF via the embedded pdf.js viewer (the `pdfjs-viewer` capability), NOT a native PDF iframe
 
 #### Scenario: Translation mode displayed
 - **WHEN** a paper has an `arxiv_id`
-- **THEN** the viewer SHALL show a "幻觉翻译" tab that renders `https://hjfy.top/arxiv/{arxiv_id}` in an iframe
+- **THEN** the viewer SHALL show a "hjfy.top" tab that renders `https://hjfy.top/arxiv/{arxiv_id}` in an iframe
 
 #### Scenario: Mode switching
 - **WHEN** the user clicks a different tab in the viewer tab bar
@@ -68,52 +70,37 @@ The paper detail left panel viewer SHALL offer a note mode (labeled **"Note"**) 
 - **THEN** the rendered note SHALL update automatically without leaving or re-selecting the tab
 
 ### Requirement: Viewer panel activates the PDF tab on a PDF anchor
-When an in‑app PDF anchor navigation is requested (from a clicked `paperland://…?pdf=…` link or from route query on cross‑paper navigation), the viewer panel SHALL switch the active tab to "PDF 原文" if it is not already active, and forward the page/region navigation request to the embedded pdf.js viewer.
+When an in‑app PDF anchor navigation is requested (from a clicked `paperland://…?pdf=…` link or from route query on cross‑paper navigation), the viewer panel SHALL switch the active tab to "PDF" if it is not already active, and forward the page/region navigation request to the embedded pdf.js viewer.
 
 #### Scenario: Auto‑switch to PDF tab on anchor
-- **WHEN** a PDF anchor navigation is requested while the "幻觉翻译" tab is active
-- **THEN** the viewer panel SHALL switch to the "PDF 原文" tab and forward the page/region request to the pdf.js viewer
+- **WHEN** a PDF anchor navigation is requested while the "hjfy.top" tab is active
+- **THEN** the viewer panel SHALL switch to the "PDF" tab and forward the page/region request to the pdf.js viewer
 
 #### Scenario: Already on the PDF tab
-- **WHEN** a PDF anchor navigation is requested while the "PDF 原文" tab is already active
+- **WHEN** a PDF anchor navigation is requested while the "PDF" tab is already active
 - **THEN** the viewer panel SHALL forward the page/region request to the pdf.js viewer without changing tabs
 
-### Requirement: Walkthrough viewer mode
-The paper detail left panel viewer SHALL offer a note mode (labeled **"Note"**) that renders the current paper's single note document (see the `notes-walkthrough` capability). The mode SHALL **always be available** — regardless of whether the note has content — and SHALL participate in the existing data-driven mode system (tab bar, switching, auto-select) without special-casing.
-
-#### Scenario: Note tab always displayed
-- **WHEN** a paper detail page is open
-- **THEN** the viewer SHALL show a "Note" tab whether or not the note has content
-
-#### Scenario: Note tab switches like other modes
-- **WHEN** the user selects the "Note" tab
-- **THEN** the viewer content SHALL switch to the note document view immediately, consistent with switching between the PDF and translation modes
-
-#### Scenario: Note view updates live
-- **WHEN** the user is viewing the "Note" tab and edits the note
-- **THEN** the rendered note SHALL update automatically without leaving or re-selecting the tab
-
 ### Requirement: Doc2X translation viewer mode
-When doc2x is enabled and the paper has a `pdf_path`, the viewer SHALL show a "对照翻译" tab after "PDF 原文". The tab SHALL show the doc2x parse status and reflect the translation status:
-- `idle`: a "开始翻译" button that requests translation;
+When doc2x is enabled and the paper has a `pdf_path`, the viewer SHALL show a "Bilingual PDF" tab after "PDF". The tab SHALL show the doc2x parse status and reflect the translation status:
+- `idle`: a "Start translation" button that requests translation;
 - `queued`: a message that translation is waiting for the doc2x parse;
 - `pending`/`running`: an in-progress indicator, refreshed by polling until a terminal state;
-- `failed`: the error and a "重试" button;
-- `done`: the translated PDF in the embedded pdf.js viewer, with a toggle between "左右对照" (the bilingual PDF) and "仅译文" (the translation-only PDF).
-The "对照翻译" tab SHALL NOT be auto-selected as the default mode.
+- `failed`: the error and a "Retry" button;
+- `done`: the translated PDF in the embedded pdf.js viewer, with a toggle between "Side by side" (the bilingual PDF) and "Translation only" (the translation-only PDF).
+The "Bilingual PDF" tab SHALL NOT be auto-selected as the default mode.
 
 #### Scenario: Request translation from the tab
-- **WHEN** the user clicks "开始翻译" in the "对照翻译" tab
+- **WHEN** the user clicks "Start translation" in the "Bilingual PDF" tab
 - **THEN** a translation request SHALL be sent and the tab SHALL show the queued or in-progress state
 
 #### Scenario: Switch display
-- **WHEN** translation is done and the user selects "仅译文"
-- **THEN** the viewer SHALL display the translation-only PDF, and selecting "左右对照" SHALL display the bilingual PDF
+- **WHEN** translation is done and the user selects "Translation only"
+- **THEN** the viewer SHALL display the translation-only PDF, and selecting "Side by side" SHALL display the bilingual PDF
 
 #### Scenario: Display choice remembered
-- **WHEN** the user picks a display and later opens another paper's "对照翻译" tab
+- **WHEN** the user picks a display and later opens another paper's "Bilingual PDF" tab
 - **THEN** the same display SHALL be preselected (remembered per browser)
 
 #### Scenario: Not default
 - **WHEN** a paper with a finished translation is opened
-- **THEN** "PDF 原文" SHALL remain the default selected tab
+- **THEN** "PDF" SHALL remain the default selected tab

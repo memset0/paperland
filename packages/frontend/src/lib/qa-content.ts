@@ -9,4 +9,4 @@ export function paperHasQAContent(paper: Pick<Paper, 'contents'> | null | undefi
   return !!contents && Object.values(contents).some((value) => typeof value === 'string' && value.trim().length > 0)
 }
 
-export const NO_QA_CONTENT_HINT = '需要先解析 PDF 或提供全文才能提问'
+export const NO_QA_CONTENT_HINT = 'Parse the PDF or provide the full text before asking'

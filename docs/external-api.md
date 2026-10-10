@@ -6,7 +6,7 @@ External API 是独立于前端 Internal API 的第三方接口，主要用于 Z
 
 生产入口为 `https://paperland.dev.mem.ac/external-api/v1`：Caddy 将整个站点转发到仅监听 `127.0.0.1:3000` 的后端，后端同时托管前端构建产物。开发入口仍经 Vite 5173 转发。此次托管调整不改变 Bearer Token 认证或接口契约；未知 External API 路径继续返回错误，不能落入前端 SPA 的 HTML 回退。
 
-文本翻译、PDF 选区工具栏按需划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅在登录用户点击选区工具栏「翻译」后触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭、新选区关闭旧浮层，以及等待首个译文时显示所选原文的 UI fallback，均是 Internal UI 生命周期/呈现行为，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
+文本翻译、PDF 选区工具栏按需划词翻译及其流式测试页属于网站登录态的 Internal API/UI：`POST /api/translate`、`POST /api/translate/stream`、PDF text-layer selection panel 和 `/translation-test` **不在** `/external-api/v1` 下，也不接受 Bearer API Token。`/translation-test` 仅管理员可直接访问且不显示在侧边栏；PDF 划词翻译仅在登录用户点击选区工具栏 "Translate" 后触发，匿名选择不请求 API。面板内焦点转移、外部点击关闭、新选区关闭旧浮层，以及等待首个译文时显示所选原文的 UI fallback，均是 Internal UI 生命周期/呈现行为，不增加请求字段或端点。本次 PDF 选区功能不改变任何 External API 请求或响应契约。
 
 浏览器插件的「快捷打开」同样属于网站登录态的 Internal API，**不在** `/external-api/v1` 下、不接受 Bearer API Token：`GET /api/auth/open-token`（获取当前用户的快捷打开 CSRF token，首次请求时生成）、`POST /api/auth/open-token/regenerate`（重新生成，旧 token 立即失效）、`POST /api/papers/open-arxiv { arxiv_id, token }`（需会话 + token 匹配，否则 401 / 403 `INVALID_OPEN_TOKEN`；id 不可解析为 422；成功返回 `{ paper_id, arxiv_id, created }`）。arxiv id 会去掉 `arXiv:` 前缀与版本号后再查找/存储。该 token 与 External API Token 相互独立，不能用于调用 External API。插件下载 `GET /api/extension/download?base_url=<http(s) 绝对 URL>` 同样是 Internal API：需登录（401），`base_url` 非法时返回 422，成功时返回 `application/zip`（`paperland-extension-<version>.zip`），其中内置 `src/preset.json`（`base_url` + 当前用户的 token）。详见 `browser-extension.md`。
 
@@ -187,7 +187,7 @@ Base URL: `/external-api/v1`
 
 未找到时返回 `404`。
 
-> 注：本 API 无"全量列表"端点，仅按 ID 精确查询。"仅元数据"论文（`listed=0`，尚未加入阅读列表）也会被 lookup 命中（它们确已在库中、用于去重），但不会出现在站内论文列表里，直到被显式"加入列表"。
+> 注：本 API 无"全量列表"端点，仅按 ID 精确查询。"Metadata only" 论文（`listed=0`，尚未加入阅读列表）也会被 lookup 命中（它们确已在库中、用于去重），但不会出现在站内论文列表里，直到被显式 "Add to list"。
 
 #### GET /papers/full
 
@@ -211,7 +211,7 @@ Base URL: `/external-api/v1`
 | `exclude` | (无) | 排除指定字段，逗号分隔。如 `exclude=contents,services` |
 
 **注意事项：**
-- `auto_create=true` 时按所提供的 arxiv_id / corpus_id / s2_paper_id 创建并触发抓取。`semantic_scholar_service` 现在是**双向**的：带 arxiv_id 的论文会查 `ARXIV:{id}` 补全 corpus_id 与引用富化，**仅凭 corpus_id 创建的论文也会查 `CORPUSID:{id}` 反查 arxiv_id 并做同样的富化**（若该论文确实存在 arXiv 版本）；解析出 arxiv_id 后，arxiv 元数据/PDF 抓取会经依赖图自动衔接。若 S2 记录**没有** arXiv 版本，但提供了开放获取 PDF（`metadata.open_access_pdf_url`），`s2_pdf_service` 会下载该 PDF 并写入 `pdf_path`，后续解析服务照常衔接；闭源论文（`metadata.open_access_pdf_status` = `CLOSED`、无 url）不会有 `pdf_path`，`services` 中 `s2_pdf_service` 显示为 `blocked`。这类论文需由用户在站内论文详情页左侧「需要上传 PDF」面板手动上传（站内接口 `POST /api/papers/:id/pdf`，External API 不提供上传）；上传后 `pdf_path` 出现、解析服务自动衔接
+- `auto_create=true` 时按所提供的 arxiv_id / corpus_id / s2_paper_id 创建并触发抓取。`semantic_scholar_service` 现在是**双向**的：带 arxiv_id 的论文会查 `ARXIV:{id}` 补全 corpus_id 与引用富化，**仅凭 corpus_id 创建的论文也会查 `CORPUSID:{id}` 反查 arxiv_id 并做同样的富化**（若该论文确实存在 arXiv 版本）；解析出 arxiv_id 后，arxiv 元数据/PDF 抓取会经依赖图自动衔接。若 S2 记录**没有** arXiv 版本，但提供了开放获取 PDF（`metadata.open_access_pdf_url`），`s2_pdf_service` 会下载该 PDF 并写入 `pdf_path`，后续解析服务照常衔接；闭源论文（`metadata.open_access_pdf_status` = `CLOSED`、无 url）不会有 `pdf_path`，`services` 中 `s2_pdf_service` 显示为 `blocked`。这类论文需由用户在站内论文详情页左侧 "PDF needed" 面板手动上传（站内接口 `POST /api/papers/:id/pdf`，External API 不提供上传）；上传后 `pdf_path` 出现、解析服务自动衔接
 - `auto_template_qa=true` 时，仅执行缺少 done Result 的模板提问（只有 failed/cancelled 历史仍可重试），每次调用仍通过统一 QA ServiceRunner，并等待新 Result 终态后返回
 - 模板提问会在调用模型前把 `config.yml` 中当时最新的问题文本持久化到 QA Entry；首次调用失败也不会丢失问题，之后重跑仍会重新读取配置中的最新文本
 - Internal UI 的 User Q&A `mine|all`、九种个人背景色（gray/brown/orange/yellow/green/blue/purple/pink/red）和 viewer-private 高亮/笔记引用计数不会改变 External API 的鉴权或查询范围。背景色仍是站内 preference，不新增 External API 字段；`qa.results[]` 可能附带内部稳定 `content_hash`，用于站内阅读标记，外部客户端无需依赖该字段

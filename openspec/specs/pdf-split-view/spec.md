@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change frontend-redesign. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Split-view paper detail
 The paper detail page SHALL have a two-pane layout: a multi-mode viewer panel on the left (replacing the previous PDF-only viewer), paper info and Q&A on the right.
 
@@ -15,7 +17,7 @@ The paper detail page SHALL have a two-pane layout: a multi-mode viewer panel on
 - **THEN** the left pane SHALL show a placeholder message
 
 #### Scenario: PDF displayed
-- **WHEN** a paper has a pdf_path and the "PDF 原文" tab is selected
+- **WHEN** a paper has a pdf_path and the "PDF" tab is selected
 - **THEN** the PDF SHALL be rendered in the left pane via the existing PdfViewer component
 
 ### Requirement: Draggable panel divider
@@ -64,4 +66,3 @@ The right pane SHALL contain paper metadata at the top, followed by template Q&A
 #### Scenario: Q&A visible
 - **WHEN** the user views a paper detail
 - **THEN** template Q&A and free Q&A sections SHALL be visible in the right pane
-

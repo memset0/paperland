@@ -18,7 +18,7 @@ const composer = useQAComposer()
 
 /** Tab label: the tail question (live store when loaded), else its QA id. */
 function tabTitle(tab: ConversationTab): string {
-  if (tab.entry_id === null) return '新对话'
+  if (tab.entry_id === null) return 'New conversation'
   const free = store.qaData.free.find((entry) => entry.entry_id === tab.entry_id)
   if (free?.prompt) return free.prompt
   for (const [name, entry] of Object.entries(store.qaData.template)) {
@@ -43,10 +43,10 @@ watch(() => conversation.activeTab.value, (tab) => { if (!tab || tab.entry_id ==
 const blocked = computed(() => {
   const tab = conversation.activeTab.value
   if (!tab || tab.entry_id === null) return null
-  if (!tail.value || tail.value.result_id !== tab.result_id) return '正在加载对话…'
+  if (!tail.value || tail.value.result_id !== tab.result_id) return 'Loading conversation…'
   if (tail.value.status === 'done') return null
-  if (['failed', 'cancelled'].includes(tail.value.status)) return '最后一个回答未成功完成，无法在此对话中追问'
-  return '最后一个回答完成后才能继续追问'
+  if (['failed', 'cancelled'].includes(tail.value.status)) return "The last answer didn't finish, so you can't follow up in this conversation"
+  return 'You can follow up after the last answer finishes'
 })
 
 // The docked box follows the active tab: a follow-up of its last answer, or a root question.
@@ -84,15 +84,15 @@ watch(
           <button
             type="button"
             class="shrink-0 rounded opacity-60 hover:opacity-100"
-            title="关闭此对话"
+            title="Close this conversation"
             @click.stop="conversation.closeTab(index)"
           ><X class="h-3 w-3" /></button>
         </div>
       </div>
-      <Button variant="ghost" size="icon-sm" class="my-auto shrink-0" title="新对话" @click="conversation.newTab()">
+      <Button variant="ghost" size="icon-sm" class="my-auto shrink-0" title="New conversation" @click="conversation.newTab()">
         <MessageSquarePlus />
       </Button>
-      <Button variant="ghost" size="icon-sm" class="my-auto mr-1 shrink-0" title="关闭对话视图" @click="conversation.hide()">
+      <Button variant="ghost" size="icon-sm" class="my-auto mr-1 shrink-0" title="Close conversation view" @click="conversation.hide()">
         <PanelRightClose />
       </Button>
     </div>
@@ -108,7 +108,7 @@ watch(
         @tail="onTail"
       />
       <div v-else class="flex h-full items-center justify-center px-6 text-center text-xs text-muted-foreground">
-        在下方提问开始新对话，或在 Q&A 列表的回答上点击「在对话视图中打开」
+        Ask below to start a conversation, or click "Open in conversation view" on an answer in the Q&A list.
       </div>
     </div>
 

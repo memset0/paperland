@@ -2,7 +2,9 @@
 
 ## Purpose
 论文来源链接功能 — 包括 link 字段的存储、自动生成、数据回填、前端来源标签展示。
+
 ## Requirements
+
 ### Requirement: Paper link field storage
 The system SHALL store an optional `link` field on each paper, containing the full URL to the paper's original source.
 
@@ -44,7 +46,7 @@ The frontend manual paper creation form SHALL include an optional link input fie
 - **THEN** the created paper SHALL have a null link
 
 ### Requirement: Source column display in paper list
-The paper list SHALL display a "来源" (Source) column replacing the current "arXiv ID" column, showing clickable source tags.
+The paper list SHALL display a "Source" column replacing the current "arXiv ID" column, showing clickable source tags.
 
 #### Scenario: arXiv paper source display
 - **WHEN** a paper has a link matching `arxiv.org` domain
@@ -90,4 +92,3 @@ The paper list and the paper detail view SHALL display a clickable Semantic Scho
 #### Scenario: Paper without corpus_id
 - **WHEN** a paper has no corpus_id
 - **THEN** no Semantic Scholar tag SHALL be rendered
-

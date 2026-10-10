@@ -149,7 +149,7 @@ export const useQAStore = defineStore('qa', () => {
       try {
         const status = await api.get<Doc2xStatus>(`/api/papers/${paperId}/doc2x`)
         if (!status.qa_needs_confirm) return true
-        return window.confirm('doc2x 精确解析尚未完成，本次回答将基于机械解析出的文本（公式、表格可能不准确）。\n\n仍要现在提问吗？')
+        return window.confirm('The doc2x parse isn\'t finished, so this answer will use the basic text extraction (formulas and tables may be inaccurate).\n\nAsk anyway?')
       } catch {
         return true // status unavailable — don't block asking
       } finally {
@@ -401,7 +401,7 @@ export const useQAStore = defineStore('qa', () => {
       entry.error = null
     } else if (entry.results.length > 0) {
       entry.status = 'failed'
-      entry.error = entry.results.find((result) => result.error)?.error ?? '生成失败'
+      entry.error = entry.results.find((result) => result.error)?.error ?? 'Generation failed'
     }
   }
 

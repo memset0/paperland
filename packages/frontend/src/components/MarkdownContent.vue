@@ -192,7 +192,7 @@ function handleSelectionSettled() {
   if (anchorEl?.closest('.hl-toolbar, .hl-menu')) return
 
   if (!props.content) {
-    alert('内容为空，无法创建高亮。请检查组件是否正确接收了内容数据。')
+    alert('Nothing to highlight.')
     return
   }
 
@@ -515,7 +515,7 @@ function copyContentAndAnchorLink() {
   // (e.g. the browser collapsed the selection when the toolbar was tapped).
   const content = selectionToMarkdown() || pendingSelection.value.text.trim()
   navigator.clipboard.writeText(`${content} [#](${url})`)
-  toast.success('已复制内容和锚点链接', { position: 'bottom-center' })
+  toast.success('Copied content and anchor link', { position: 'bottom-center' })
   window.getSelection()?.removeAllRanges()
   closeAllPopups()
 }
@@ -525,7 +525,7 @@ function copyAnchorLinkOnly() {
   const url = pendingAnchorUrl()
   if (!url) return
   navigator.clipboard.writeText(`[#](${url})`)
-  toast.success('已复制锚点链接', { position: 'bottom-center' })
+  toast.success('Anchor link copied', { position: 'bottom-center' })
   window.getSelection()?.removeAllRanges()
   closeAllPopups()
 }
@@ -598,7 +598,7 @@ function onKatexClick(e: MouseEvent | Event) {
   if (!annotation?.textContent) return
 
   navigator.clipboard.writeText(annotation.textContent).then(() => {
-    toast.success('LaTeX 已复制到剪贴板', { position: 'bottom-center' })
+    toast.success('LaTeX copied', { position: 'bottom-center' })
   })
 }
 
@@ -671,7 +671,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="qa-cite-card-actions">
         <button v-if="activeCite.ref.library_paper_id" type="button" @click="openLibraryPaper(activeCite.ref.library_paper_id)">
-          <BookOpen class="hl-icon" /> 打开论文
+          <BookOpen class="hl-icon" /> Open paper
         </button>
         <a :href="s2Url(activeCite.citeId)" target="_blank" rel="noopener noreferrer">
           <ExternalLink class="hl-icon" /> Semantic Scholar
@@ -694,10 +694,10 @@ onBeforeUnmount(() => {
           @click.stop="createHighlight(c)"
         />
       </div>
-      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyContentAndAnchorLink" title="复制内容和锚点链接">
+      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyContentAndAnchorLink" title="Copy content and anchor link">
         <Copy class="hl-icon" />
       </button>
-      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyAnchorLinkOnly" title="复制锚点链接">
+      <button v-if="paperId" class="hl-note-toggle" @click.stop="copyAnchorLinkOnly" title="Copy anchor link">
         <Link2 class="hl-icon" />
       </button>
     </div>

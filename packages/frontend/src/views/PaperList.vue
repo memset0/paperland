@@ -183,7 +183,7 @@ async function addPaper() {
   <AppPage full>
     <template #actions>
       <Button @click="onAddClick">
-        <Plus />添加论文
+        <Plus />Add paper
       </Button>
     </template>
     <div class="space-y-4">
@@ -192,29 +192,29 @@ async function addPaper() {
       <ScopeToggle v-if="auth.user" class="self-center" size="sm" :model-value="store.scope" @update:model-value="setScope" />
       <div class="relative w-full md:w-auto md:flex-1">
         <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-        <Input v-model="search" @keyup.enter="onSearch" placeholder="搜索论文标题、摘要..." class="pl-9" />
+        <Input v-model="search" @keyup.enter="onSearch" placeholder="Search titles and abstracts…" class="pl-9" />
       </div>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <Button variant="outline">
-            <ArrowUpDown />{{ store.sortBy === 'updated_at' ? '最近修改' : '添加时间' }}
+            <ArrowUpDown />{{ store.sortBy === 'updated_at' ? 'Last modified' : 'Date added' }}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem @click="setSort('created_at')">添加时间</DropdownMenuItem>
-          <DropdownMenuItem @click="setSort('updated_at')">最近修改</DropdownMenuItem>
+          <DropdownMenuItem @click="setSort('created_at')">Date added</DropdownMenuItem>
+          <DropdownMenuItem @click="setSort('updated_at')">Last modified</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <Button variant="outline">
-            {{ store.listedMode === 'all' ? '全部' : store.listedMode === 'unlisted' ? '仅元数据' : '已列出' }}
+            {{ store.listedMode === 'all' ? 'All' : store.listedMode === 'unlisted' ? 'Metadata only' : 'Listed' }}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem @click="setListedMode('listed')">已列出</DropdownMenuItem>
-          <DropdownMenuItem @click="setListedMode('unlisted')">仅元数据（待添加）</DropdownMenuItem>
-          <DropdownMenuItem @click="setListedMode('all')">全部</DropdownMenuItem>
+          <DropdownMenuItem @click="setListedMode('listed')">Listed</DropdownMenuItem>
+          <DropdownMenuItem @click="setListedMode('unlisted')">Metadata only (not added)</DropdownMenuItem>
+          <DropdownMenuItem @click="setListedMode('all')">All</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -225,10 +225,10 @@ async function addPaper() {
           variant="outline" size="sm"
           @click="showTagFilter = !showTagFilter"
         >
-          <Tag />标签筛选
+          <Tag />Filter by tag
           <Badge v-if="selectedTagIds.length" variant="secondary">{{ selectedTagIds.length }}</Badge>
         </Button>
-        <Button v-if="selectedTagIds.length > 0" variant="link" size="xs" @click="clearTagFilter">清除筛选</Button>
+        <Button v-if="selectedTagIds.length > 0" variant="link" size="xs" @click="clearTagFilter">Clear filters</Button>
       </div>
       <div v-if="showTagFilter" class="mt-2 flex flex-wrap gap-1.5">
         <Badge
@@ -248,14 +248,14 @@ async function addPaper() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="w-14 text-center">笔记</TableHead>
-            <TableHead>标题</TableHead>
-            <TableHead class="w-40 hidden md:table-cell">作者</TableHead>
-            <TableHead class="w-32">来源</TableHead>
+            <TableHead class="w-14 text-center">Notes</TableHead>
+            <TableHead>Title</TableHead>
+            <TableHead class="w-40 hidden md:table-cell">Authors</TableHead>
+            <TableHead class="w-32">Source</TableHead>
             <TableHead class="w-16 hidden md:table-cell">Cited</TableHead>
             <TableHead class="w-16 hidden md:table-cell">Refs</TableHead>
-            <TableHead class="w-24 hidden md:table-cell">添加日期</TableHead>
-            <TableHead class="w-24 hidden md:table-cell">最近修改</TableHead>
+            <TableHead class="w-24 hidden md:table-cell">Date added</TableHead>
+            <TableHead class="w-24 hidden md:table-cell">Last modified</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -267,7 +267,7 @@ async function addPaper() {
             <TableCell class="text-center">
               <button
                 class="inline-flex items-center justify-center p-1 rounded hover:bg-muted"
-                :title="noteState(paper.id) === 'done' ? '精读完成 · 打开笔记' : noteState(paper.id) === 'has' ? '有笔记 · 打开笔记' : '暂无笔记 · 打开笔记'"
+                :title="noteState(paper.id) === 'done' ? 'Done reading · Open notes' : noteState(paper.id) === 'has' ? 'Has notes · Open notes' : 'No notes · Open notes'"
                 @click="openNotes(paper.id, $event)"
               >
                 <CircleCheck v-if="noteState(paper.id) === 'done'" class="h-4 w-4 text-primary" />
@@ -278,14 +278,14 @@ async function addPaper() {
             <TableCell>
               <div class="flex items-center gap-2">
                 <div class="font-medium line-clamp-1">{{ paper.title }}</div>
-                <Badge v-if="!paper.listed" variant="outline" class="shrink-0">仅元数据</Badge>
+                <Badge v-if="!paper.listed" variant="outline" class="shrink-0">Metadata only</Badge>
                 <Button
                   v-if="!paper.listed"
                   size="xs" variant="secondary" class="shrink-0"
                   :disabled="promotingId === paper.id"
                   @click.stop="promote(paper)"
                 >
-                  {{ promotingId === paper.id ? '抓取中…' : '抓取' }}
+                  {{ promotingId === paper.id ? 'Fetching…' : 'Fetch' }}
                 </Button>
                 <template v-if="auth.user && store.scope === 'all'">
                   <Badge v-if="paper.in_library" variant="secondary" class="shrink-0">In my list</Badge>
@@ -322,7 +322,7 @@ async function addPaper() {
       </Table>
       <div v-if="store.papers.length === 0 && !store.loading" class="flex flex-col items-center justify-center py-16 text-muted-foreground">
         <FileText class="h-10 w-10 mb-3 stroke-1" />
-        <p class="text-sm">暂无论文</p>
+        <p class="text-sm">No papers yet</p>
         <p v-if="auth.user && store.scope === 'mine'" class="text-xs mt-1">
           Your list is empty — add a paper, or
           <button class="underline hover:text-foreground" @click="setScope('all')">browse All</button>
@@ -347,34 +347,34 @@ async function addPaper() {
     <Dialog v-model:open="showAdd">
       <DialogContent class="max-w-md">
         <DialogHeader>
-          <DialogTitle>添加论文</DialogTitle>
+          <DialogTitle>Add paper</DialogTitle>
         </DialogHeader>
         <Tabs v-model="addTab">
           <TabsList class="grid grid-cols-3 w-full">
             <TabsTrigger value="arxiv">arXiv ID</TabsTrigger>
             <TabsTrigger value="corpus">Semantic Scholar</TabsTrigger>
-            <TabsTrigger value="manual">手动输入</TabsTrigger>
+            <TabsTrigger value="manual">Manual</TabsTrigger>
           </TabsList>
           <TabsContent value="arxiv">
-            <Input v-model="addForm.arxiv_id" placeholder="例: 1706.03762" />
+            <Input v-model="addForm.arxiv_id" placeholder="e.g. 1706.03762" />
           </TabsContent>
           <TabsContent value="corpus" class="space-y-1.5">
-            <Input v-model="addForm.s2_input" placeholder="Corpus ID / S2 paper ID / semanticscholar.org 链接" />
-            <p v-if="s2Invalid" class="text-xs text-destructive">无法识别：请输入 Corpus ID、40 位 S2 paper ID 或 Semantic Scholar 论文链接</p>
-            <p v-else class="text-xs text-muted-foreground">例: 13756489、CorpusId:13756489、204e3073…b72e776 或论文页面链接</p>
+            <Input v-model="addForm.s2_input" placeholder="Corpus ID / S2 paper ID / semanticscholar.org URL" />
+            <p v-if="s2Invalid" class="text-xs text-destructive">Not recognized. Enter a Corpus ID, a 40-character S2 paper ID, or a Semantic Scholar paper URL.</p>
+            <p v-else class="text-xs text-muted-foreground">e.g. 13756489, CorpusId:13756489, 204e3073…b72e776, or a paper page URL</p>
           </TabsContent>
           <TabsContent value="manual" class="space-y-3">
-            <Input v-model="addForm.title" placeholder="标题" />
-            <Input v-model="addForm.authors" placeholder="作者 (逗号分隔)" />
-            <Input v-model="addForm.link" placeholder="来源链接 (可选)" />
-            <Textarea v-model="addForm.content" placeholder="论文内容..." rows="4" />
+            <Input v-model="addForm.title" placeholder="Title" />
+            <Input v-model="addForm.authors" placeholder="Authors (comma-separated)" />
+            <Input v-model="addForm.link" placeholder="Source URL (optional)" />
+            <Textarea v-model="addForm.content" placeholder="Paper content…" rows="4" />
             <TagSelector v-model="addForm.tags" />
           </TabsContent>
         </Tabs>
         <DialogFooter>
-          <Button variant="ghost" @click="showAdd = false">取消</Button>
+          <Button variant="ghost" @click="showAdd = false">Cancel</Button>
           <Button :disabled="adding || (addTab === 'corpus' && !s2Parsed)" @click="addPaper">
-            {{ adding ? '添加中...' : '添加' }}
+            {{ adding ? 'Adding…' : 'Add' }}
           </Button>
         </DialogFooter>
       </DialogContent>

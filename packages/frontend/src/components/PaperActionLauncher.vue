@@ -12,7 +12,7 @@ export interface LauncherAction {
 }
 
 // Ordered list of paper-detail functions. The caller (PaperDetail) supplies them
-// in the page's function order (引用 → 笔记 → 提问); only "提问" is wired up today.
+// in the page's function order (References → Notes → Ask); only "Ask" is wired up today.
 defineProps<{ actions: LauncherAction[] }>()
 
 const isMobile = useMediaQuery('(max-width: 768px)')
@@ -54,7 +54,7 @@ function pick(action: LauncherAction) {
     <Button
       size="icon"
       class="h-12 w-12 rounded-full shadow-lg"
-      :title="fabOpen ? '收起' : '功能'"
+      :title="fabOpen ? 'Collapse' : 'Actions'"
       :aria-expanded="fabOpen"
       @click="fabOpen = !fabOpen"
     >

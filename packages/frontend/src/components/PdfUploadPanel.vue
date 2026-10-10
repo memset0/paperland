@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { usePapersStore } from '@/stores/papers'
 import { useAuthStore } from '@/stores/auth'
 
-// Shown in the "PDF 原文" tab when the paper has no PDF: either a "fetching" state (a service
+// Shown in the "PDF" tab when the paper has no PDF: either a "fetching" state (a service
 // may still obtain one — polls the paper until the status changes) or an upload prompt
 // explaining why no PDF could be obtained automatically.
 const props = defineProps<{
@@ -31,11 +31,11 @@ onUnmounted(stopPolling)
 const reasonInfo = computed(() => {
   switch (props.reason) {
     case 'closed_access':
-      return { icon: Lock, text: '这是一篇闭源论文，Semantic Scholar 没有提供开放获取的 PDF。' }
+      return { icon: Lock, text: "This paper isn't open access; Semantic Scholar has no open PDF for it." }
     case 'download_failed':
-      return { icon: TriangleAlert, text: '自动下载 PDF 失败（来源站点拒绝访问或返回的不是 PDF）。' }
+      return { icon: TriangleAlert, text: "Automatic PDF download failed (the source refused access or didn't return a PDF)." }
     default:
-      return { icon: FileQuestion, text: '没有找到可自动下载的 PDF 来源。' }
+      return { icon: FileQuestion, text: 'No downloadable PDF source was found.' }
   }
 })
 
@@ -48,7 +48,7 @@ async function uploadFile(file: File | undefined | null) {
   if (!file || props.paperId == null || uploading.value) return
   error.value = ''
   if (file.type && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-    error.value = '请选择 PDF 文件'
+    error.value = 'Choose a PDF file.'
     return
   }
   uploading.value = true
@@ -57,7 +57,7 @@ async function uploadFile(file: File | undefined | null) {
     // viewer swaps this panel for the PDF.
     await store.uploadPdf(props.paperId, file)
   } catch (e: any) {
-    error.value = e?.message || '上传失败'
+    error.value = e?.message || 'Upload failed'
   } finally {
     uploading.value = false
   }
@@ -80,8 +80,8 @@ function onDrop(e: DragEvent) {
   <div class="h-full flex items-center justify-center p-6">
     <div v-if="pdfStatus === 'fetching'" class="flex flex-col items-center text-muted-foreground">
       <Loader2 class="h-10 w-10 mb-3 stroke-1 animate-spin" />
-      <p class="text-sm">正在获取 PDF…</p>
-      <p class="text-xs mt-1">服务正在从 arXiv / Semantic Scholar 获取 PDF，完成后会自动显示</p>
+      <p class="text-sm">Fetching PDF…</p>
+      <p class="text-xs mt-1">Downloading from arXiv / Semantic Scholar; it will appear automatically.</p>
     </div>
 
     <div
@@ -93,20 +93,20 @@ function onDrop(e: DragEvent) {
       @drop.prevent="onDrop"
     >
       <component :is="reasonInfo.icon" class="h-10 w-10 mb-3 stroke-1 text-muted-foreground" />
-      <p class="text-sm font-medium">需要上传 PDF</p>
+      <p class="text-sm font-medium">PDF needed</p>
       <p class="text-xs text-muted-foreground mt-1">{{ reasonInfo.text }}</p>
-      <p class="text-xs text-muted-foreground">上传后即可使用 PDF 阅读、解析与翻译等功能。</p>
+      <p class="text-xs text-muted-foreground">Upload a PDF to read, parse and translate it.</p>
 
       <template v-if="auth.isAuthenticated">
         <input ref="fileInput" type="file" accept="application/pdf,.pdf" class="hidden" @change="onPick" />
         <Button class="mt-4" size="sm" :disabled="uploading || paperId == null" @click="fileInput?.click()">
           <Loader2 v-if="uploading" class="animate-spin" />
           <FileUp v-else />
-          {{ uploading ? '上传中…' : '选择 PDF 文件' }}
+          {{ uploading ? 'Uploading…' : 'Choose PDF' }}
         </Button>
-        <p class="text-xs text-muted-foreground mt-2">或将 PDF 拖放到此处</p>
+        <p class="text-xs text-muted-foreground mt-2">or drop a PDF here</p>
       </template>
-      <p v-else class="text-xs text-muted-foreground mt-4">登录后可上传 PDF</p>
+      <p v-else class="text-xs text-muted-foreground mt-4">Log in to upload a PDF</p>
 
       <p v-if="error" class="text-xs text-destructive mt-3">{{ error }}</p>
     </div>

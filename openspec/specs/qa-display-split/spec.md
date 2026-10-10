@@ -53,24 +53,24 @@ In expanded mode, QA answer content SHALL display with natural word-wrap allowin
 - **THEN** the full answer text is displayed, wrapping naturally at container width
 
 ### Requirement: Preset QA card has generate-all button
-The Preset Q&A card header SHALL include the "一键生成" button when there are ungenerated preset questions, along with a polling status indicator.
+The Preset Q&A card header SHALL include the "Generate all" button when there are ungenerated preset questions, along with a polling status indicator.
 
 #### Scenario: Some template questions not yet generated
 - **WHEN** the Preset Q&A card is displayed and some preset questions have no results
-- **THEN** the "一键生成" button appears in the card header
+- **THEN** the "Generate all" button appears in the card header
 
 ### Requirement: Each card has independent expand/collapse-all controls
-Each card (Preset Q&A and User Q&A) SHALL have its own "全部展开" and "全部折叠" buttons that only affect questions within that card.
+Each card (Preset Q&A and User Q&A) SHALL have its own "Expand all" and "Collapse all" buttons that only affect questions within that card.
 
 #### Scenario: User clicks expand-all on Template QA card
-- **WHEN** user clicks "全部展开" on the Preset Q&A card
+- **WHEN** user clicks "Expand all" on the Preset Q&A card
 - **THEN** only preset QA questions expand; user QA questions remain unchanged
 
 ### Requirement: QA generation requires login
 Triggering any LLM action on the paper detail page — generating or regenerating preset Q&A, submitting a user question, regenerating, or deleting a result — SHALL require an authenticated user. For anonymous visitors these controls SHALL prompt for login rather than initiate an LLM call.
 
 #### Scenario: Anonymous user attempts to generate template QA
-- **WHEN** an anonymous visitor activates the "一键生成" or a single preset generate control
+- **WHEN** an anonymous visitor activates the "Generate all" or a single preset generate control
 - **THEN** the system SHALL prompt for login and SHALL NOT trigger any LLM call
 
 #### Scenario: Anonymous user attempts a free question

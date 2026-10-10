@@ -103,7 +103,7 @@ const freeEntries = computed(() => {
     entries.push({
       key: 'free-' + entry.entry_id,
       type: 'free',
-      title: entry.prompt || '自由提问',
+      title: entry.prompt || 'Free question',
       entryId: entry.entry_id,
       status: entry.status,
       error: entry.error,
@@ -180,7 +180,7 @@ function submitRegen() {
     const runningModels = selectedModels.join(', ')
     confirmDialog.value = {
       show: true,
-      message: `关于「${entry.title.slice(0, 30)}${entry.title.length > 30 ? '...' : ''}」正在生成中，是否需要重新提交 ${runningModels}？`,
+      message: `"${entry.title.slice(0, 30)}${entry.title.length > 30 ? '…' : ''}" is still generating. Resubmit ${runningModels}?`,
       onConfirm: () => {
         doRegen(entry, selectedModels)
         confirmDialog.value.show = false
@@ -232,7 +232,7 @@ function isPrivate(entry: QAEntry): boolean {
 async function copyEntryLink(entry: QAEntry) {
   const url = `paperland://paper/${props.paperId}?qa=${entry.entryId}`
   await navigator.clipboard.writeText(`[QA-${entry.entryId}](${url})`)
-  toast.success(`已复制 QA-${entry.entryId} 链接`, { position: 'bottom-center' })
+  toast.success(`QA-${entry.entryId} link copied`, { position: 'bottom-center' })
 }
 
 /** Continue a specific completed answer in the question box (also from `#moonlight` suggestions). */
@@ -248,8 +248,8 @@ async function openParent(entry: QAEntry) {
   if (entry.parentEntryId == null) return
   const history = entry.inputs.find((input) => input.kind === 'history')
   const located = await store.locateEntry(entry.parentEntryId, history?.kind === 'history' ? history.result_id : null)
-  if (located.state === 'hidden') { toast.info('当前不可见'); return }
-  if (located.state === 'deleted') { toast.info('已删除'); return }
+  if (located.state === 'hidden') { toast.info("This Q&A isn't visible"); return }
+  if (located.state === 'deleted') { toast.info('This Q&A was deleted'); return }
   if (located.paper_id === props.paperId) revealQAEntry(entry.parentEntryId, located.result_id ?? null)
 }
 
@@ -271,19 +271,19 @@ function openTree() {
       <div class="flex items-center gap-2">
         <h3 class="text-sm font-semibold">Preset Q&A</h3>
         <span v-if="store.polling" class="inline-flex items-center gap-1 text-[10px] text-primary">
-          <Loader2 class="h-3 w-3 animate-spin" /> 生成中...
+          <Loader2 class="h-3 w-3 animate-spin" /> Generating…
         </span>
       </div>
       <div class="flex items-center gap-1.5">
         <!-- Page-wide highlight overlay scope (applies to every answer on this paper) -->
         <HighlightScopeToggle class="mr-1" size="sm" />
-        <Button variant="ghost" size="icon-sm" title="Q&A 树（浮动窗口）" @click="openTree">
+        <Button variant="ghost" size="icon-sm" title="Q&A tree (floating window)" @click="openTree">
           <Network />
         </Button>
-        <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllOpen(templateEntries, true)">
+        <Button variant="ghost" size="icon-sm" title="Expand all" @click="setAllOpen(templateEntries, true)">
           <ChevronsUpDown />
         </Button>
-        <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllOpen(templateEntries, false)">
+        <Button variant="ghost" size="icon-sm" title="Collapse all" @click="setAllOpen(templateEntries, false)">
           <ChevronsDownUp />
         </Button>
         <Button
@@ -291,7 +291,7 @@ function openTree() {
           :title="noContent ? NO_QA_CONTENT_HINT : undefined"
           @click="store.triggerAllTemplates(props.paperId)"
         >
-          <Play /> 一键生成
+          <Play /> Generate all
         </Button>
       </div>
     </div>
@@ -324,7 +324,7 @@ function openTree() {
             <button
               v-if="entry.entryId > 0" type="button"
               class="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
-              title="复制 QA 链接"
+              title="Copy QA link"
               @click.stop="copyEntryLink(entry)"
             >QA-{{ entry.entryId }}</button>
           </CollapsibleTrigger>
@@ -355,14 +355,14 @@ function openTree() {
             v-if="auth.isAuthenticated && entry.entryId > 0"
             :entry-id="entry.entryId" :color="entry.backgroundColor"
           />
-          <span v-if="isRunning(entry)" class="text-[10px] text-primary shrink-0">生成中...</span>
+          <span v-if="isRunning(entry)" class="text-[10px] text-primary shrink-0">Generating…</span>
           <Button
             v-else-if="isFailed(entry)"
             variant="link" size="xs"
             class="text-destructive shrink-0"
             @click.stop="generateTemplate(entry.templateName!)"
           >
-            重试
+            Retry
           </Button>
           <Button
             v-else
@@ -372,7 +372,7 @@ function openTree() {
             :title="noContent ? NO_QA_CONTENT_HINT : undefined"
             @click.stop="generateTemplate(entry.templateName!)"
           >
-            生成
+            Generate
           </Button>
         </div>
 
@@ -386,7 +386,7 @@ function openTree() {
       <div class="flex items-center gap-2">
         <h3 class="text-sm font-semibold">User Q&A</h3>
         <span v-if="store.polling" class="inline-flex items-center gap-1 text-[10px] text-primary">
-          <Loader2 class="h-3 w-3 animate-spin" /> 生成中...
+          <Loader2 class="h-3 w-3 animate-spin" /> Generating…
         </span>
       </div>
       <div class="flex items-center gap-1.5">
@@ -400,13 +400,13 @@ function openTree() {
           :disabled="store.loading"
           @update:model-value="setPaperScope"
         />
-        <Button variant="ghost" size="icon-sm" title="Q&A 树（浮动窗口）" @click="openTree">
+        <Button variant="ghost" size="icon-sm" title="Q&A tree (floating window)" @click="openTree">
           <Network />
         </Button>
-        <Button variant="ghost" size="icon-sm" title="全部展开" @click="setAllOpen(freeEntries, true)">
+        <Button variant="ghost" size="icon-sm" title="Expand all" @click="setAllOpen(freeEntries, true)">
           <ChevronsUpDown />
         </Button>
-        <Button variant="ghost" size="icon-sm" title="全部折叠" @click="setAllOpen(freeEntries, false)">
+        <Button variant="ghost" size="icon-sm" title="Collapse all" @click="setAllOpen(freeEntries, false)">
           <ChevronsDownUp />
         </Button>
       </div>
@@ -443,7 +443,7 @@ function openTree() {
             <button
               v-if="entry.entryId > 0" type="button"
               class="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
-              title="复制 QA 链接"
+              title="Copy QA link"
               @click.stop="copyEntryLink(entry)"
             >QA-{{ entry.entryId }}</button>
           </CollapsibleTrigger>
@@ -452,7 +452,7 @@ function openTree() {
               v-if="entry.parentEntryId != null" type="button"
               class="mb-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
               @click="openParent(entry)"
-            >接续 QA-{{ entry.parentEntryId }} 的回答</button>
+            >Follow-up to QA-{{ entry.parentEntryId }}</button>
             <QAResultView
               :results="entry.results"
               :entry-key="entry.key"
@@ -480,14 +480,14 @@ function openTree() {
           </div>
           <QAReadingIndicators :highlight-count="entry.highlightCount" :note-anchor-count="entry.noteAnchorCount" />
           <QAEntryBackgroundPicker :entry-id="entry.entryId" :color="entry.backgroundColor" />
-          <span v-if="isRunning(entry)" class="text-[10px] text-primary shrink-0">生成中...</span>
+          <span v-if="isRunning(entry)" class="text-[10px] text-primary shrink-0">Generating…</span>
           <Button
             v-else-if="isFailed(entry) && entry.canManage"
             variant="link" size="xs"
             class="text-destructive shrink-0"
             @click.stop="store.regenerateEntry(entry.entryId, props.paperId, store.selectedModels)"
           >
-            重试
+            Retry
           </Button>
           <Button
             v-else-if="entry.canManage"
@@ -495,7 +495,7 @@ function openTree() {
             class="shrink-0"
             @click.stop="openRegenDialog(entry)"
           >
-            生成
+            Generate
           </Button>
         </div>
 
@@ -508,14 +508,14 @@ function openTree() {
 
   <!-- Empty state -->
   <Card v-if="!templateEntries.length && !auth.isAuthenticated">
-    <div class="px-5 py-8 text-center text-sm text-muted-foreground">暂无 Q&A 记录</div>
+    <div class="px-5 py-8 text-center text-sm text-muted-foreground">No Q&A yet</div>
   </Card>
 
   <!-- Model selection dialog for regenerate -->
   <Dialog v-model:open="regenDialog.show">
     <DialogContent class="max-w-sm">
       <DialogHeader>
-        <DialogTitle>重新生成</DialogTitle>
+        <DialogTitle>Regenerate</DialogTitle>
         <DialogDescription class="truncate">{{ regenDialog.entry?.title }}</DialogDescription>
       </DialogHeader>
       <div class="flex flex-wrap gap-1.5">
@@ -529,9 +529,9 @@ function openTree() {
         </Button>
       </div>
       <DialogFooter>
-        <Button variant="ghost" @click="regenDialog.show = false">取消</Button>
+        <Button variant="ghost" @click="regenDialog.show = false">Cancel</Button>
         <Button @click="submitRegen" :disabled="!regenDialog.selectedModels.length">
-          <RefreshCw />提交
+          <RefreshCw />Submit
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -541,12 +541,12 @@ function openTree() {
   <Dialog v-model:open="confirmDialog.show">
     <DialogContent class="max-w-sm">
       <DialogHeader>
-        <DialogTitle>确认</DialogTitle>
+        <DialogTitle>Confirm</DialogTitle>
         <DialogDescription>{{ confirmDialog.message }}</DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button variant="ghost" @click="confirmDialog.show = false">取消</Button>
-        <Button @click="confirmDialog.onConfirm()">重新提交</Button>
+        <Button variant="ghost" @click="confirmDialog.show = false">Cancel</Button>
+        <Button @click="confirmDialog.onConfirm()">Resubmit</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

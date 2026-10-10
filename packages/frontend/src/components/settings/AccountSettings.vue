@@ -31,11 +31,11 @@ async function loadOpenToken() {
 }
 
 async function regenerateOpenToken() {
-  if (!confirm('重新生成后，浏览器插件中旧的 token 将失效，需要重新填写。继续？')) return
+  if (!confirm('Regenerate the token? The old token in the browser extension will stop working and must be replaced.')) return
   regenerating.value = true
   try {
     openToken.value = (await quickOpenApi.regenerateToken()).token
-    toast.success('Token 已重新生成')
+    toast.success('Token regenerated')
   } finally {
     regenerating.value = false
   }
@@ -88,18 +88,18 @@ async function createToken() {
 }
 
 async function revokeToken(id: number) {
-  if (!confirm('撤销后使用这个 token 的服务会立即失去访问权限。继续？')) return
+  if (!confirm('Revoke this token? Services using it will lose access immediately.')) return
   await myTokensApi.revoke(id)
   await loadTokens()
 }
 
 async function resetAgentToken() {
-  if (!confirm('重置后旧的 Codex agent token 立即失效，正在运行的 Deep Research 回合后续的工具调用会失败，新回合自动使用新 token。继续？')) return
+  if (!confirm('Reset the Codex agent token? The old one stops working at once; tool calls in running Deep Research rounds will fail, and new rounds use the new token.')) return
   tokenBusy.value = true
   try {
     const agent = (await myTokensApi.resetAgent()).data
     if (tokens.value) tokens.value = { ...tokens.value, agent }
-    toast.success('Codex agent token 已重置')
+    toast.success('Codex agent token reset')
   } finally {
     tokenBusy.value = false
   }
@@ -111,7 +111,7 @@ function formatTime(iso: string | null) {
 
 async function copy(text: string) {
   await navigator.clipboard.writeText(text)
-  toast.success('已复制')
+  toast.success('Copied')
 }
 
 function resetProfileForm() {
@@ -134,20 +134,20 @@ async function submit() {
   if (username.value && username.value !== auth.user?.username) payload.username = username.value
   if (nickname.value.trim() !== (auth.user?.nickname ?? '')) payload.nickname = nickname.value
   if (newPassword.value) {
-    if (!currentPassword.value) { error.value = '修改密码需要输入当前密码'; return }
+    if (!currentPassword.value) { error.value = 'Enter your current password to change it.'; return }
     payload.current_password = currentPassword.value
     payload.password = newPassword.value
   }
-  if (Object.keys(payload).length === 0) { error.value = '没有需要保存的修改'; return }
+  if (Object.keys(payload).length === 0) { error.value = 'No changes to save.'; return }
 
   submitting.value = true
   error.value = ''
   try {
     await auth.updateAccount(payload)
-    toast.success('账户已更新')
+    toast.success('Account updated')
     resetProfileForm()
   } catch (e: any) {
-    error.value = e?.message || '更新失败'
+    error.value = e?.message || 'Update failed'
   } finally {
     submitting.value = false
   }
@@ -161,28 +161,28 @@ async function submit() {
       <h3 class="text-sm font-semibold">Account</h3>
     </div>
     <div class="space-y-3 px-5 py-4">
-      <p class="text-xs text-muted-foreground">修改你的用户名、昵称或密码。修改密码需要输入当前密码。</p>
+      <p class="text-xs text-muted-foreground">Change your username, nickname or password. Changing the password requires your current one.</p>
       <div class="max-w-sm">
         <form class="space-y-4" @submit.prevent="submit">
           <div class="space-y-2">
-            <Label for="acct-username">用户名</Label>
+            <Label for="acct-username">Username</Label>
             <Input id="acct-username" v-model="username" autocomplete="username" />
           </div>
           <div class="space-y-2">
-            <Label for="acct-nickname">昵称</Label>
-            <Input id="acct-nickname" v-model="nickname" maxlength="32" autocomplete="nickname" placeholder="留空则显示用户名" />
-            <p class="text-xs text-muted-foreground">其他用户在列表中看到的是你的昵称，可以与他人重复。</p>
+            <Label for="acct-nickname">Nickname</Label>
+            <Input id="acct-nickname" v-model="nickname" maxlength="32" autocomplete="nickname" placeholder="Leave blank to show your username" />
+            <p class="text-xs text-muted-foreground">Others see your nickname in lists; it doesn't have to be unique.</p>
           </div>
           <div class="space-y-2">
-            <Label for="acct-current">当前密码</Label>
+            <Label for="acct-current">Current password</Label>
             <Input id="acct-current" type="password" v-model="currentPassword" autocomplete="current-password" />
           </div>
           <div class="space-y-2">
-            <Label for="acct-new">新密码</Label>
-            <Input id="acct-new" type="password" v-model="newPassword" autocomplete="new-password" placeholder="留空则不修改密码" />
+            <Label for="acct-new">New password</Label>
+            <Input id="acct-new" type="password" v-model="newPassword" autocomplete="new-password" placeholder="Leave blank to keep your password" />
           </div>
           <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
-          <Button type="submit" :disabled="submitting">{{ submitting ? '保存中…' : '保存' }}</Button>
+          <Button type="submit" :disabled="submitting">{{ submitting ? 'Saving…' : 'Save' }}</Button>
         </form>
       </div>
     </div>
@@ -193,7 +193,7 @@ async function submit() {
       <h3 class="text-sm font-semibold">Sharing</h3>
     </div>
     <div class="space-y-3 px-5 py-4">
-      <p class="text-xs text-muted-foreground">开启的类型会出现在其他用户的 “All” 列表中（只读）。管理员始终可以看到所有数据；已公开发布的笔记无论此处设置都会显示。论文和预设问题始终全站共享，标签和图片始终私有。</p>
+      <p class="text-xs text-muted-foreground">Data types you turn on appear (read-only) in other users' "All" lists. Admins can always see everything, and published notes are always listed. Papers and preset questions are always shared; tags and images are always private.</p>
       <div v-if="sharing" class="grid grid-cols-2 gap-2">
         <label
           v-for="item in SHARING_ITEMS"
@@ -217,7 +217,7 @@ async function submit() {
       <h3 class="text-sm font-semibold">API Tokens</h3>
     </div>
     <div class="space-y-3 px-5 py-4">
-      <p class="text-xs text-muted-foreground">用于在其他服务中访问 Paperland：External API（如 Zotero 插件）和 MCP 服务器。以 <code>Authorization: Bearer &lt;token&gt;</code> 发送。</p>
+      <p class="text-xs text-muted-foreground">Use these to access Paperland from other tools: the External API (e.g. the Zotero plugin) and the MCP server. Send as <code>Authorization: Bearer &lt;token&gt;</code>.</p>
       <div class="space-y-2">
         <Label for="acct-mcp-url">MCP URL</Label>
         <div class="flex gap-2">
@@ -226,7 +226,7 @@ async function submit() {
         </div>
       </div>
       <div v-if="createdToken" class="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
-        <p class="text-xs font-medium">新 token（只显示这一次，请立即复制）</p>
+        <p class="text-xs font-medium">New token — shown only once, copy it now</p>
         <div class="flex gap-2">
           <Input :model-value="createdToken" readonly class="font-mono text-xs" />
           <Button type="button" variant="outline" size="icon" title="Copy" @click="copy(createdToken)"><Copy class="size-4" /></Button>
@@ -244,12 +244,12 @@ async function submit() {
             <Button v-if="!t.revoked_at" type="button" variant="ghost" size="icon-sm" class="text-destructive" title="Revoke" @click="revokeToken(t.id)"><Trash2 class="size-3.5" /></Button>
           </div>
         </div>
-        <p v-else class="text-xs text-muted-foreground">还没有 personal token。</p>
+        <p v-else class="text-xs text-muted-foreground">No personal tokens yet.</p>
       </div>
       <div v-if="tokens" class="flex items-center gap-2 rounded-md border px-2 py-1.5">
         <div class="min-w-0 flex-1">
           <p class="text-xs font-medium">Codex agent token</p>
-          <p class="text-xs text-muted-foreground">Deep Research 自动使用，不可查看。{{ tokens.agent.rotated_at ? `Reset ${formatTime(tokens.agent.rotated_at)}` : `Created ${formatTime(tokens.agent.created_at)}` }}</p>
+          <p class="text-xs text-muted-foreground">Used automatically by Deep Research; cannot be viewed. {{ tokens.agent.rotated_at ? `Reset ${formatTime(tokens.agent.rotated_at)}` : `Created ${formatTime(tokens.agent.created_at)}` }}</p>
         </div>
         <Button type="button" variant="outline" size="sm" :disabled="tokenBusy" @click="resetAgentToken"><RefreshCw />Reset</Button>
       </div>
@@ -261,7 +261,7 @@ async function submit() {
       <h3 class="text-sm font-semibold">Browser Extension</h3>
     </div>
     <div class="space-y-3 px-5 py-4">
-      <p class="text-xs text-muted-foreground">在插件选项中填写以下地址与 token，即可从 arxiv / Hugging Face / alphaXiv 页面一键打开论文。</p>
+      <p class="text-xs text-muted-foreground">Enter this URL and token in the extension's options to open papers from arXiv / Hugging Face / alphaXiv in one click.</p>
       <div class="space-y-2">
         <Label for="acct-site-url">Site URL</Label>
         <div class="flex gap-2">

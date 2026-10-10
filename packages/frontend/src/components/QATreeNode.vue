@@ -32,7 +32,7 @@ function onClick() {
       :data-nid="node.id"
       class="qt-box"
       :class="{ 'qt-center': node.isCenter }"
-      :title="node.isCenter ? node.label : `${node.label}\nQA-${node.entryId} · 点击在对话视图中打开`"
+      :title="node.isCenter ? node.label : `${node.label}\nQA-${node.entryId} · Click to open in conversation view`"
       @click="onClick"
     >
       <template v-if="!node.isCenter">

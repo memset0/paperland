@@ -141,8 +141,8 @@ watch(() => form.url, (val) => {
 
 async function save() {
   const url = form.url.trim()
-  if (!url) { error.value = '请填写链接'; return }
-  if (!isHttpUrl(url)) { error.value = '请填写有效的 http(s) 链接'; return }
+  if (!url) { error.value = 'Enter a link.'; return }
+  if (!isHttpUrl(url)) { error.value = 'Enter a valid http(s) link.'; return }
 
   saving.value = true
   error.value = ''
@@ -162,14 +162,14 @@ async function save() {
     }
     cancel()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '保存失败'
+    error.value = e instanceof Error ? e.message : 'Failed to save'
   } finally {
     saving.value = false
   }
 }
 
 async function remove(link: PaperReferenceLink) {
-  if (!window.confirm(`确认删除参考链接「${displayLabel(link)}」？`)) return
+  if (!window.confirm(`Delete the reference link "${displayLabel(link)}"?`)) return
   await referenceLinksApi.remove(link.id)
   links.value = links.value.filter((l) => l.id !== link.id)
   if (editingId.value === link.id) cancel()
@@ -183,7 +183,7 @@ watch(scope, load)
 <template>
   <div class="space-y-2">
     <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-      <Link2 class="h-3 w-3" /> 参考链接
+      <Link2 class="h-3 w-3" /> Reference links
       <ScopeToggle v-if="auth.isAuthenticated" class="ml-auto" size="sm" :model-value="scope" @update:model-value="setScope" />
       <Button v-if="auth.isAuthenticated && !showForm" variant="ghost" size="icon-xs" @click="startAdd">
         <Plus />
@@ -214,10 +214,10 @@ watch(scope, load)
           </p>
         </div>
         <div v-if="isOwn(link)" class="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity hover:opacity-100 group-hover:opacity-100">
-          <Button variant="ghost" size="icon-xs" title="编辑" @click="startEdit(link)">
+          <Button variant="ghost" size="icon-xs" title="Edit" @click="startEdit(link)">
             <Pencil />
           </Button>
-          <Button variant="ghost" size="icon-xs" title="删除" @click="remove(link)">
+          <Button variant="ghost" size="icon-xs" title="Delete" @click="remove(link)">
             <Trash2 />
           </Button>
         </div>
@@ -225,24 +225,24 @@ watch(scope, load)
     </ul>
 
     <div v-if="showForm" class="space-y-1.5 rounded-md border p-2">
-      <Input v-model="form.url" placeholder="https://...（必填）" class="h-8 text-sm" @keyup.enter="save" />
-      <Input v-model="form.title" placeholder="标题（可选，留空则用自动获取的描述）" class="h-8 text-sm" @keyup.enter="save" />
+      <Input v-model="form.url" placeholder="https://… (required)" class="h-8 text-sm" @keyup.enter="save" />
+      <Input v-model="form.title" placeholder="Title (optional; leave blank to use the fetched description)" class="h-8 text-sm" @keyup.enter="save" />
       <div class="flex min-h-4 items-center gap-1.5 text-xs text-muted-foreground">
         <Loader2 v-if="previewLoading" class="h-3 w-3 shrink-0 animate-spin" />
-        <span v-if="previewLoading">正在获取描述…</span>
+        <span v-if="previewLoading">Fetching description…</span>
         <span v-else-if="previewDescription" class="break-all">{{ previewDescription }}</span>
-        <span v-else-if="form.url.trim()" class="italic opacity-70">无法自动获取描述（站点可能禁止抓取），可手动填写标题</span>
+        <span v-else-if="form.url.trim()" class="italic opacity-70">Couldn't fetch a description (the site may block it); enter a title manually.</span>
       </div>
       <p v-if="error" class="text-xs text-destructive">{{ error }}</p>
       <div class="flex gap-2">
         <Button size="sm" :disabled="saving" @click="save">
           <Loader2 v-if="saving" class="animate-spin" />
-          {{ saving ? '保存中...' : '保存' }}
+          {{ saving ? 'Saving…' : 'Save' }}
         </Button>
-        <Button variant="ghost" size="sm" :disabled="saving" @click="cancel">取消</Button>
+        <Button variant="ghost" size="sm" :disabled="saving" @click="cancel">Cancel</Button>
       </div>
     </div>
 
-    <Button v-else-if="auth.isAuthenticated && !links.length" variant="link" size="xs" @click="startAdd">+ 添加链接</Button>
+    <Button v-else-if="auth.isAuthenticated && !links.length" variant="link" size="xs" @click="startAdd">+ Add link</Button>
   </div>
 </template>

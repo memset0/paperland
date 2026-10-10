@@ -52,14 +52,14 @@ function createAndAdd() {
 
 <template>
   <div class="space-y-1.5">
-    <Label>标签</Label>
+    <Label>Tags</Label>
     <div class="flex flex-wrap gap-1">
       <Badge v-for="tag in modelValue" :key="tag" variant="secondary" class="gap-1 pr-1">
         {{ tag }}
         <button
           type="button"
           @click="removeTag(tag)"
-          :aria-label="`移除 ${tag}`"
+          :aria-label="`Remove ${tag}`"
           class="hover:text-foreground"
         >
           <X class="size-3" />
@@ -69,12 +69,12 @@ function createAndAdd() {
         <PopoverTrigger as-child>
           <Button variant="outline" size="xs">
             <Plus class="size-3" />
-            添加标签
+            Add tag
           </Button>
         </PopoverTrigger>
         <PopoverContent class="w-64 p-0">
           <div class="p-2">
-            <Input v-model="searchQuery" placeholder="搜索或创建标签..." />
+            <Input v-model="searchQuery" placeholder="Search or create a tag…" />
           </div>
           <div class="max-h-48 overflow-y-auto border-t">
             <Button
@@ -85,7 +85,7 @@ function createAndAdd() {
               @click="createAndAdd"
             >
               <Plus class="size-3.5" />
-              创建 "{{ searchQuery.trim() }}"
+              Create "{{ searchQuery.trim() }}"
             </Button>
             <Button
               v-for="tag in filteredTags" :key="tag.id"

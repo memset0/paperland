@@ -37,11 +37,11 @@ const pdfPath = computed(() => {
 
 const parseLabel = computed(() => {
   switch (parse.value?.status) {
-    case 'done': return 'doc2x 精确解析已完成'
-    case 'running': return 'doc2x 精确解析进行中…'
-    case 'pending': return 'doc2x 精确解析排队中…'
-    case 'failed': return 'doc2x 精确解析失败'
-    default: return 'doc2x 精确解析未开始'
+    case 'done': return 'doc2x parse: done'
+    case 'running': return 'doc2x parse: running…'
+    case 'pending': return 'doc2x parse: queued…'
+    case 'failed': return 'doc2x parse: failed'
+    default: return 'doc2x parse: not started'
   }
 })
 
@@ -72,11 +72,11 @@ function startParse() {
         v-if="parse && (parse.status === 'none' || parse.status === 'failed') && translate?.status !== 'queued'"
         variant="link" size="xs" class="h-auto p-0" :disabled="doc2x.requesting" @click="startParse"
       >
-        {{ parse.status === 'failed' ? '重新解析' : '开始解析' }}
+        {{ parse.status === 'failed' ? 'Re-parse' : 'Start parse' }}
       </Button>
       <div v-if="translate?.status === 'done'" class="ml-auto flex rounded-md border p-0.5">
         <button
-          v-for="opt in ([['bilingual', '左右对照'], ['translated', '仅译文']] as const)" :key="opt[0]"
+          v-for="opt in ([['bilingual', 'Side by side'], ['translated', 'Translation only']] as const)" :key="opt[0]"
           class="px-2 py-0.5 rounded-sm transition-colors"
           :class="display === opt[0] ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'"
           @click="display = opt[0]"
@@ -94,33 +94,33 @@ function startParse() {
 
         <template v-else-if="translate?.status === 'idle'">
           <Languages class="h-10 w-10 stroke-1" />
-          <p class="text-sm">使用 doc2x 生成保留排版的中英对照 PDF（参考文献不翻译）</p>
+          <p class="text-sm">Use doc2x to create a bilingual PDF that keeps the layout (references are not translated).</p>
           <Button size="sm" :disabled="doc2x.requesting" @click="startTranslate">
-            <Languages />开始翻译
+            <Languages />Start translation
           </Button>
         </template>
 
         <template v-else-if="translate?.status === 'queued'">
           <Loader2 class="h-6 w-6 animate-spin" />
           <p v-if="parse?.status === 'failed'" class="text-sm">
-            翻译在等待 doc2x 解析，但解析失败了：<span class="text-destructive">{{ parse.error }}</span>
+            Translation was waiting for the doc2x parse, but the parse failed: <span class="text-destructive">{{ parse.error }}</span>
           </p>
-          <p v-else class="text-sm">已排队，等待 doc2x 精确解析完成后开始翻译…</p>
+          <p v-else class="text-sm">Queued; translation starts after the doc2x parse finishes…</p>
           <Button v-if="parse?.status === 'failed'" size="sm" variant="outline" :disabled="doc2x.requesting" @click="startTranslate">
-            <RotateCcw />重新解析并翻译
+            <RotateCcw />Re-parse and translate
           </Button>
         </template>
 
         <template v-else-if="translate?.status === 'pending' || translate?.status === 'running'">
           <Loader2 class="h-6 w-6 animate-spin" />
-          <p class="text-sm">{{ translate.status === 'pending' ? '翻译排队中…' : '正在翻译，通常需要 1–3 分钟…' }}</p>
+          <p class="text-sm">{{ translate.status === 'pending' ? 'Translation queued…' : 'Translating, usually 1–3 minutes…' }}</p>
         </template>
 
         <template v-else-if="translate?.status === 'failed'">
           <AlertCircle class="h-8 w-8 text-destructive stroke-1" />
-          <p class="text-sm break-all">翻译失败：{{ translate.error }}</p>
+          <p class="text-sm break-all">Translation failed: {{ translate.error }}</p>
           <Button size="sm" variant="outline" :disabled="doc2x.requesting" @click="startTranslate">
-            <RotateCcw />重试
+            <RotateCcw />Retry
           </Button>
         </template>
       </div>

@@ -35,7 +35,7 @@ const router = useRouter()
 async function copyEntryLink() {
   const url = `paperland://paper/${props.entry.paper_id}?qa=${props.entry.entry_id}`
   await navigator.clipboard.writeText(`[QA-${props.entry.entry_id}](${url})`)
-  toast.success(`已复制 QA-${props.entry.entry_id} 链接`, { position: 'bottom-center' })
+  toast.success(`QA-${props.entry.entry_id} link copied`, { position: 'bottom-center' })
 }
 
 /** The question box lives on the paper page: open it there with this answer as the follow-up target. */
@@ -57,9 +57,9 @@ watch(isOpen, (open) => {
 
 const isActive = computed(() => props.entry.status === 'running' || props.entry.status === 'pending')
 const statusLabel = computed(() => {
-  if (props.entry.status === 'done') return '已完成'
-  if (props.entry.status === 'failed') return '生成失败'
-  return '生成中'
+  if (props.entry.status === 'done') return 'Done'
+  if (props.entry.status === 'failed') return 'Generation failed'
+  return 'Generating…'
 })
 
 function formatDate(iso: string): string {
@@ -148,19 +148,19 @@ async function onDeleteResult(resultId: number) {
               <TooltipContent>{{ statusLabel }}</TooltipContent>
             </Tooltip>
 
-            <p class="flex-1 min-w-0 text-sm font-semibold line-clamp-1">{{ entry.prompt || '自由提问' }}</p>
+            <p class="flex-1 min-w-0 text-sm font-semibold line-clamp-1">{{ entry.prompt || 'Free question' }}</p>
 
             <div class="flex items-center gap-2 shrink-0">
               <QAInputSummary :inputs="entry.inputs" />
               <button
                 type="button" class="text-[10px] text-muted-foreground hover:text-foreground"
-                title="复制 QA 链接" @click.stop="copyEntryLink"
+                title="Copy QA link" @click.stop="copyEntryLink"
               >QA-{{ entry.entry_id }}</button>
               <QAReadingIndicators :highlight-count="entry.highlight_count" :note-anchor-count="entry.note_anchor_count" />
               <QAEntryBackgroundPicker :entry-id="entry.entry_id" :color="entry.background_color" />
-              <Badge v-if="entry.results.length > 1" variant="secondary">{{ entry.results.length }} 个回答</Badge>
+              <Badge v-if="entry.results.length > 1" variant="secondary">{{ entry.results.length }} {{ entry.results.length === 1 ? 'answer' : 'answers' }}</Badge>
               <Badge v-else-if="entry.results.length === 1" variant="secondary">{{ entry.results[0].model_name }}</Badge>
-              <span v-if="isActive" class="text-[10px] text-primary">生成中...</span>
+              <span v-if="isActive" class="text-[10px] text-primary">Generating…</span>
             </div>
           </CardHeader>
         </CollapsibleTrigger>
@@ -183,15 +183,15 @@ async function onDeleteResult(resultId: number) {
             </div>
             <div v-else-if="isActive" class="py-4 text-center">
               <Loader2 class="h-5 w-5 mx-auto mb-2 animate-spin text-primary" />
-              <p class="text-xs text-muted-foreground">正在生成回答...</p>
+              <p class="text-xs text-muted-foreground">Generating answer…</p>
             </div>
             <div v-else-if="entry.status === 'failed'" class="py-4 text-center space-y-2">
-              <p class="text-xs text-destructive">{{ entry.error || '生成失败' }}</p>
+              <p class="text-xs text-destructive">{{ entry.error || 'Generation failed' }}</p>
               <Button v-if="entry.can_manage" variant="link" size="xs" @click="openRegenDialog()">
-                <RefreshCw />重试
+                <RefreshCw />Retry
               </Button>
             </div>
-            <div v-else class="py-4 text-center text-xs text-muted-foreground">暂无回答</div>
+            <div v-else class="py-4 text-center text-xs text-muted-foreground">No answers yet</div>
           </CardContent>
         </CollapsibleContent>
       </Card>
@@ -200,7 +200,7 @@ async function onDeleteResult(resultId: number) {
     <Dialog v-model:open="regenDialog.show">
       <DialogContent class="max-w-sm">
         <DialogHeader>
-          <DialogTitle>重新生成</DialogTitle>
+          <DialogTitle>Regenerate</DialogTitle>
           <DialogDescription class="truncate">{{ entry.prompt }}</DialogDescription>
         </DialogHeader>
         <div class="space-y-2.5 max-h-60 overflow-y-auto">
@@ -214,9 +214,9 @@ async function onDeleteResult(resultId: number) {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" @click="regenDialog.show = false">取消</Button>
+          <Button variant="ghost" @click="regenDialog.show = false">Cancel</Button>
           <Button @click="submitRegen" :disabled="!regenDialog.selectedModels.length">
-            <RefreshCw />提交
+            <RefreshCw />Submit
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -21,7 +21,7 @@ watch(open, async (isOpen) => {
   try {
     view.value = await store.fetchModelInput(props.resultId)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '加载失败'
+    error.value = e instanceof Error ? e.message : 'Failed to load'
   } finally {
     loading.value = false
   }
@@ -33,7 +33,7 @@ watch(open, async (isOpen) => {
     <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle>Model input</DialogTitle>
-        <DialogDescription>按当前配置重建，可能与当时实际发送的内容不同。</DialogDescription>
+        <DialogDescription>Rebuilt from the current config; it may differ from what was actually sent.</DialogDescription>
       </DialogHeader>
 
       <div v-if="loading" class="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
@@ -47,7 +47,7 @@ watch(open, async (isOpen) => {
         </details>
         <section>
           <div class="font-semibold">&lt;paper&gt;</div>
-          <p class="mt-1 text-muted-foreground">{{ view.paper.source }} · {{ view.paper.length.toLocaleString() }} 字符（全文不展开）</p>
+          <p class="mt-1 text-muted-foreground">{{ view.paper.source }} · {{ view.paper.length.toLocaleString() }} characters (full text not expanded)</p>
         </section>
         <details v-if="view.references">
           <summary class="cursor-pointer font-semibold">&lt;references&gt;</summary>
