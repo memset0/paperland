@@ -9,6 +9,7 @@ import { canViewOwnedRow, ownerVisibilityFilter, parseScope } from '../auth/visi
 import { displayName } from '../auth/nickname.js'
 import {
   cancelStep,
+  dispatchQueuedMessages,
   isActiveStatus,
   RESEARCH_ACTIVE_STATUSES,
   researchStepStreamBroker,
@@ -105,6 +106,16 @@ function detail(db: Db, session: SessionRow, viewer: Viewer): ResearchSessionDet
     steps: steps.map(serializeStep),
     can_edit: session.user_id === viewer.id,
     can_delete: session.user_id === viewer.id || viewer.role === 'admin',
+    queued_messages: session.user_id === viewer.id
+      ? db.select({
+        id: schema.researchQueuedMessages.id,
+        text: schema.researchQueuedMessages.text,
+        model_name: schema.researchQueuedMessages.model_name,
+        created_at: schema.researchQueuedMessages.created_at,
+      }).from(schema.researchQueuedMessages)
+        .where(eq(schema.researchQueuedMessages.session_id, session.id))
+        .orderBy(asc(schema.researchQueuedMessages.id)).all()
+      : [],
   }
 }
 
@@ -258,7 +269,9 @@ export async function researchRoutes(app: FastifyInstance): Promise<void> {
     return session
   }
 
-  // POST /api/research/:id/steps — submit a new agent round (no round may be active)
+  // POST /api/research/:id/steps — submit a message. Idle: a new round starts now (201). While a
+  // round is active the message is queued (202) and sent, merged with any other queued messages,
+  // when the round ends.
   app.post<{ Params: { id: string }; Body: { user_text?: string; model_name?: string } }>(
     '/api/research/:id/steps', { preHandler: requireUser }, async (request, reply) => {
       const db = getDatabase()
@@ -268,11 +281,33 @@ export async function researchRoutes(app: FastifyInstance): Promise<void> {
       if (!userText) return errorReply(reply, 400, 'VALIDATION_ERROR', 'user_text is required')
       const modelError = codexModelError(request.body?.model_name)
       if (modelError) return errorReply(reply, 400, 'VALIDATION_ERROR', modelError)
-      if (hasActiveStep(db, session.id)) return errorReply(reply, 409, 'ROUND_ACTIVE', 'A round is still running')
-      const step = insertAgentStep(db, session.id, (lastStep(db, session.id)?.step_index ?? 0) + 1, userText, request.body!.model_name!)
-      db.update(schema.researchSessions).set({ updated_at: step.created_at }).where(eq(schema.researchSessions.id, session.id)).run()
-      await scheduleAgentStep(step.id, runOptions)
-      return reply.code(201).send({ data: detail(db, session, request.user!) })
+      // Every message goes through the queue; dispatch starts a round right away when none is active
+      // (also picking up any leftover queued messages, in order).
+      db.insert(schema.researchQueuedMessages).values({
+        session_id: session.id,
+        user_id: request.user!.id,
+        text: userText,
+        model_name: request.body!.model_name!,
+        created_at: new Date().toISOString(),
+      }).run()
+      const started = dispatchQueuedMessages(session.id, runOptions)
+      return reply.code(started != null ? 201 : 202).send({ data: detail(db, session, request.user!), queued: started == null })
+    })
+
+  // DELETE /api/research/:id/queue/:messageId — owner removes a message before it is sent
+  app.delete<{ Params: { id: string; messageId: string } }>(
+    '/api/research/:id/queue/:messageId', { preHandler: requireUser }, async (request, reply) => {
+      const db = getDatabase()
+      const session = ownedSession(request, reply)
+      if (!session) return
+      const removed = db.delete(schema.researchQueuedMessages)
+        .where(and(
+          eq(schema.researchQueuedMessages.id, Number(request.params.messageId)),
+          eq(schema.researchQueuedMessages.session_id, session.id),
+        ))
+        .returning({ id: schema.researchQueuedMessages.id }).get()
+      if (!removed) return errorReply(reply, 404, 'NOT_FOUND', 'Queued message not found (it may have been sent already)')
+      return { data: detail(db, session, request.user!) }
     })
 
   // POST /api/research/:id/steps/:stepId/retry — re-run the latest step (agent rounds only)

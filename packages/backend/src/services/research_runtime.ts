@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { ResearchPaperList, ResearchSeed, ResearchStep, ResearchStepStatus } from '@paperland/shared'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
@@ -135,8 +135,14 @@ export function buildStepInput(db: Database, step: StepRow): Promise<ModelInput>
     .orderBy(asc(schema.researchSteps.step_index))
     .all()
   const history: HistoryStep[] = earlier
-    .filter((s) => s.kind === 'title_edit' || s.status === 'done')
-    .map((s) => ({ step_index: s.step_index, kind: s.kind as HistoryStep['kind'], user_text: s.user_text, changes_note: s.changes_note }))
+    .filter((s) => s.kind === 'title_edit' || !isActiveStatus(s.status))
+    .map((s) => ({
+      step_index: s.step_index,
+      kind: s.kind as HistoryStep['kind'],
+      user_text: s.user_text,
+      changes_note: s.changes_note,
+      status: s.status as NonNullable<HistoryStep['status']>,
+    }))
   const versions = earlier.filter((s) => s.paper_list && s.report)
   const latest = versions[versions.length - 1]
   const list = latest ? parseJson<ResearchPaperList>(latest.paper_list) : null
@@ -191,7 +197,64 @@ export function scheduleAgentStep(stepId: number, options: RunStepOptions = {}):
   controllers.set(stepId, controller)
   void runAgentStep(stepId, controller.signal, options)
     .catch(() => {}) // outcome is recorded on the step row
-    .finally(() => { if (controllers.get(stepId) === controller) controllers.delete(stepId) })
+    .finally(() => {
+      if (controllers.get(stepId) === controller) controllers.delete(stepId)
+      // The round has ended (done / failed / cancelled): send what the owner queued meanwhile.
+      const row = getDatabase().select({ session_id: schema.researchSteps.session_id }).from(schema.researchSteps)
+        .where(eq(schema.researchSteps.id, stepId)).get()
+      if (row) {
+        try { dispatchQueuedMessages(row.session_id, options) } catch (err) {
+          console.error(`Research session ${row.session_id}: failed to dispatch queued messages:`, err)
+        }
+      }
+    })
+}
+
+/**
+ * If the session has queued messages and no active round, merge them (in enqueue order, joined by
+ * newlines) into one new agent round using the latest message's model, delete them, and start the
+ * round. The round is created now; enqueue times are dropped. Returns the new step id, or null.
+ */
+export function dispatchQueuedMessages(sessionId: number, options: RunStepOptions = {}): number | null {
+  const db = getDatabase()
+  const stepId = db.transaction((tx) => {
+    const active = tx.select({ id: schema.researchSteps.id }).from(schema.researchSteps)
+      .where(and(eq(schema.researchSteps.session_id, sessionId), inArray(schema.researchSteps.status, RESEARCH_ACTIVE_STATUSES)))
+      .get()
+    if (active) return null
+    const queued = tx.select().from(schema.researchQueuedMessages)
+      .where(eq(schema.researchQueuedMessages.session_id, sessionId))
+      .orderBy(asc(schema.researchQueuedMessages.id)).all()
+    if (queued.length === 0) return null
+    const last = tx.select({ step_index: schema.researchSteps.step_index }).from(schema.researchSteps)
+      .where(eq(schema.researchSteps.session_id, sessionId))
+      .orderBy(desc(schema.researchSteps.step_index)).limit(1).get()
+    const now = new Date().toISOString()
+    const step = tx.insert(schema.researchSteps).values({
+      session_id: sessionId,
+      step_index: (last?.step_index ?? 0) + 1,
+      kind: 'agent',
+      user_text: queued.map((m) => m.text).join('\n'),
+      model_name: queued[queued.length - 1].model_name,
+      status: 'queued',
+      answer: '',
+      created_at: now,
+      updated_at: now,
+    }).returning().get()
+    tx.delete(schema.researchQueuedMessages)
+      .where(inArray(schema.researchQueuedMessages.id, queued.map((m) => m.id))).run()
+    tx.update(schema.researchSessions).set({ updated_at: now }).where(eq(schema.researchSessions.id, sessionId)).run()
+    return step.id
+  })
+  if (stepId != null) scheduleAgentStep(stepId, options)
+  return stepId
+}
+
+/** On startup (after interrupted rounds are marked failed): dispatch every session's queue. */
+export function dispatchAllQueuedMessages(options: RunStepOptions = {}): number {
+  const sessions = getDatabase().selectDistinct({ session_id: schema.researchQueuedMessages.session_id })
+    .from(schema.researchQueuedMessages).all()
+  return sessions.filter(({ session_id }) => dispatchQueuedMessages(session_id, options) != null).length
 }
 
 async function runAgentStep(stepId: number, signal: AbortSignal, options: RunStepOptions): Promise<void> {

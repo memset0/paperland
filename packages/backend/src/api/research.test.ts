@@ -3,13 +3,13 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { resolve, dirname } from 'path'
 import type { ResearchPaperList } from '@paperland/shared'
 import { getConfig, loadConfig } from '../config.js'
 import * as schema from '../db/schema.js'
 import { setDatabaseForTesting } from '../db/index.js'
-import { recoverInterruptedResearchSteps, resetResearchSchedulerForTesting } from '../services/research_runtime.js'
+import { dispatchAllQueuedMessages, recoverInterruptedResearchSteps, resetResearchSchedulerForTesting } from '../services/research_runtime.js'
 import type { ModelInput } from '../services/model_invoke.js'
 import { researchRoutes, setResearchRunOptionsForTesting } from './research.js'
 import { checkBearerToken } from '../services/api_tokens.js'
@@ -189,26 +189,103 @@ describe('sessions', () => {
 })
 
 describe('linear steps', () => {
-  it('submits rounds only when idle; the second round sees the first list and explanation', async () => {
-    let release!: () => void
-    nextAnswer = (call) => call === 1 ? new Promise((r) => { release = () => r('First #1 LIST') }) : Promise.resolve(`Second #${call} LIST`)
+  it('starts a round when idle; the second round sees the first list and explanation', async () => {
     const session = (await create()).json().data
-    await new Promise((r) => setTimeout(r, 20))
-    const busy = await app.inject({ method: 'POST', url: `/api/research/${session.id}/steps`, headers: as(alice), payload: { user_text: 'more', model_name: codexModel } })
-    expect(busy.statusCode).toBe(409)
-    release()
     await waitSettled(session.steps[0].id)
     const res = await app.inject({ method: 'POST', url: `/api/research/${session.id}/steps`, headers: as(alice), payload: { user_text: 'add benchmarks', model_name: codexModel } })
     expect(res.statusCode).toBe(201)
+    expect(res.json().queued).toBe(false)
     const second = res.json().data.steps[1]
     expect(second.step_index).toBe(2)
+    expect(res.json().data.queued_messages).toEqual([])
     await waitSettled(second.id)
     const text = (modelCalls[1].input.user[0] as { text: string }).text
     expect(text.indexOf('<history>')).toBeLessThan(text.indexOf('<current_version>'))
     expect(text).toContain('<changes>\nchanges in 1\n</changes>') // round 1 changes note in history
-    expect(text).toMatch(/<report>\nFirst #1\n<\/report>/) // round 1 report in the current version
+    expect(text).toMatch(/<report>\nRound #1\n<\/report>/) // round 1 report in the current version
     expect(text).toContain('Long-context attention 1') // round 1 list
     expect(text.trim().endsWith('<request>\nadd benchmarks\n</request>')).toBe(true)
+  })
+
+  it('queues messages sent during a round and sends them merged, with the latest model, when it ends', async () => {
+    let release!: () => void
+    nextAnswer = (call) => call === 1 ? new Promise((r) => { release = () => r('First #1 LIST') }) : Promise.resolve(`Next #${call} LIST`)
+    const session = (await create()).json().data
+    await new Promise((r) => setTimeout(r, 20))
+    const send = (text: string, user = alice) => app.inject({ method: 'POST', url: `/api/research/${session.id}/steps`, headers: as(user), payload: { user_text: text, model_name: codexModel } })
+    const first = await send('add benchmarks')
+    expect(first.statusCode).toBe(202)
+    expect(first.json().queued).toBe(true)
+    expect((await send('drop surveys')).json().data.queued_messages.map((m: any) => m.text)).toEqual(['add benchmarks', 'drop surveys'])
+    const extra = (await send('temporary')).json().data.queued_messages.at(-1)
+    expect((await app.inject({ method: 'DELETE', url: `/api/research/${session.id}/queue/${extra.id}`, headers: as(alice) })).statusCode).toBe(200)
+    expect(db.select().from(schema.researchSteps).where(eq(schema.researchSteps.session_id, session.id)).all()).toHaveLength(1)
+    // Other viewers neither queue nor see the queue.
+    db.insert(schema.userSharingSettings).values({ user_id: alice.id, data_type: 'research', shared: 1, updated_at: new Date().toISOString() }).run()
+    expect((await send('from bob', bob)).statusCode).toBe(403)
+    const forBob = await app.inject({ url: `/api/research/${session.id}`, headers: as(bob) })
+    expect(forBob.statusCode).toBe(200)
+    expect(forBob.json().data.queued_messages).toEqual([])
+
+    const before = new Date().toISOString()
+    release()
+    await waitSettled(session.steps[0].id)
+    let steps: any[] = []
+    for (let i = 0; i < 100 && steps.length < 2; i++) {
+      steps = db.select().from(schema.researchSteps).where(eq(schema.researchSteps.session_id, session.id)).all()
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    expect(steps).toHaveLength(2)
+    expect(steps[1].user_text).toBe('add benchmarks\ndrop surveys')
+    expect(steps[1].created_at >= before).toBe(true) // sent time, not enqueue time
+    await waitSettled(steps[1].id)
+    expect(db.select().from(schema.researchQueuedMessages).all()).toEqual([])
+    const text = (modelCalls[1].input.user[0] as { text: string }).text
+    expect(text.trim().endsWith('<request>\nadd benchmarks\ndrop surveys\n</request>')).toBe(true)
+  })
+
+  it('sends the queue after a cancelled round, and deleting the session drops the queue', async () => {
+    setResearchRunOptionsForTesting({
+      callModelFn: (input, model, opts) => {
+        modelCalls.push({ input, model })
+        if (modelCalls.length > 1) return Promise.resolve('Again #2 LIST')
+        return new Promise((_, reject) => {
+          opts.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+        })
+      },
+      parseFn: fakeParse,
+      batchMs: 1,
+    })
+    const session = (await create()).json().data
+    await new Promise((r) => setTimeout(r, 20))
+    await app.inject({ method: 'POST', url: `/api/research/${session.id}/steps`, headers: as(alice), payload: { user_text: 'after cancel', model_name: codexModel } })
+    await app.inject({ method: 'POST', url: `/api/research/${session.id}/steps/${session.steps[0].id}/cancel`, headers: as(alice) })
+    expect((await waitSettled(session.steps[0].id)).status).toBe('cancelled')
+    let second: any
+    for (let i = 0; i < 100 && !second; i++) {
+      second = db.select().from(schema.researchSteps).where(and(eq(schema.researchSteps.session_id, session.id), eq(schema.researchSteps.step_index, 2))).get()
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    expect(second.user_text).toBe('after cancel')
+    expect((await waitSettled(second.id)).status).toBe('done')
+
+    // A queue left behind (e.g. by a restart) is removed with its session.
+    db.insert(schema.researchQueuedMessages).values({ session_id: session.id, user_id: alice.id, text: 'x', model_name: codexModel, created_at: new Date().toISOString() }).run()
+    await app.inject({ method: 'DELETE', url: `/api/research/${session.id}`, headers: as(alice) })
+    expect(db.select().from(schema.researchQueuedMessages).all()).toEqual([])
+  })
+
+  it('dispatches queued messages on startup after interrupted rounds are marked failed', async () => {
+    const now = new Date().toISOString()
+    db.insert(schema.researchSessions).values({ id: 9, user_id: alice.id, topic: 't', created_at: now, updated_at: now }).run()
+    db.insert(schema.researchSteps).values({ session_id: 9, step_index: 1, kind: 'agent', user_text: 't', model_name: codexModel, status: 'streaming', created_at: now, updated_at: now }).run()
+    db.insert(schema.researchQueuedMessages).values({ session_id: 9, user_id: alice.id, text: 'queued before restart', model_name: codexModel, created_at: now }).run()
+    expect(dispatchAllQueuedMessages()).toBe(0) // still active: nothing sent
+    recoverInterruptedResearchSteps(db as any)
+    expect(dispatchAllQueuedMessages({ callModelFn: async () => 'Restart #1 LIST', parseFn: fakeParse, batchMs: 1 })).toBe(1)
+    const step = db.select().from(schema.researchSteps).where(and(eq(schema.researchSteps.session_id, 9), eq(schema.researchSteps.step_index, 2))).get()!
+    expect(step.user_text).toBe('queued before restart')
+    expect((await waitSettled(step.id)).status).toBe('done')
   })
 
   it('retries only the latest agent round, replacing it in place', async () => {
@@ -259,6 +336,28 @@ describe('linear steps', () => {
     const cancel = await app.inject({ method: 'POST', url: `/api/research/${running.id}/steps/${running.steps[0].id}/cancel`, headers: as(alice) })
     expect(cancel.statusCode).toBe(200)
     expect((await waitSettled(running.steps[0].id)).status).toBe('cancelled')
+  })
+
+  it('replays failed and cancelled rounds in the history with their user message and a note', async () => {
+    const session = (await create()).json().data
+    await waitSettled(session.steps[0].id)
+    const submit = (text: string) => app.inject({ method: 'POST', url: `/api/research/${session.id}/steps`, headers: as(alice), payload: { user_text: text, model_name: codexModel } })
+    nextAnswer = async () => { throw new Error('model exploded') }
+    const failed = (await submit('second message')).json().data.steps[1]
+    await waitSettled(failed.id)
+    nextAnswer = (call) => new Promise((_, reject) => { void call; setTimeout(() => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), 5) })
+    const cancelled = (await submit('third message')).json().data.steps[2]
+    expect((await waitSettled(cancelled.id)).status).toBe('cancelled')
+    nextAnswer = async (call) => `Round #${call} LIST`
+    const fourth = (await submit('fourth message')).json().data.steps[3]
+    await waitSettled(fourth.id)
+    const text = (modelCalls[modelCalls.length - 1].input.user[0] as { text: string }).text
+    const history = text.slice(text.indexOf('<history>'), text.indexOf('</history>'))
+    expect(history).toContain('<step index="1" kind="agent" status="done">\n<user_message>\nefficient attention\n</user_message>\n<changes>')
+    expect(history).toContain('<step index="2" kind="agent" status="failed">\n<user_message>\nsecond message\n</user_message>\n<note>The round run after this user message failed')
+    expect(history).toContain('<step index="3" kind="agent" status="cancelled">\n<user_message>\nthird message\n</user_message>\n<note>The round run after this user message was cancelled')
+    expect(history).not.toContain('fourth message')
+    expect(history).not.toContain('Round #1') // earlier raw outputs are not replayed
   })
 
   it('marks steps left active by a restart as failed', () => {

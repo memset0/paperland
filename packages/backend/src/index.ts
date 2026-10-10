@@ -44,7 +44,7 @@ import { mcpRoutes } from './api/mcp.js'
 import { tokenRoutes } from './api/tokens.js'
 import { usageRoutes } from './api/usage.js'
 import { featuresRoutes } from './api/features.js'
-import { recoverInterruptedResearchSteps } from './services/research_runtime.js'
+import { dispatchAllQueuedMessages, recoverInterruptedResearchSteps } from './services/research_runtime.js'
 import { registerFrontendHosting } from './frontend_hosting.js'
 
 async function main() {
@@ -170,6 +170,11 @@ async function main() {
   const port = 3000
   await app.listen({ port, host: '127.0.0.1' })
   console.log(`Paperland server running on http://localhost:${port}`)
+
+  // Rounds interrupted by the restart were marked failed above; now (with /mcp reachable for the
+  // agent tools) send the messages their owners queued meanwhile.
+  const dispatched = dispatchAllQueuedMessages()
+  if (dispatched) console.log(`Dispatched queued research messages for ${dispatched} session(s)`)
 }
 
 main().catch((err) => {

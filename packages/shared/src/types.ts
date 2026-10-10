@@ -827,6 +827,16 @@ export interface ResearchSessionDetail extends ResearchSessionSummary {
   can_edit: boolean
   /** Viewer may delete (owner or admin). */
   can_delete: boolean
+  /** Messages the owner queued while a round runs, oldest first; empty for other viewers. */
+  queued_messages: ResearchQueuedMessage[]
+}
+
+/** A message waiting for the active round to end; all queued messages are sent together as one round. */
+export interface ResearchQueuedMessage {
+  id: number
+  text: string
+  model_name: string
+  created_at: string
 }
 
 // API response types

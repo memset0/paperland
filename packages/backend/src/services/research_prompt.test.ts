@@ -146,6 +146,19 @@ describe('renderHistory', () => {
   it('keeps everything when within budget', () => {
     expect(renderHistory(steps, 100000)).toContain('A'.repeat(300))
   })
+
+  it('always keeps user messages and failed/cancelled notes, wrapping each message in <user_message>', () => {
+    const h = renderHistory([
+      { step_index: 1, kind: 'agent', user_text: 'U'.repeat(500), changes_note: 'old changes', status: 'done' },
+      { step_index: 2, kind: 'agent', user_text: 'retry later', changes_note: null, status: 'failed' },
+      { step_index: 3, kind: 'agent', user_text: 'never mind', changes_note: null, status: 'cancelled' },
+    ], 10)
+    expect(h).toContain(`<step index="1" kind="agent" status="done">\n<user_message>\n${'U'.repeat(500)}\n</user_message>\n</step>`)
+    expect(h).toContain('<step index="2" kind="agent" status="failed">\n<user_message>\nretry later\n</user_message>\n<note>The round run after this user message failed and produced no new version.</note>\n</step>')
+    expect(h).toContain('status="cancelled"')
+    expect(h).toContain('was cancelled by the user')
+    expect(h).not.toContain('old changes')
+  })
 })
 
 describe('buildRepairInput', () => {

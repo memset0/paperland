@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, ChevronRight, History, Loader2, Pencil, RotateCcw, Send, Square, Trash2, TriangleAlert,
+  ArrowLeft, ChevronRight, Clock, History, ListPlus, Loader2, Pencil, RotateCcw, Send, Square, Trash2, TriangleAlert, X,
 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import type { ResearchStep, ResearchStepStatus } from '@paperland/shared'
@@ -77,6 +77,7 @@ watch(() => versions.value.length, () => { if (viewingLatest.value) selectedVers
 const nextText = ref('')
 const nextModel = ref<string | null>(null)
 const submitting = ref(false)
+const queuedMessages = computed(() => session.value?.queued_messages ?? [])
 watch(() => [store.latestModel, store.defaultModel] as const, ([latest, fallback]) => {
   if (!nextModel.value) nextModel.value = latest ?? fallback
 }, { immediate: true })
@@ -331,12 +332,20 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
           </li>
         </ol>
 
-        <!-- Next round -->
+        <!-- Next round (while a round runs, messages are queued and sent together when it ends) -->
         <div v-if="canEdit" class="space-y-2 rounded-md border bg-card p-3">
+          <div v-if="queuedMessages.length" class="space-y-1.5">
+            <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock class="size-3.5" />Queued — sent together as one message when the current round finishes
+            </p>
+            <div v-for="m in queuedMessages" :key="m.id" class="flex items-start gap-2 rounded border border-dashed bg-muted/40 px-2 py-1.5">
+              <p class="min-w-0 flex-1 whitespace-pre-wrap text-sm">{{ m.text }}</p>
+              <Button variant="ghost" size="icon-sm" title="Remove from queue" @click="store.removeQueued(m.id)"><X /></Button>
+            </div>
+          </div>
           <Textarea
             v-model="nextText" rows="3"
-            :placeholder="activeStep ? 'Wait for the current round to finish…' : 'Tell the agent how to refine the research…'"
-            :disabled="!!activeStep"
+            :placeholder="activeStep ? 'Queue a message for when the current round finishes…' : 'Tell the agent how to refine the research…'"
             @keydown.meta.enter="submitRound" @keydown.ctrl.enter="submitRound"
           />
           <div class="flex items-center gap-2">
@@ -346,8 +355,8 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
                 <SelectItem v-for="m in store.codexModels" :key="m" :value="m">{{ m }}</SelectItem>
               </SelectContent>
             </Select>
-            <Button size="sm" :disabled="!nextText.trim() || !nextModel || !!activeStep || submitting" @click="submitRound">
-              <Loader2 v-if="submitting" class="animate-spin" /><Send v-else />Send
+            <Button size="sm" :disabled="!nextText.trim() || !nextModel || submitting" @click="submitRound">
+              <Loader2 v-if="submitting" class="animate-spin" /><ListPlus v-else-if="activeStep" /><Send v-else />{{ activeStep ? 'Queue' : 'Send' }}
             </Button>
           </div>
           <p v-if="!viewingLatest" class="text-xs text-muted-foreground">

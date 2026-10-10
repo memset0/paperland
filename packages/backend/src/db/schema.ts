@@ -343,6 +343,19 @@ export const researchSteps = sqliteTable('research_steps', {
   uniqueIndex('research_steps_session_step_unq').on(table.session_id, table.step_index),
 ])
 
+// Messages the owner sent while a round was running. A temporary buffer: when the round ends they
+// are merged (newline-joined, in id order) into one new round and deleted; enqueue times are not kept.
+export const researchQueuedMessages = sqliteTable('research_queued_messages', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  session_id: integer('session_id').notNull().references(() => researchSessions.id, { onDelete: 'cascade' }),
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  text: text('text').notNull(),
+  model_name: text('model_name').notNull(),
+  created_at: text('created_at').notNull(),
+}, (table) => [
+  index('research_queued_messages_session_idx').on(table.session_id),
+])
+
 // Token usage and estimated cost of one model invocation. A separate ledger (not columns on the
 // request tables): `category` says what caused the call and the matching source FK points at it;
 // FKs are SET NULL on delete so spending history survives deleting the source.

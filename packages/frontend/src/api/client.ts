@@ -437,8 +437,11 @@ export const researchApi = {
   create: (body: { topic: string; model_name: string; seed_result_id?: number }) =>
     api.post<{ data: ResearchSessionDetail }>('/api/research', body),
   remove: (id: number) => api.delete<{ success: boolean }>(`/api/research/${id}`),
+  /** Starts a round when idle; while a round runs the message is queued (`queued: true`). */
   submit: (id: number, body: { user_text: string; model_name: string }) =>
-    api.post<{ data: ResearchSessionDetail }>(`/api/research/${id}/steps`, body),
+    api.post<{ data: ResearchSessionDetail; queued: boolean }>(`/api/research/${id}/steps`, body),
+  removeQueued: (id: number, messageId: number) =>
+    api.delete<{ data: ResearchSessionDetail }>(`/api/research/${id}/queue/${messageId}`),
   retry: (id: number, stepId: number, body: { user_text?: string; model_name?: string } = {}) =>
     api.post<{ data: ResearchSessionDetail }>(`/api/research/${id}/steps/${stepId}/retry`, body),
   cancel: (id: number, stepId: number) => api.post<{ success: boolean }>(`/api/research/${id}/steps/${stepId}/cancel`),

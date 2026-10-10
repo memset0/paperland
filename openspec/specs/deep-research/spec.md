@@ -28,11 +28,11 @@ Every QA Result the viewer can see SHALL offer a "Deep Research" action that ope
 - **THEN** the session SHALL still show and use the seed's question and answer text
 
 ### Requirement: Linear history of steps and versions
-A session's history SHALL be a strictly ordered, non-branching sequence of steps. A step SHALL be either an agent round (user text + one model + agent output) or a title edit by the owner. Every step that yields a list SHALL create a new list version; all versions SHALL be kept and viewable. The owner SHALL be able to submit a new agent round (free text plus a model) only when no round is active (`queued`, `awaiting_output`, or `streaming`). Only the latest step, when it is an agent round, SHALL be retryable; retrying SHALL replace that round's output (the user MAY edit its text and model). The owner SHALL be able to cancel an active round. A new round's model SHALL default to the most recent agent round's model.
+A session's history SHALL be a strictly ordered, non-branching sequence of steps. A step SHALL be either an agent round (user text + one model + agent output) or a title edit by the owner. Every step that yields a list SHALL create a new list version; all versions SHALL be kept and viewable. The owner SHALL be able to submit a new agent round (free text plus a model); when a round is active (`queued`, `awaiting_output`, or `streaming`) the message SHALL be queued instead (see "Queued messages") rather than rejected. Only the latest step, when it is an agent round, SHALL be retryable; retrying SHALL replace that round's output (the user MAY edit its text and model). The owner SHALL be able to cancel an active round. A new round's model SHALL default to the most recent agent round's model.
 
 #### Scenario: Cannot submit while running
-- **WHEN** the latest round is `streaming` and the owner submits a new round
-- **THEN** the server SHALL respond with 409
+- **WHEN** the latest round is `streaming` and the owner submits a new message
+- **THEN** no new round SHALL start and no step SHALL be created yet; the server SHALL respond 202 and store the message in the session's queue
 
 #### Scenario: Retry replaces the latest round
 - **WHEN** the owner retries the latest agent round with edited text
@@ -128,7 +128,7 @@ If a finished round's output is invalid and the automatic repair also fails (or 
 - **THEN** the round SHALL be `done` with a parse error stating the report is missing, and no new version SHALL be created
 
 ### Requirement: Round input assembly
-Each round's model input SHALL consist of the configured research system prompt and a user message using XML-style tags, containing in order: `<topic>`; `<seed>` when present; `<history>` with prior steps — each agent round's user text and its `changes` note, and each title edit described as such (most recent steps in full, older ones truncated to stay within `research.history_char_budget`); `<current_version>` holding the current report in `<report>` and the current list in `<paper_list>`; and `<request>` with this round's user text. In `<paper_list>`, every section SHALL carry its title and description, every paper SHALL carry its `s2_id`, an `in_library="paperland://paper/<id>"` attribute when the paper is in the library, the Semantic Scholar metadata fetched by the system (title, authors, year, venue, arXiv id, citation count, TLDR, and abstract truncated to `research.abstract_char_limit` characters) and its current comment, papers whose id did not resolve SHALL be marked `verified="false"`, and every link SHALL carry its URL, citation, and comment. The prompt SHALL state that this metadata is provided by the system for reference and SHALL instruct the agent to output only `s2_id` and `comment` for papers, never repeating title, authors, abstract, or other metadata; to obtain each paper's S2 paperId from its semanticscholar.org URL via web search; to cite non-paper sources as link items with BibTeX `@misc`-style citations; to always output both the full report and the full paper list; to re-check and correct (or remove) papers marked `verified="false"`; to keep owner-edited titles unless the user asks otherwise; to write all math in LaTeX using `$...$` for inline math and `$$...$$` on its own lines for important equations, never `\(...\)` or `\[...\]`; to escape every backslash inside paperlist JSON strings (e.g. `\\frac`), since sequences such as `\f`, `\t`, `\n`, `\b`, and `\r` are otherwise silently decoded as JSON escapes; to link papers marked `in_library` as `[📄 short title](paperland://paper/<id>)` using the given link; and, when agent tools are available, to find S2 paperIds with the Semantic Scholar tools (`s2_match` for a known title, `s2_search` otherwise) rather than guessing, and to read papers that are in the Paperland library with the site tools (`search_papers`, `read_paper`). Web search SHALL be enabled for research rounds, and when `agent_tools.enabled` is true the round SHALL also have the Paperland MCP tools and the S2 literature-search skill.
+Each round's model input SHALL consist of the configured research system prompt and a user message using XML-style tags, containing in order: `<topic>`; `<seed>` when present; `<history>` with every prior step that is not still active, oldest first, each in its own `<step>` element carrying its index, kind and (for agent rounds) status — an agent round shows the user's message in its own `<user_message>` element (never truncated), its `changes` note when it finished (most recent notes in full; older notes are dropped to stay within `research.history_char_budget`), and, when it failed or was cancelled, a note that the round run after this user message failed or was cancelled and produced no new version; a title edit is described as such; `<current_version>` holding the current report in `<report>` and the current list in `<paper_list>`; and `<request>` with this round's user text. In `<paper_list>`, every section SHALL carry its title and description, every paper SHALL carry its `s2_id`, an `in_library="paperland://paper/<id>"` attribute when the paper is in the library, the Semantic Scholar metadata fetched by the system (title, authors, year, venue, arXiv id, citation count, TLDR, and abstract truncated to `research.abstract_char_limit` characters) and its current comment, papers whose id did not resolve SHALL be marked `verified="false"`, and every link SHALL carry its URL, citation, and comment. The prompt SHALL state that this metadata is provided by the system for reference and SHALL instruct the agent to output only `s2_id` and `comment` for papers, never repeating title, authors, abstract, or other metadata; to obtain each paper's S2 paperId from its semanticscholar.org URL via web search; to cite non-paper sources as link items with BibTeX `@misc`-style citations; to always output both the full report and the full paper list; to re-check and correct (or remove) papers marked `verified="false"`; to keep owner-edited titles unless the user asks otherwise; to write all math in LaTeX using `$...$` for inline math and `$$...$$` on its own lines for important equations, never `\(...\)` or `\[...\]`; to escape every backslash inside paperlist JSON strings (e.g. `\\frac`), since sequences such as `\f`, `\t`, `\n`, `\b`, and `\r` are otherwise silently decoded as JSON escapes; to link papers marked `in_library` as `[📄 short title](paperland://paper/<id>)` using the given link; and, when agent tools are available, to find S2 paperIds with the Semantic Scholar tools (`s2_match` for a known title, `s2_search` otherwise) rather than guessing, and to read papers that are in the Paperland library with the site tools (`search_papers`, `read_paper`). Web search SHALL be enabled for research rounds, and when `agent_tools.enabled` is true the round SHALL also have the Paperland MCP tools and the S2 literature-search skill.
 
 #### Scenario: Second round sees the first version with metadata
 - **WHEN** the owner submits a second round after round 1 produced a version containing paper P
@@ -149,6 +149,14 @@ Each round's model input SHALL consist of the configured research system prompt 
 #### Scenario: Prompt tells the agent to use the tools for paper ids
 - **WHEN** a research round's system prompt is assembled
 - **THEN** it SHALL instruct the agent to obtain S2 paperIds with `s2_match` / `s2_search` and to read library papers with `read_paper`
+
+#### Scenario: Failed and cancelled rounds stay in the history
+- **WHEN** round 2 failed, round 3 was cancelled, and the owner submits round 4
+- **THEN** round 4's `<history>` SHALL contain rounds 2 and 3, each with its user message in a `<user_message>` element and a note that the round after that message failed (round 2) or was cancelled (round 3) without producing a version
+
+#### Scenario: Earlier user messages are never cut
+- **WHEN** the earlier user messages together exceed `research.history_char_budget`
+- **THEN** every earlier user message SHALL still appear in full, only older `changes` notes SHALL be dropped, and the agent's earlier raw outputs SHALL NOT appear (the report and list are given in `<current_version>`)
 
 ### Requirement: Round runtime and streaming
 Research rounds SHALL run in the background under a scheduler that honors `services.research` (`max_concurrency`, default 1, and `rate_limit_interval`) and SHALL follow the lifecycle `queued` → `awaiting_output` → `streaming` → `done` | `failed` | `cancelled`, persisting partial output while streaming. The system SHALL provide an SSE stream per round with `start`, `delta`, `done`, and `error` events, plus a `tool` event each time the agent starts or finishes a tool call (tool name, server, and status; not persisted), viewable by anyone allowed to view the session; disconnecting SHALL NOT cancel the round. While a round is active the research page SHALL show the agent's most recent tool call (e.g. "Calling s2_search…"). Rounds still active when the server restarts SHALL be marked `failed` on startup.
@@ -195,3 +203,26 @@ The detail page SHALL render the selected version's paper list with the shared p
 #### Scenario: Defaults
 - **WHEN** `config.yml` has no `research` block
 - **THEN** the bundled `research` system prompt and a history budget of 20000 characters SHALL be used
+
+### Requirement: Queued messages
+While a round of a session is active, messages the owner submits SHALL be stored in the database as that session's queued messages (text, model, and enqueue order) and SHALL NOT start a round. When the active round ends — `done`, `failed`, or `cancelled` — and the session has queued messages, the system SHALL merge all of them, in enqueue order, into one user message joined only by newlines (`\n`), create one new agent round with that text, using the model of the most recently queued message, delete the queued messages, and start the round. The new round's creation time SHALL be the time it is created from the queue; enqueue times SHALL NOT be kept. After a server restart, sessions that have queued messages and no active round SHALL have their queue dispatched the same way during startup (after interrupted rounds are marked failed). The owner SHALL be able to remove a queued message before it is sent. Session detail SHALL include the queued messages for the owner; other viewers SHALL NOT see them. Deleting a session SHALL delete its queued messages.
+
+#### Scenario: Two queued messages become one round
+- **WHEN** round 3 is running and the owner submits "add benchmarks" and then "drop surveys"
+- **THEN** after round 3 finishes, exactly one new round SHALL start whose user text is "add benchmarks\ndrop surveys" and the queue SHALL be empty
+
+#### Scenario: Queue is sent after a failed or cancelled round
+- **WHEN** the running round fails or is cancelled while one message is queued
+- **THEN** a new round SHALL start with that message
+
+#### Scenario: Removing a queued message
+- **WHEN** the owner removes one of two queued messages before the round ends
+- **THEN** only the remaining message SHALL be sent
+
+#### Scenario: Others cannot queue or see the queue
+- **WHEN** a viewer of a shared session who is not the owner submits a message or loads the session
+- **THEN** the submission SHALL be rejected with 403 and the session detail SHALL contain no queued messages
+
+#### Scenario: Restart dispatches the queue
+- **WHEN** the server restarts while a round is running and a message is queued
+- **THEN** on startup the round SHALL be marked failed and a new round SHALL start with the queued message

@@ -11,6 +11,8 @@ export interface HistoryStep {
   user_text: string | null
   /** Agent round: its `changes` note; title edit: unused. */
   changes_note: string | null
+  /** Agent round outcome; failed / cancelled rounds produced no version. Title edits are always done. */
+  status?: 'done' | 'failed' | 'cancelled'
 }
 
 /** The version the round builds on: its report and list. */
@@ -47,18 +49,26 @@ export function getResearchSystemPrompt(): string {
   throw new Error(`Research system prompt not found: ${name}`)
 }
 
+const UNFINISHED_NOTE = {
+  failed: 'The round run after this user message failed and produced no new version.',
+  cancelled: 'The round run after this user message was cancelled by the user and produced no new version.',
+} as const
+
 function renderStep(step: HistoryStep, full: boolean): string {
   if (step.kind === 'title_edit') {
     return `<step index="${step.step_index}" kind="title_edit">\nThe user edited titles: ${step.user_text ?? ''}\n</step>`
   }
-  const request = `<request>\n${step.user_text ?? ''}\n</request>`
-  const changes = full && step.changes_note ? `\n<changes>\n${step.changes_note}\n</changes>` : ''
-  return `<step index="${step.step_index}" kind="agent">\n${request}${changes}\n</step>`
+  const status = step.status ?? 'done'
+  const message = `<user_message>\n${step.user_text ?? ''}\n</user_message>`
+  const tail = status !== 'done'
+    ? `\n<note>${UNFINISHED_NOTE[status]}</note>`
+    : full && step.changes_note ? `\n<changes>\n${step.changes_note}\n</changes>` : ''
+  return `<step index="${step.step_index}" kind="agent" status="${status}">\n${message}${tail}\n</step>`
 }
 
 /**
  * `<history>` body: steps are filled newest-first in full while they fit `budget` characters; older
- * steps keep only their user text (title edits are always kept whole — they are short).
+ * steps drop their `changes` note. User messages, failed/cancelled notes and title edits are always kept.
  */
 export function renderHistory(history: HistoryStep[], budget: number): string {
   const rendered: string[] = new Array(history.length)

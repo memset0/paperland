@@ -95,7 +95,16 @@ export const useResearchStore = defineStore('research', () => {
           })
           // The terminal step carries the parsed version; refresh the session so the title/list update.
           replaceStep(terminal)
-          if (current.value && current.value.id === terminal.session_id) await refreshCurrent()
+          if (current.value && current.value.id === terminal.session_id) {
+            await refreshCurrent()
+            // Queued messages are sent by the server right after the round ends; give it a moment
+            // to create the new round so it shows up (and gets followed) without a manual reload.
+            for (let i = 0; i < 5 && current.value?.id === terminal.session_id && current.value.queued_messages.length
+              && !current.value.steps.some(isActiveStep); i++) {
+              await new Promise((r) => setTimeout(r, 400))
+              await refreshCurrent()
+            }
+          }
           return
         } catch (error) {
           if (controller.signal.aborted) return
@@ -157,6 +166,12 @@ export const useResearchStore = defineStore('research', () => {
     setDetail((await researchApi.submit(current.value.id, { user_text: userText, model_name: modelName })).data)
   }
 
+  /** Remove a queued message before the active round ends and sends it. */
+  async function removeQueued(messageId: number) {
+    if (!current.value) return
+    setDetail((await researchApi.removeQueued(current.value.id, messageId)).data)
+  }
+
   async function retry(stepId: number, body: { user_text?: string; model_name?: string }) {
     if (!current.value) return
     setDetail((await researchApi.retry(current.value.id, stepId, body)).data)
@@ -199,7 +214,7 @@ export const useResearchStore = defineStore('research', () => {
 
   return {
     sessions, scope, listLoading, current, detailLoading, codexModels, defaultModel, latestModel, repairingStepIds, toolActivity,
-    fetchSessions, fetchModels, openSession, refreshCurrent, create, submit, retry, cancel,
+    fetchSessions, fetchModels, openSession, refreshCurrent, create, submit, removeQueued, retry, cancel,
     editTitles, truncate, remove, closeSession,
   }
 })

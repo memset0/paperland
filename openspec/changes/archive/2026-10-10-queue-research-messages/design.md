@@ -1,0 +1,9 @@
+## Decisions
+
+- **Storage**: a small table `research_queued_messages` (id order = enqueue order). Rows are a temporary buffer: deleted when dispatched or removed. No status column.
+- **Submit endpoint** (`POST /api/research/:id/steps`): owner-only as before. If a round is active → insert a queue row, respond 202 with the session detail. If idle → create the round as before; if stale queue rows exist (e.g. a dispatch failed), they are merged in front of this message so nothing is lost.
+- **Dispatch** (`dispatchQueuedMessages(sessionId, options)` in `research_runtime.ts`): in one transaction — return if a round is active; read the queue ordered by id; return if empty; insert an agent step (`step_index` = last + 1, `created_at` = now, text = texts joined by `\n`, model = last row's model); delete those rows; bump `updated_at`. Then `scheduleAgentStep`. Called from the `finally` of `scheduleAgentStep`'s run (after the controller is removed, so `hasActiveStep` sees the finished state) with the same run options, and on startup after `recoverInterruptedResearchSteps`.
+- **Model validation**: queued messages validate the model at enqueue time; if a model disappears from config before dispatch, the round fails with the usual "model not found" error (visible, retryable).
+- **Visibility**: `queued_messages` is filled only when `can_edit` (owner); others get `[]`.
+- **Frontend**: after a step's terminal SSE event the store already refetches the session; the new round appears and its stream is followed as for a normal submission. While a round is active the Send button reads "Queue" and appends to the queue.
+- **Interaction with other actions**: title edits, truncation and retry still require no active round; when idle the queue is always empty (it was dispatched), so they are unaffected.
