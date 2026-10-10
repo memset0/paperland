@@ -67,15 +67,23 @@ const bottomBarItems = computed<BottomBarItem[]>(() => [
   { key: 'report', label: 'Report', icon: FileText },
   { key: 'papers', label: 'Papers', icon: Library },
 ])
-/** Scroll the page (the app's <main>) to the end, where the newest round sits on narrow screens. */
-function scrollToNewest() {
-  void nextTick(() => {
+/**
+ * Scroll the page (the app's <main>; the narrow sections share it) to the top or the end. Waits a
+ * frame so the newly shown section and the docked input's padding are laid out first.
+ */
+function scrollPage(to: 'top' | 'bottom') {
+  void nextTick(() => requestAnimationFrame(() => {
     const main = document.querySelector('main')
-    main?.scrollTo({ top: main.scrollHeight })
-  })
+    main?.scrollTo({ top: to === 'top' ? 0 : main.scrollHeight })
+  }))
 }
-watch(mobileSection, (section) => { if (section === 'instruct') scrollToNewest() })
-watch(() => steps.value.length, () => { if (narrow.value && mobileSection.value === 'instruct') scrollToNewest() })
+// Switching sections resets the scroll: Instruct opens at the newest round, Report / Papers at the top.
+watch(mobileSection, (section) => scrollPage(section === 'instruct' ? 'bottom' : 'top'))
+// New rounds, and the docked input's reserved space settling (measured after it is shown), keep
+// Instruct pinned to the newest round.
+watch([() => steps.value.length, dockedComposerHeight], () => {
+  if (narrow.value && mobileSection.value === 'instruct') scrollPage('bottom')
+})
 const refsOpen = ref(false)
 const reportCites = computed(() =>
   extractCiteLinks(selectedVersion.value?.report ?? '').map((link) => ({ id: link.id, fallback_text: link.text })),
