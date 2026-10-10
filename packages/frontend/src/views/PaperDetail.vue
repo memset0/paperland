@@ -5,11 +5,11 @@ import { usePapersStore } from '@/stores/papers'
 import { useQAStore } from '@/stores/qa'
 import { useDoc2xStore } from '@/stores/doc2x'
 import { useBlockAnchor } from '@/composables/useBlockAnchor'
-import { usePdfNavigation } from '@/composables/usePdfNavigation'
-import { usePublicNoteOpen } from '@/composables/usePublicNoteOpen'
+import { usePdfNavigation, requestedPdfTarget } from '@/composables/usePdfNavigation'
+import { usePublicNoteOpen, requestedPublicNote } from '@/composables/usePublicNoteOpen'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from 'vue-sonner'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, Columns2, Columns3, MessagesSquare, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot, BookmarkPlus, BookmarkCheck } from '@lucide/vue'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, Columns2, Columns3, MessagesSquare, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot, BookmarkPlus, BookmarkCheck, Info, BookOpen } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
@@ -27,12 +27,13 @@ import PaperCitations from '@/components/PaperCitations.vue'
 import QAInput from '@/components/QAInput.vue'
 import BilingualText from '@/components/BilingualText.vue'
 import PaperActionLauncher, { type LauncherAction } from '@/components/PaperActionLauncher.vue'
+import MobileBottomBar, { type BottomBarItem } from '@/components/MobileBottomBar.vue'
 import { useQAWindow, QA_DEFAULT_HEIGHT } from '@/composables/useQAWindow'
 import { useWindowsStore } from '@/stores/windows'
 import { useQAComposer } from '@/composables/useQAComposer'
 import QAPanelNav from '@/components/QAPanelNav.vue'
 import QAConversationPanel from '@/components/QAConversationPanel.vue'
-import { useQAConversation, clampSplitLeft, clampThree, type PaperLayout } from '@/composables/useQAConversation'
+import { useQAConversation, clampSplitLeft, clampThree, paperInfoRequests, type PaperLayout } from '@/composables/useQAConversation'
 import { createReusableTemplate } from '@vueuse/core'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useHighlightStore } from '@/stores/highlights'
@@ -77,6 +78,20 @@ function reloadPage() { window.location.reload() }
 const isWide = ref(window.innerWidth >= 900)
 function onResize() { isWide.value = window.innerWidth >= 900 }
 const showSplitView = computed(() => isWide.value && !isEmbed.value)
+
+// ── Narrow (non-embed) layout: Info / Read / Q&A sections switched from the mobile bottom bar ──
+const showBottomBar = computed(() => !isWide.value && !isEmbed.value)
+type MobileSection = 'info' | 'read' | 'qa'
+const mobileSection = ref<MobileSection>('info')
+// The viewer (PDF etc.) mounts the first time Read is opened, then stays alive (v-show).
+const readMounted = ref(false)
+watch(mobileSection, (section) => { if (section === 'read') readMounted.value = true }, { immediate: true })
+const mobileQAScrollRef = ref<HTMLElement | null>(null)
+// Deep links pick the section that holds their target.
+watch(requestedPdfTarget, (target) => { if (target) mobileSection.value = 'read' })
+watch(requestedPublicNote, (request) => { if (request) mobileSection.value = 'read' })
+watch(() => route.query.view, (view) => { if (view === 'note') mobileSection.value = 'read' }, { immediate: true })
+watch(paperInfoRequests, () => { mobileSection.value = 'qa' })
 
 // ---- Wide layouts: split / paper + conversation / three columns (see useQAConversation) ----
 const conversation = useQAConversation()
@@ -148,6 +163,7 @@ function onConvPointerUp(e: PointerEvent) {
 type PaperColumnPart = 'all' | 'metadata' | 'qa'
 const [DefineMetadata, Metadata] = createReusableTemplate()
 const [DefinePaperColumn, PaperColumn] = createReusableTemplate<{ part: PaperColumnPart }>()
+const [DefineNarrowInfo, NarrowInfo] = createReusableTemplate()
 
 // ---- Paper-detail function launcher (top-right list / mobile FAB) + QA window ----
 const qaWin = useQAWindow()
@@ -204,6 +220,16 @@ watch(composer.openRequests, () => {
 const paperActions = computed<LauncherAction[]>(() => [
   { key: 'ask', label: 'Ask', icon: Bot, onSelect: openQA },
 ])
+
+const bottomBarItems = computed<BottomBarItem[]>(() => [
+  { key: 'info', label: 'Info', icon: Info },
+  { key: 'read', label: 'Read', icon: BookOpen },
+  { key: 'qa', label: 'Q&A', icon: MessagesSquare },
+  ...paperActions.value.map((a): BottomBarItem => ({ key: a.key, label: a.label, icon: a.icon, kind: 'action' })),
+])
+function onBottomBarAction(key: string) {
+  paperActions.value.find((a) => a.key === key)?.onSelect()
+}
 
 /**
  * A `?note=<id>` link auto-opens another user's public note in the right panel. If the note is the
@@ -673,126 +699,9 @@ async function promote() {
       </div>
     </DefinePaperColumn>
 
-    <!-- Embed: compact header -->
-    <div v-if="isEmbed" class="flex h-6 items-center gap-1 border-b px-2 shrink-0">
-      <div class="min-w-0 flex-1">
-        <h1 class="text-[11px] font-medium text-muted-foreground truncate">{{ store.currentPaper?.title || '' }}</h1>
-      </div>
-      <Button variant="ghost" size="icon-xs" title="Reload page" @click="reloadPage">
-        <RefreshCw />
-      </Button>
-    </div>
-    <!-- Normal header -->
-    <div v-else class="flex h-12 items-center gap-3 border-b bg-background px-4 shrink-0">
-      <Button variant="ghost" size="icon-sm" @click="router.push('/papers')">
-        <ArrowLeft />
-      </Button>
-      <div class="min-w-0 flex-1">
-        <h1 class="text-sm font-semibold truncate">{{ store.currentPaper?.title || 'Loading…' }}</h1>
-      </div>
-      <div
-        v-if="store.currentPaper && conversation.available.value"
-        class="flex shrink-0 items-center rounded-md border p-0.5"
-        role="radiogroup"
-        aria-label="Page layout"
-        data-layout-selector
-      >
-        <Button
-          v-for="option in layoutOptions" :key="option.value"
-          variant="ghost" size="icon-sm"
-          role="radio"
-          :aria-checked="layout === option.value"
-          :title="option.label"
-          :data-layout="option.value"
-          :class="layout === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground'"
-          @click="conversation.setLayout(option.value)"
-        >
-          <component :is="option.icon" />
-        </Button>
-      </div>
-      <PaperActionLauncher v-if="store.currentPaper" :actions="paperActions" />
-    </div>
-
-    <!-- Wide screen: split view -->
-    <div v-if="showSplitView" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging || convDragging }">
-      <div
-        :style="{ width: collapsed ? '0%' : leftWidth + '%' }"
-        class="shrink-0 overflow-hidden relative"
-        data-viewer-column
-        :class="{ 'transition-[width] duration-300 ease-in-out': !dragging }"
-      >
-        <PaperViewerPanel
-          :pdf-path="store.currentPaper?.pdf_path || null"
-          :arxiv-id="store.currentPaper?.arxiv_id || null"
-          :paper-id="paperId"
-          :pdf-status="store.currentPaper?.pdf_status"
-          :pdf-unavailable-reason="store.currentPaper?.pdf_unavailable_reason"
-          :info-tabs="layout === 'split-conv'"
-        >
-          <template #metadata><PaperColumn part="metadata" /></template>
-          <template #qa><PaperColumn part="qa" /></template>
-        </PaperViewerPanel>
-      </div>
-
-      <div
-        class="shrink-0 relative flex items-center justify-center touch-none group bg-border transition-colors"
-        :class="[
-          collapsed ? 'cursor-default' : 'cursor-col-resize',
-          dragging ? 'bg-ring' : 'hover:bg-ring/60',
-        ]"
-        :style="{ width: '2px' }"
-        @pointerdown.prevent="onPointerDown"
-        @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
-      >
-        <div class="absolute inset-y-0 -left-[5px] -right-[5px]"></div>
-        <Button
-          variant="outline" size="icon-sm"
-          class="absolute z-10 rounded-full opacity-0 group-hover:opacity-100"
-          @pointerdown.stop
-          @click.stop="toggleCollapse"
-        >
-          <PanelLeftOpen v-if="collapsed" />
-          <PanelLeftClose v-else />
-        </Button>
-      </div>
-
-      <div v-if="layout !== 'split-conv'" class="min-w-0 flex-1">
-        <PaperColumn part="all" />
-      </div>
-
-      <!-- Conversation view: right column (paper + conversation) or resizable third column -->
-      <template v-if="conversation.visible.value && store.currentPaper">
-        <div
-          v-if="layout === 'three'"
-          class="shrink-0 relative touch-none cursor-col-resize bg-border transition-colors"
-          :class="convDragging ? 'bg-ring' : 'hover:bg-ring/60'"
-          :style="{ width: '2px' }"
-          title="Drag to resize the conversation panel"
-          data-conv-divider
-          @pointerdown.prevent="onConvPointerDown"
-          @pointermove="onConvPointerMove"
-          @pointerup="onConvPointerUp"
-        >
-          <div class="absolute inset-y-0 -left-[5px] -right-[5px]"></div>
-        </div>
-        <div
-          class="overflow-hidden"
-          :class="layout === 'three' ? 'shrink-0' : 'min-w-0 flex-1'"
-          :style="layout === 'three' ? { width: conversation.three.value.conv + '%' } : undefined"
-          data-conv-column
-        >
-          <QAConversationPanel :paper-id="paperId" />
-        </div>
-      </template>
-    </div>
-
-    <!-- Narrow screen -->
-    <div v-else ref="narrowScrollRef" class="flex-1 overflow-y-auto relative">
-      <div v-if="store.loading" class="flex items-center justify-center py-20">
-        <Loader2 class="h-5 w-5 animate-spin text-primary" />
-      </div>
-      <div v-else-if="store.currentPaper" :class="isEmbed ? 'p-1.5 space-y-1.5' : 'p-5 space-y-5 max-w-3xl mx-auto pb-40'">
+    <!-- Narrow-layout info stack (metadata card, citations, notes, Kimi summary): embed column and the mobile Info section -->
+    <DefineNarrowInfo>
+      <template v-if="store.currentPaper">
         <Card :class="isEmbed ? 'p-3' : 'p-5'">
           <template v-if="editing">
             <div class="space-y-3">
@@ -930,6 +839,160 @@ async function promote() {
           </div>
         </Card>
 
+      </template>
+    </DefineNarrowInfo>
+
+    <!-- Embed: compact header -->
+    <div v-if="isEmbed" class="flex h-6 items-center gap-1 border-b px-2 shrink-0">
+      <div class="min-w-0 flex-1">
+        <h1 class="text-[11px] font-medium text-muted-foreground truncate">{{ store.currentPaper?.title || '' }}</h1>
+      </div>
+      <Button variant="ghost" size="icon-xs" title="Reload page" @click="reloadPage">
+        <RefreshCw />
+      </Button>
+    </div>
+    <!-- Normal header -->
+    <div v-else class="flex h-12 items-center gap-3 border-b bg-background px-4 shrink-0">
+      <Button variant="ghost" size="icon-sm" @click="router.push('/papers')">
+        <ArrowLeft />
+      </Button>
+      <div class="min-w-0 flex-1">
+        <h1 class="text-sm font-semibold truncate">{{ store.currentPaper?.title || 'Loading…' }}</h1>
+      </div>
+      <div
+        v-if="store.currentPaper && conversation.available.value"
+        class="flex shrink-0 items-center rounded-md border p-0.5"
+        role="radiogroup"
+        aria-label="Page layout"
+        data-layout-selector
+      >
+        <Button
+          v-for="option in layoutOptions" :key="option.value"
+          variant="ghost" size="icon-sm"
+          role="radio"
+          :aria-checked="layout === option.value"
+          :title="option.label"
+          :data-layout="option.value"
+          :class="layout === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground'"
+          @click="conversation.setLayout(option.value)"
+        >
+          <component :is="option.icon" />
+        </Button>
+      </div>
+      <PaperActionLauncher v-if="store.currentPaper && !showBottomBar" :actions="paperActions" />
+    </div>
+
+    <!-- Wide screen: split view -->
+    <div v-if="showSplitView" id="split-container" class="flex flex-1 overflow-hidden" :class="{ 'select-none': dragging || convDragging }">
+      <div
+        :style="{ width: collapsed ? '0%' : leftWidth + '%' }"
+        class="shrink-0 overflow-hidden relative"
+        data-viewer-column
+        :class="{ 'transition-[width] duration-300 ease-in-out': !dragging }"
+      >
+        <PaperViewerPanel
+          :pdf-path="store.currentPaper?.pdf_path || null"
+          :arxiv-id="store.currentPaper?.arxiv_id || null"
+          :paper-id="paperId"
+          :pdf-status="store.currentPaper?.pdf_status"
+          :pdf-unavailable-reason="store.currentPaper?.pdf_unavailable_reason"
+          :info-tabs="layout === 'split-conv'"
+        >
+          <template #metadata><PaperColumn part="metadata" /></template>
+          <template #qa><PaperColumn part="qa" /></template>
+        </PaperViewerPanel>
+      </div>
+
+      <div
+        class="shrink-0 relative flex items-center justify-center touch-none group bg-border transition-colors"
+        :class="[
+          collapsed ? 'cursor-default' : 'cursor-col-resize',
+          dragging ? 'bg-ring' : 'hover:bg-ring/60',
+        ]"
+        :style="{ width: '2px' }"
+        @pointerdown.prevent="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+      >
+        <div class="absolute inset-y-0 -left-[5px] -right-[5px]"></div>
+        <Button
+          variant="outline" size="icon-sm"
+          class="absolute z-10 rounded-full opacity-0 group-hover:opacity-100"
+          @pointerdown.stop
+          @click.stop="toggleCollapse"
+        >
+          <PanelLeftOpen v-if="collapsed" />
+          <PanelLeftClose v-else />
+        </Button>
+      </div>
+
+      <div v-if="layout !== 'split-conv'" class="min-w-0 flex-1">
+        <PaperColumn part="all" />
+      </div>
+
+      <!-- Conversation view: right column (paper + conversation) or resizable third column -->
+      <template v-if="conversation.visible.value && store.currentPaper">
+        <div
+          v-if="layout === 'three'"
+          class="shrink-0 relative touch-none cursor-col-resize bg-border transition-colors"
+          :class="convDragging ? 'bg-ring' : 'hover:bg-ring/60'"
+          :style="{ width: '2px' }"
+          title="Drag to resize the conversation panel"
+          data-conv-divider
+          @pointerdown.prevent="onConvPointerDown"
+          @pointermove="onConvPointerMove"
+          @pointerup="onConvPointerUp"
+        >
+          <div class="absolute inset-y-0 -left-[5px] -right-[5px]"></div>
+        </div>
+        <div
+          class="overflow-hidden"
+          :class="layout === 'three' ? 'shrink-0' : 'min-w-0 flex-1'"
+          :style="layout === 'three' ? { width: conversation.three.value.conv + '%' } : undefined"
+          data-conv-column
+        >
+          <QAConversationPanel :paper-id="paperId" />
+        </div>
+      </template>
+    </div>
+
+    <!-- Narrow screen, phones / tablets: one section at a time, switched from the bottom bar -->
+    <div
+      v-else-if="showBottomBar" ref="narrowScrollRef"
+      class="relative flex-1 overflow-hidden" :style="{ paddingBottom: 'var(--bottom-bar-h, 56px)' }"
+      data-mobile-sections
+    >
+      <div v-if="store.loading" class="flex items-center justify-center py-20">
+        <Loader2 class="h-5 w-5 animate-spin text-primary" />
+      </div>
+      <template v-else-if="store.currentPaper">
+        <div v-show="mobileSection === 'info'" class="h-full overflow-y-auto" data-mobile-section="info">
+          <div class="p-5 space-y-5 max-w-3xl mx-auto pb-10"><NarrowInfo /></div>
+        </div>
+        <div v-if="readMounted" v-show="mobileSection === 'read'" class="h-full" data-mobile-section="read">
+          <PaperViewerPanel
+            :pdf-path="store.currentPaper.pdf_path || null"
+            :arxiv-id="store.currentPaper.arxiv_id || null"
+            :paper-id="paperId"
+            :pdf-status="store.currentPaper.pdf_status"
+            :pdf-unavailable-reason="store.currentPaper.pdf_unavailable_reason"
+          />
+        </div>
+        <div v-show="mobileSection === 'qa'" ref="mobileQAScrollRef" class="relative h-full overflow-y-auto" data-mobile-section="qa">
+          <div class="p-5 max-w-3xl mx-auto pb-10"><QAList :paper-id="paperId" /></div>
+          <QAPanelNav :entries="qaNavEntries" :scroll-container="mobileQAScrollRef" :paper-id="paperId" />
+        </div>
+      </template>
+      <MobileBottomBar v-model="mobileSection" :items="bottomBarItems" @action="onBottomBarAction" />
+    </div>
+
+    <!-- Narrow screen, embed (Zotero side panel): one long column -->
+    <div v-else ref="narrowScrollRef" class="flex-1 overflow-y-auto relative">
+      <div v-if="store.loading" class="flex items-center justify-center py-20">
+        <Loader2 class="h-5 w-5 animate-spin text-primary" />
+      </div>
+      <div v-else-if="store.currentPaper" :class="isEmbed ? 'p-1.5 space-y-1.5' : 'p-5 space-y-5 max-w-3xl mx-auto pb-40'">
+        <NarrowInfo />
         <QAList :paper-id="paperId" />
       </div>
       <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="narrowScrollRef" :paper-id="paperId" />

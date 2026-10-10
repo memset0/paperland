@@ -177,11 +177,19 @@ While a round is streaming, the UI SHALL render the report progressively but SHA
 - **THEN** the round view SHALL show the "Generating paper list…" placeholder and no raw JSON
 
 ### Requirement: Research pages
-The sidebar SHALL include a login-required "Research" entry linking to `/research`, a management page wrapped in `AppPage` that lists sessions (title, topic excerpt, round count, latest status, updated time) with a "New research" action and a `mine`/`all` scope selector. `/research/:id` SHALL be a detail page with its own layout showing the step timeline (agent rounds with user text, status, `changes` note, and list-change summary; title edits with what changed) and the selected version (report and paper list), plus an input for the next round with a Codex model selector for the owner.
+The sidebar SHALL include a login-required "Research" entry linking to `/research`, a management page wrapped in `AppPage` that lists sessions (title, topic excerpt, round count, latest status, updated time) with a "New research" action and a `mine`/`all` scope selector. `/research/:id` SHALL be a detail page with its own layout showing the step timeline (agent rounds with user text, status, `changes` note, and list-change summary; title edits with what changed) and the selected version (report and paper list), plus an input for the next round with a Codex model selector for the owner. In the wide layout (900px and wider) the left column SHALL show, from top to bottom, the owner's input (with any queued messages) and then the steps newest first; the selected version is in the right column. In the narrow layout the page SHALL use the mobile bottom bar sections Instruct / Report / Papers (see `mobile-bottom-bar`). Every finished agent round SHALL show how long it ran (from start to finish, e.g. `3m 12s`).
 
 #### Scenario: Navigate to research
 - **WHEN** a logged-in user clicks "Research" in the sidebar
 - **THEN** the `/research` page SHALL show their sessions and a "New research" action
+
+#### Scenario: Newest round first on desktop
+- **WHEN** the owner opens a session with three rounds on a wide screen
+- **THEN** the left column SHALL show the input at the top, then round 3, round 2, round 1
+
+#### Scenario: Round duration is shown
+- **WHEN** a round started at 10:00:00 and finished at 10:03:12
+- **THEN** the timeline SHALL show `3m 12s` for that round
 
 ### Requirement: Report display
 The selected version's report SHALL be rendered as Markdown with the same citation behavior as Q&A answers: every `#cite:<id>` link SHALL be resolved through the S2 paper cache resolver and rendered as a citation chip with a hover/click card when it resolves (plain text otherwise), and a collapsed "References · N" list of the report's own citations SHALL appear below the report using the shared paper list component.
@@ -205,7 +213,7 @@ The detail page SHALL render the selected version's paper list with the shared p
 - **THEN** the bundled `research` system prompt and a history budget of 20000 characters SHALL be used
 
 ### Requirement: Queued messages
-While a round of a session is active, messages the owner submits SHALL be stored in the database as that session's queued messages (text, model, and enqueue order) and SHALL NOT start a round. When the active round ends — `done`, `failed`, or `cancelled` — and the session has queued messages, the system SHALL merge all of them, in enqueue order, into one user message joined only by newlines (`\n`), create one new agent round with that text, using the model of the most recently queued message, delete the queued messages, and start the round. The new round's creation time SHALL be the time it is created from the queue; enqueue times SHALL NOT be kept. After a server restart, sessions that have queued messages and no active round SHALL have their queue dispatched the same way during startup (after interrupted rounds are marked failed). The owner SHALL be able to remove a queued message before it is sent. Session detail SHALL include the queued messages for the owner; other viewers SHALL NOT see them. Deleting a session SHALL delete its queued messages.
+The owner SHALL be able to add messages to the session's queue (stored in the database with text, model and enqueue order) at any time: while a round is active every submitted message is queued, and while no round is active the owner MAY explicitly choose "add to queue" instead of sending, to write a long instruction in several parts. Queued messages SHALL NOT start a round by themselves while the session is idle. Sending while idle SHALL merge all queued messages plus the newly typed text (if any), in order, into one round; sending with no new text SHALL be allowed when the queue is not empty. When an active round ends — `done`, `failed`, or `cancelled` — and the session has queued messages, the system SHALL merge all of them, in enqueue order, into one user message joined only by newlines (`\n`), create one new agent round with that text, using the model of the most recently queued message, delete the queued messages, and start the round. The new round's creation time SHALL be the time it is created from the queue; enqueue times SHALL NOT be kept. After a server restart, only sessions whose round was interrupted by the restart SHALL have their queue dispatched during startup (after interrupted rounds are marked failed); queues held while idle SHALL stay queued. The owner SHALL be able to remove a queued message before it is sent. Session detail SHALL include the queued messages for the owner; other viewers SHALL NOT see them. Deleting a session SHALL delete its queued messages.
 
 #### Scenario: Two queued messages become one round
 - **WHEN** round 3 is running and the owner submits "add benchmarks" and then "drop surveys"
@@ -225,4 +233,12 @@ While a round of a session is active, messages the owner submits SHALL be stored
 
 #### Scenario: Restart dispatches the queue
 - **WHEN** the server restarts while a round is running and a message is queued
-- **THEN** on startup the round SHALL be marked failed and a new round SHALL start with the queued message
+- **THEN** on startup the round SHALL be marked failed and a new round SHALL start with the queued message; a session that was idle with queued messages SHALL keep them queued
+
+#### Scenario: Writing an instruction in parts while idle
+- **WHEN** no round is running and the owner adds "part 1" and "part 2" to the queue, then sends "part 3"
+- **THEN** no round SHALL start until the send, and then exactly one round SHALL start with "part 1\npart 2\npart 3"
+
+#### Scenario: Send the queue without new text
+- **WHEN** no round is running, the queue holds two messages, and the owner sends with an empty input
+- **THEN** one round SHALL start with the two messages merged

@@ -212,10 +212,11 @@ export function scheduleAgentStep(stepId: number, options: RunStepOptions = {}):
 
 /**
  * If the session has queued messages and no active round, merge them (in enqueue order, joined by
- * newlines) into one new agent round using the latest message's model, delete them, and start the
- * round. The round is created now; enqueue times are dropped. Returns the new step id, or null.
+ * newlines) into one new agent round using `modelName` or else the latest message's model, delete
+ * them, and start the round. The round is created now; enqueue times are dropped. Returns the new
+ * step id, or null.
  */
-export function dispatchQueuedMessages(sessionId: number, options: RunStepOptions = {}): number | null {
+export function dispatchQueuedMessages(sessionId: number, options: RunStepOptions = {}, modelName?: string): number | null {
   const db = getDatabase()
   const stepId = db.transaction((tx) => {
     const active = tx.select({ id: schema.researchSteps.id }).from(schema.researchSteps)
@@ -235,7 +236,7 @@ export function dispatchQueuedMessages(sessionId: number, options: RunStepOption
       step_index: (last?.step_index ?? 0) + 1,
       kind: 'agent',
       user_text: queued.map((m) => m.text).join('\n'),
-      model_name: queued[queued.length - 1].model_name,
+      model_name: modelName ?? queued[queued.length - 1].model_name,
       status: 'queued',
       answer: '',
       created_at: now,
@@ -250,11 +251,9 @@ export function dispatchQueuedMessages(sessionId: number, options: RunStepOption
   return stepId
 }
 
-/** On startup (after interrupted rounds are marked failed): dispatch every session's queue. */
-export function dispatchAllQueuedMessages(options: RunStepOptions = {}): number {
-  const sessions = getDatabase().selectDistinct({ session_id: schema.researchQueuedMessages.session_id })
-    .from(schema.researchQueuedMessages).all()
-  return sessions.filter(({ session_id }) => dispatchQueuedMessages(session_id, options) != null).length
+/** On startup: send the queues of the sessions whose round the restart interrupted (idle queues wait). */
+export function dispatchQueuedMessagesFor(sessionIds: number[], options: RunStepOptions = {}): number {
+  return [...new Set(sessionIds)].filter((id) => dispatchQueuedMessages(id, options) != null).length
 }
 
 async function runAgentStep(stepId: number, signal: AbortSignal, options: RunStepOptions): Promise<void> {
@@ -376,14 +375,17 @@ export function cancelStep(step: StepRow): boolean {
   return !!cancelled
 }
 
-/** On startup: steps left active by a restart can never finish; mark them failed. */
-export function recoverInterruptedResearchSteps(db: Database, now = new Date().toISOString()): number {
-  const stale = db.select({ id: schema.researchSteps.id }).from(schema.researchSteps)
+/**
+ * On startup: steps left active by a restart can never finish; mark them failed. Returns the ids of
+ * the sessions they belong to (their queued messages are sent once the server is up).
+ */
+export function recoverInterruptedResearchSteps(db: Database, now = new Date().toISOString()): number[] {
+  const stale = db.select({ id: schema.researchSteps.id, session_id: schema.researchSteps.session_id }).from(schema.researchSteps)
     .where(inArray(schema.researchSteps.status, RESEARCH_ACTIVE_STATUSES)).all()
-  if (stale.length === 0) return 0
+  if (stale.length === 0) return []
   db.update(schema.researchSteps)
     .set({ status: 'failed', error: 'interrupted by server restart', finished_at: now, updated_at: now })
     .where(inArray(schema.researchSteps.id, stale.map((s) => s.id)))
     .run()
-  return stale.length
+  return [...new Set(stale.map((s) => s.session_id))]
 }

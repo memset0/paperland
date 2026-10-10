@@ -44,10 +44,11 @@ import { mcpRoutes } from './api/mcp.js'
 import { tokenRoutes } from './api/tokens.js'
 import { usageRoutes } from './api/usage.js'
 import { featuresRoutes } from './api/features.js'
-import { dispatchAllQueuedMessages, recoverInterruptedResearchSteps } from './services/research_runtime.js'
+import { dispatchQueuedMessagesFor, recoverInterruptedResearchSteps } from './services/research_runtime.js'
 import { registerFrontendHosting } from './frontend_hosting.js'
 
 async function main() {
+  let interruptedResearchSessions: number[] = []
   // Load config
   const config = loadConfig()
 
@@ -69,7 +70,8 @@ async function main() {
       .run()
     const recoveredQA = recoverInterruptedQAResults(db, now)
     const recoveredResearch = recoverInterruptedResearchSteps(db, now)
-    console.log(`Cleaned up stale service executions, ${recoveredQA.resultCount} QA results and ${recoveredResearch} research steps`)
+    console.log(`Cleaned up stale service executions, ${recoveredQA.resultCount} QA results and research rounds of ${recoveredResearch.length} session(s)`)
+    interruptedResearchSessions = recoveredResearch
   }
 
   // Start backup scheduler
@@ -172,8 +174,8 @@ async function main() {
   console.log(`Paperland server running on http://localhost:${port}`)
 
   // Rounds interrupted by the restart were marked failed above; now (with /mcp reachable for the
-  // agent tools) send the messages their owners queued meanwhile.
-  const dispatched = dispatchAllQueuedMessages()
+  // agent tools) send the messages their owners queued meanwhile. Queues held while idle wait.
+  const dispatched = dispatchQueuedMessagesFor(interruptedResearchSessions)
   if (dispatched) console.log(`Dispatched queued research messages for ${dispatched} session(s)`)
 }
 

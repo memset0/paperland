@@ -269,28 +269,33 @@ export async function researchRoutes(app: FastifyInstance): Promise<void> {
     return session
   }
 
-  // POST /api/research/:id/steps — submit a message. Idle: a new round starts now (201). While a
-  // round is active the message is queued (202) and sent, merged with any other queued messages,
-  // when the round ends.
-  app.post<{ Params: { id: string }; Body: { user_text?: string; model_name?: string } }>(
+  // POST /api/research/:id/steps — submit a message. `queue_only` adds it to the queue without
+  // starting a round (to write an instruction in parts). Otherwise, when idle, a round starts now
+  // with every queued message plus this text (201; the text may be empty when the queue is not);
+  // while a round is active the message is queued (202) and sent when the round ends.
+  app.post<{ Params: { id: string }; Body: { user_text?: string; model_name?: string; queue_only?: boolean } }>(
     '/api/research/:id/steps', { preHandler: requireUser }, async (request, reply) => {
       const db = getDatabase()
       const session = ownedSession(request, reply)
       if (!session) return
       const userText = textField(request.body, 'user_text')
-      if (!userText) return errorReply(reply, 400, 'VALIDATION_ERROR', 'user_text is required')
+      const queueOnly = request.body?.queue_only === true
       const modelError = codexModelError(request.body?.model_name)
       if (modelError) return errorReply(reply, 400, 'VALIDATION_ERROR', modelError)
-      // Every message goes through the queue; dispatch starts a round right away when none is active
-      // (also picking up any leftover queued messages, in order).
-      db.insert(schema.researchQueuedMessages).values({
-        session_id: session.id,
-        user_id: request.user!.id,
-        text: userText,
-        model_name: request.body!.model_name!,
-        created_at: new Date().toISOString(),
-      }).run()
-      const started = dispatchQueuedMessages(session.id, runOptions)
+      const queuedCount = db.select({ id: schema.researchQueuedMessages.id }).from(schema.researchQueuedMessages)
+        .where(eq(schema.researchQueuedMessages.session_id, session.id)).all().length
+      if (!userText && (queueOnly || queuedCount === 0)) return errorReply(reply, 400, 'VALIDATION_ERROR', 'user_text is required')
+      if (userText) {
+        db.insert(schema.researchQueuedMessages).values({
+          session_id: session.id,
+          user_id: request.user!.id,
+          text: userText,
+          model_name: request.body!.model_name!,
+          created_at: new Date().toISOString(),
+        }).run()
+      }
+      // Dispatch starts a round right away when none is active, merging the whole queue in order.
+      const started = queueOnly ? null : dispatchQueuedMessages(session.id, runOptions, request.body!.model_name!)
       return reply.code(started != null ? 201 : 202).send({ data: detail(db, session, request.user!), queued: started == null })
     })
 

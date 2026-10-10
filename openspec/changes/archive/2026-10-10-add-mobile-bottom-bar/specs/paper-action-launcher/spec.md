@@ -1,9 +1,4 @@
-# paper-action-launcher Specification
-
-## Purpose
-TBD - created by archiving change refactor-qa-floating-panel. Update Purpose after archive.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Desktop top-right function list
 在论文详情页的宽屏布局（视口宽度 >= 900px，非 embed），SHALL 在页面**右上角**直接平铺列出所有可用功能的按钮（**不是下拉菜单**，无需先点开再展开）。每个功能按钮 SHALL 显示可识别的图标与名称。当前 SHALL 仅包含"Ask"一个功能。
@@ -26,21 +21,3 @@ TBD - created by archiving change refactor-qa-floating-panel. Update Purpose aft
 #### Scenario: Select a function from the FAB list
 - **WHEN** 窄屏用户在底部栏中点击"Ask"
 - **THEN** 打开提问功能（手机上提问浮窗以全屏浮层显示）
-
-### Requirement: Function order follows the page's function order, extensible
-功能入口中各功能的排列顺序 SHALL 与论文详情页已有功能区块的顺序一致（引用 → 笔记 → 提问）。入口 SHALL 设计为可扩展，以便后续新增的功能按同一顺序插入。当前仅暴露"Ask"一项。
-
-#### Scenario: Single function today
-- **WHEN** 当前仅"Ask"功能接入入口
-- **THEN** 入口（桌面列表与移动 FAB 列表）仅显示"Ask"
-
-#### Scenario: Future functions keep page order
-- **WHEN** 后续将更多功能接入入口
-- **THEN** 它们按论文详情页功能区块顺序（引用 → 笔记 → 提问 → …）排列，而非任意顺序
-
-### Requirement: Launching the QA function opens the QA floating window
-从功能入口选择"Ask" SHALL 打开提问浮动窗口（桌面端为可拖动浮窗、移动端为全屏浮层）。
-
-#### Scenario: Ask opens the QA window
-- **WHEN** 用户（桌面或移动端）通过入口选择"Ask"
-- **THEN** 提问浮动窗口按当前布局的默认位置与大小弹出

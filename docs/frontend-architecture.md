@@ -65,6 +65,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - **Markdown 正文**（`MarkdownContent.vue`）：容器 `overflow-wrap: anywhere`，行内 `code` / 长链接 `word-break`，防止长 URL / 标识符撑宽正文（代码块仍保留 `white-space: pre` + 自身横向滚动）。
 - **双栏 / master-detail 降级**：`PaperDetail` 宽屏 split view 在 < 900px 降级为单栏。
 - **PaperDetail 根高度**：用 `h-full`（贴合 `main` 内容盒高度）而非 `h-screen`，以正确扣除移动端 navbar 的 `pt-12`，避免 100vh + 48px 造成的纵向溢出与双滚动条。
+- **Mobile bottom bar（复杂页面专用）**：`components/MobileBottomBar.vue`，只由论文详情、研究详情这类复杂页面在**单栏布局（< 900px，`composables/useNarrowLayout.ts`）且非 embed** 时渲染，其他页面不会出现。`fixed` 贴底（`md` 以上从 52px 侧栏右侧开始），高 56px + `env(safe-area-inset-bottom)`，出现时 slide-up + fade 动画（`<Transition appear>`）。条目分 `section`（切换页面分区，当前项高亮 + 顶部指示条，`v-model`）和 `action`（触发操作，`@action`），可带 `badge` 数字或 `busy` 转圈。挂载时在 `<html>` 上设 CSS 变量 `--bottom-bar-h`，页面用它给滚动区留底部空间。
 - **QAPanelNav**：滚动定位条（scroll-spy 竖向小圆点）是桌面悬浮态交互，< 768px 直接 `display: none`，避免在窄屏右缘压住正文。
 
 ### 主题切换（夜间模式）
@@ -336,7 +337,9 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 #### 窄屏布局
 
-单栏布局（<900px）下，左侧查看器面板隐藏，仅显示论文信息和 Q&A 内容。
+单栏布局（<900px）：
+- **非 embed（手机 / 平板）**：页面底部出现 **mobile bottom bar**（见「响应式 / 移动端布局」），一次只显示一个分区：**Info**（信息卡、引用、笔记卡、Kimi summary）/ **Read**（`PaperViewerPanel`：PDF / 双语 PDF / Markdown / Note 等标签，首次切到 Read 时才挂载，之后 `v-show` 保活）/ **Q&A**（`QAList` + `QAPanelNav`），外加 **Ask** 操作项（打开提问框，手机上全屏）。各分区独立滚动并保留位置；header 不再显示功能按钮，也没有 FAB。深链切分区：`requestedPdfTarget`、`requestedPublicNote`、`?view=note` → Read；`paperInfoRequests`（`revealQAEntry` / `locateBlock` 触发）→ Q&A。信息卡模板 `DefineNarrowInfo` 与 embed 单栏共用。
+- **embed（Zotero 侧栏）**：保持原来的长单栏（信息卡 + Q&A），不显示底部栏。
 
 #### doc2x 提问确认 + 复制全文
 
@@ -1463,7 +1466,9 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 - **`/research`**（`views/ResearchList.vue`，`AppPage` 收窄布局，侧边栏 Research / `Telescope`，需登录）：会话卡片（标题 = 当前版本的列表标题，未有版本时为截断的 topic；topic 摘要、步骤数、版本数、最新状态、更新时间；All 视图显示属主），右上 `ScopeToggle` + 「New research」。新建对话框：Topic + Codex 模型下拉（`/api/config/models` 中 `type: codex` 的模型，默认取 `models.default`，否则第一个）。
 - **从 QA 回答起步**：`QAResultBody` 操作栏（done 且已登录）有 `Telescope`「Deep Research from this answer」链接 → `/research?new=1&seed_result=<resultId>`；列表页读取 query，调 `GET /api/research/seed-preview` 预填（topic 默认为原问题），对话框里显示来源论文与问题，并注明 "The answer is copied into this session; later changes to the Q&A do not affect it."。创建时后端再校验可见性并保存快照（`seed`：论文 id/标题、问题、回答、模型、result id）。
 - **`/research/:id`**（`views/ResearchDetail.vue`，自管布局，标题经 `usePageTitle` 设为会话标题）：
-  - 桌面（≥900px）两栏：左侧为**步骤时间线** + 下一轮输入框（owner 可见；Textarea + Codex 模型下拉，默认沿用最近一轮的模型，⌘/Ctrl+Enter 发送；有进行中回合时仍可输入，按钮变成 **Queue**：消息进入服务端队列（`POST /api/research/:id/steps` 返回 202、`queued: true`），输入框上方列出排队中的消息（虚线框，可逐条 × 移除 → `DELETE /api/research/:id/queue/:messageId`），提示「当前回合结束后合并成一条一起发送」。回合结束后服务端立即派发队列，`stores/research.ts` 在终止事件后刷新会话，若仍有排队消息而新回合还没出现，会每 400ms 再刷新一次（最多 5 次）以接上新回合的流），右侧为**版本视图**。窄屏单栏，版本视图在前。
+  - 桌面（≥900px）两栏：左侧自上而下为下一轮输入框（owner 可见）和**步骤时间线（最新一轮在最上，越往下越旧；起步 QA 卡片在最底）**，每个结束的回合显示用时（`started_at` → `finished_at`，如 `3m 12s`）。输入框（`DefineComposer` 复用模板）：Textarea + Codex 模型下拉，默认沿用最近一轮的模型，⌘/Ctrl+Enter 发送；有进行中回合时仍可输入，按钮变成 **Queue**：消息进入服务端队列（`POST /api/research/:id/steps` 返回 202、`queued: true`），输入框上方列出排队中的消息（虚线框，可逐条 × 移除 → `DELETE /api/research/:id/queue/:messageId`），提示「当前回合结束后合并成一条一起发送」。回合结束后服务端立即派发队列，`stores/research.ts` 在终止事件后刷新会话，若仍有排队消息而新回合还没出现，会每 400ms 再刷新一次（最多 5 次）以接上新回合的流），右侧为**版本视图**。
+  - 窄屏（< 900px）：mobile bottom bar 三个分区 **Instruct**（时间线从旧到新，owner 的输入框固定在屏幕底部、底部栏上方（`data-docked-composer`，排队列表最高 8rem 可滚动，"Add to queue" 只显示图标），进入时滚到最新一轮；回合进行中图标转圈、排队数显示为角标）/ **Report** / **Papers**（版本选择器在上，内部的 Report/Papers 标签隐藏、由底部栏驱动）。打开会话时有版本默认 Report，否则 Instruct。
+  - **分段输入**：空闲时输入框旁有 **Add to queue**（`queue_only: true`，只入队不发送，用于把复杂的指令分几段写）和 **Send**（把排队内容 + 输入框文字合并成一条立即发出；输入框为空但队列非空时也可发送）；回合进行中只有 **Queue**。排队提示文字区分两种情况。
   - 时间线：agent 回合显示序号、状态、模型、`Repaired` 标记（列表来自自动修复）、用户文本、`changes` 说明、「Version n」跳转；进行中回合流式渲染报告（`QAStreamingMarkdown`），`paperlist` 块开始后隐藏原始 JSON，显示「Generating paper list…」（自动修复期间为「Fixing paper list…」）；未产出版本的回合显示原因与可展开的原始回答；最新 agent 回合可 **Retry**（对话框可改文本和模型，替换该回合）、进行中可 **Cancel**。标题编辑步骤显示为一行虚线记录（改了哪些标题）。
   - **工具调用进度**：研究回合的 SSE 有 `tool` 事件（`ResearchToolEvent`：`server`、`tool`、`status`，不落库）。`stores/research.ts` 的 `toolActivity` 记录每个进行中回合的最近一次工具调用与调用次数（回合结束清除）；回合还没有输出文字时，占位从「Agent is thinking…」换成「Calling `s2_search`…」/「Searching the web…」，并附「· N tool calls」。工具本身见 tech-stack.md「Agent 工具（MCP）」。
   - 版本视图：版本下拉（所有历史版本可查看，默认当前版本）、Report / Papers 两个 tab。Report 以 `MarkdownContent` 的 qa-answer 模式渲染（`#cite` 一律经 S2 解析接口成 chip + 卡片，不依赖所属论文），下方折叠「References · N」（`PaperRefList`）。Papers 用 `ResearchPaperList.vue` → `PaperRefList` 的 sections 形态。

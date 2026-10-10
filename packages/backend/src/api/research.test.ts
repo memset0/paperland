@@ -9,7 +9,7 @@ import type { ResearchPaperList } from '@paperland/shared'
 import { getConfig, loadConfig } from '../config.js'
 import * as schema from '../db/schema.js'
 import { setDatabaseForTesting } from '../db/index.js'
-import { dispatchAllQueuedMessages, recoverInterruptedResearchSteps, resetResearchSchedulerForTesting } from '../services/research_runtime.js'
+import { dispatchQueuedMessagesFor, recoverInterruptedResearchSteps, resetResearchSchedulerForTesting } from '../services/research_runtime.js'
 import type { ModelInput } from '../services/model_invoke.js'
 import { researchRoutes, setResearchRunOptionsForTesting } from './research.js'
 import { checkBearerToken } from '../services/api_tokens.js'
@@ -275,17 +275,48 @@ describe('linear steps', () => {
     expect(db.select().from(schema.researchQueuedMessages).all()).toEqual([])
   })
 
-  it('dispatches queued messages on startup after interrupted rounds are marked failed', async () => {
+  it('on startup sends only the queues of sessions whose round was interrupted', async () => {
     const now = new Date().toISOString()
     db.insert(schema.researchSessions).values({ id: 9, user_id: alice.id, topic: 't', created_at: now, updated_at: now }).run()
     db.insert(schema.researchSteps).values({ session_id: 9, step_index: 1, kind: 'agent', user_text: 't', model_name: codexModel, status: 'streaming', created_at: now, updated_at: now }).run()
     db.insert(schema.researchQueuedMessages).values({ session_id: 9, user_id: alice.id, text: 'queued before restart', model_name: codexModel, created_at: now }).run()
-    expect(dispatchAllQueuedMessages()).toBe(0) // still active: nothing sent
-    recoverInterruptedResearchSteps(db as any)
-    expect(dispatchAllQueuedMessages({ callModelFn: async () => 'Restart #1 LIST', parseFn: fakeParse, batchMs: 1 })).toBe(1)
+    // An idle session holding a queue (written in parts) must not be sent by the restart.
+    db.insert(schema.researchSessions).values({ id: 10, user_id: alice.id, topic: 'idle', created_at: now, updated_at: now }).run()
+    db.insert(schema.researchSteps).values({ session_id: 10, step_index: 1, kind: 'agent', user_text: 'idle', model_name: codexModel, status: 'done', created_at: now, updated_at: now }).run()
+    db.insert(schema.researchQueuedMessages).values({ session_id: 10, user_id: alice.id, text: 'draft part', model_name: codexModel, created_at: now }).run()
+    const interrupted = recoverInterruptedResearchSteps(db as any)
+    expect(interrupted).toEqual([9])
+    expect(dispatchQueuedMessagesFor(interrupted, { callModelFn: async () => 'Restart #1 LIST', parseFn: fakeParse, batchMs: 1 })).toBe(1)
+    expect(db.select().from(schema.researchQueuedMessages).where(eq(schema.researchQueuedMessages.session_id, 10)).all()).toHaveLength(1)
     const step = db.select().from(schema.researchSteps).where(and(eq(schema.researchSteps.session_id, 9), eq(schema.researchSteps.step_index, 2))).get()!
     expect(step.user_text).toBe('queued before restart')
     expect((await waitSettled(step.id)).status).toBe('done')
+  })
+
+  it('holds messages added to the queue while idle until an explicit send', async () => {
+    const session = (await create()).json().data
+    await waitSettled(session.steps[0].id)
+    const post = (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: `/api/research/${session.id}/steps`, headers: as(alice), payload: { model_name: codexModel, ...payload } })
+    expect((await post({ queue_only: true })).statusCode).toBe(400) // queue_only needs text
+    expect((await post({})).statusCode).toBe(400) // nothing to send
+    const first = await post({ user_text: 'part 1', queue_only: true })
+    expect(first.statusCode).toBe(202)
+    await post({ user_text: 'part 2', queue_only: true })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(db.select().from(schema.researchSteps).where(eq(schema.researchSteps.session_id, session.id)).all()).toHaveLength(1)
+    const sent = await post({ user_text: 'part 3' })
+    expect(sent.statusCode).toBe(201)
+    const second = sent.json().data.steps[1]
+    expect(second.user_text).toBe('part 1\npart 2\npart 3')
+    expect(sent.json().data.queued_messages).toEqual([])
+    await waitSettled(second.id)
+
+    // Sending with an empty input sends the queue alone.
+    await post({ user_text: 'only queued', queue_only: true })
+    const flushed = await post({ user_text: '' })
+    expect(flushed.statusCode).toBe(201)
+    expect(flushed.json().data.steps[2].user_text).toBe('only queued')
+    await waitSettled(flushed.json().data.steps[2].id)
   })
 
   it('retries only the latest agent round, replacing it in place', async () => {
@@ -364,7 +395,7 @@ describe('linear steps', () => {
     const now = new Date().toISOString()
     db.insert(schema.researchSessions).values({ id: 9, user_id: alice.id, topic: 't', created_at: now, updated_at: now }).run()
     db.insert(schema.researchSteps).values({ session_id: 9, step_index: 1, kind: 'agent', user_text: 't', model_name: codexModel, status: 'streaming', created_at: now, updated_at: now }).run()
-    expect(recoverInterruptedResearchSteps(db as any)).toBe(1)
+    expect(recoverInterruptedResearchSteps(db as any)).toEqual([9])
     const row = db.select().from(schema.researchSteps).where(eq(schema.researchSteps.session_id, 9)).get()!
     expect(row).toMatchObject({ status: 'failed', error: 'interrupted by server restart' })
   })

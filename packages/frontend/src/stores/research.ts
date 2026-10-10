@@ -161,10 +161,12 @@ export const useResearchStore = defineStore('research', () => {
     return detail
   }
 
-  async function submit(userText: string, modelName: string) {
+  /** Send (idle: starts a round with the queue + this text) or, with `queueOnly`, just add to the queue. */
+  async function submit(userText: string, modelName: string, queueOnly = false) {
     if (!current.value) return
-    setDetail((await researchApi.submit(current.value.id, { user_text: userText, model_name: modelName })).data)
+    setDetail((await researchApi.submit(current.value.id, { user_text: userText, model_name: modelName, queue_only: queueOnly })).data)
   }
+
 
   /** Remove a queued message before the active round ends and sends it. */
   async function removeQueued(messageId: number) {

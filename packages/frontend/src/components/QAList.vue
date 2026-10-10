@@ -267,14 +267,14 @@ function openTree() {
 <template>
   <!-- Preset Q&A Card -->
   <Card v-if="templateEntries.length" class="overflow-hidden gap-0 py-0">
-    <div class="flex items-center justify-between border-b px-5 py-3">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3">
       <div class="flex items-center gap-2">
         <h3 class="text-sm font-semibold">Preset Q&A</h3>
         <span v-if="store.polling" class="inline-flex items-center gap-1 text-[10px] text-primary">
           <Loader2 class="h-3 w-3 animate-spin" /> Generating…
         </span>
       </div>
-      <div class="flex items-center gap-1.5">
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
         <!-- Page-wide highlight overlay scope (applies to every answer on this paper) -->
         <HighlightScopeToggle class="mr-1" size="sm" />
         <Button variant="ghost" size="icon-sm" title="Q&A tree (floating window)" @click="openTree">
@@ -382,14 +382,14 @@ function openTree() {
 
   <!-- User Q&A Card -->
   <Card v-if="auth.isAuthenticated" class="overflow-hidden gap-0 py-0">
-    <div class="flex items-center justify-between border-b px-5 py-3">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3">
       <div class="flex items-center gap-2">
         <h3 class="text-sm font-semibold">User Q&A</h3>
         <span v-if="store.polling" class="inline-flex items-center gap-1 text-[10px] text-primary">
           <Loader2 class="h-3 w-3 animate-spin" /> Generating…
         </span>
       </div>
-      <div class="flex items-center gap-1.5">
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
         <!-- Same page-wide highlight scope as the Preset Q&A header (one store value, so both stay in sync);
              others' shared User Q&A can be highlighted too. -->
         <HighlightScopeToggle class="mr-1" size="sm" />

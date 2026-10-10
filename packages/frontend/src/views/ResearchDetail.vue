@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, ChevronRight, Clock, History, ListPlus, Loader2, Pencil, RotateCcw, Send, Square, Trash2, TriangleAlert, X,
+  ArrowLeft, ChevronRight, Clock, FileText, History, Library, ListPlus, Loader2, MessageSquareText, Pencil, RotateCcw, Send, Square, Trash2, TriangleAlert, X,
 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import type { ResearchStep, ResearchStepStatus } from '@paperland/shared'
@@ -22,6 +22,9 @@ import ResearchPaperList from '@/components/ResearchPaperList.vue'
 import { extractCiteLinks } from '@/lib/cite-links'
 import { listTitle, sectionTitles, splitStreamingAnswer } from '@/lib/research-list'
 import { usePageTitle } from '@/composables/usePageTitle'
+import { useNarrowLayout } from '@/composables/useNarrowLayout'
+import MobileBottomBar, { type BottomBarItem } from '@/components/MobileBottomBar.vue'
+import { createReusableTemplate, useElementSize } from '@vueuse/core'
 import { isActiveStep, useResearchStore, versionSteps } from '@/stores/research'
 
 const route = useRoute()
@@ -48,6 +51,31 @@ const selectedVersionNumber = computed(() => selectedVersion.value ? versions.va
 const viewingLatest = computed(() => selectedVersionNumber.value === versions.value.length)
 const previousVersion = computed(() => selectedVersionNumber.value > 1 ? versions.value[selectedVersionNumber.value - 2] : null)
 const versionTab = ref<'report' | 'papers'>('report')
+
+// ── Narrow layout: Instruct / Report / Papers sections switched from the mobile bottom bar ──
+const narrow = useNarrowLayout()
+type ResearchSection = 'instruct' | 'report' | 'papers'
+const mobileSection = ref<ResearchSection>('report')
+watch(mobileSection, (section) => { if (section !== 'instruct') versionTab.value = section })
+// Wide: input on top, newest round first. Narrow: oldest first, the newest next to the fixed input.
+const orderedSteps = computed(() => (narrow.value ? steps.value : [...steps.value].reverse()))
+const [DefineComposer, Composer] = createReusableTemplate<{ docked?: boolean }>()
+const dockedComposer = ref<HTMLElement | null>(null)
+const { height: dockedComposerHeight } = useElementSize(dockedComposer, undefined, { box: 'border-box' })
+const bottomBarItems = computed<BottomBarItem[]>(() => [
+  { key: 'instruct', label: 'Instruct', icon: MessageSquareText, busy: !!activeStep.value, badge: session.value?.queued_messages.length },
+  { key: 'report', label: 'Report', icon: FileText },
+  { key: 'papers', label: 'Papers', icon: Library },
+])
+/** Scroll the page (the app's <main>) to the end, where the newest round sits on narrow screens. */
+function scrollToNewest() {
+  void nextTick(() => {
+    const main = document.querySelector('main')
+    main?.scrollTo({ top: main.scrollHeight })
+  })
+}
+watch(mobileSection, (section) => { if (section === 'instruct') scrollToNewest() })
+watch(() => steps.value.length, () => { if (narrow.value && mobileSection.value === 'instruct') scrollToNewest() })
 const refsOpen = ref(false)
 const reportCites = computed(() =>
   extractCiteLinks(selectedVersion.value?.report ?? '').map((link) => ({ id: link.id, fallback_text: link.text })),
@@ -63,6 +91,7 @@ async function load(id: number) {
   selectedVersionStepId.value = null
   try {
     await Promise.all([store.openSession(id), store.fetchModels().catch(() => {})])
+    mobileSection.value = versions.value.length ? 'report' : 'instruct'
   } catch {
     router.replace('/research')
   }
@@ -82,16 +111,29 @@ watch(() => [store.latestModel, store.defaultModel] as const, ([latest, fallback
   if (!nextModel.value) nextModel.value = latest ?? fallback
 }, { immediate: true })
 
-async function submitRound() {
-  if (!nextText.value.trim() || !nextModel.value) return
+/** Send now (idle: the queue + this text start a round) or add to the queue (`queueOnly`). */
+async function submitRound(queueOnly = false) {
+  const text = nextText.value.trim()
+  if (!nextModel.value || (!text && (queueOnly || !queuedMessages.value.length))) return
   submitting.value = true
   try {
-    await store.submit(nextText.value.trim(), nextModel.value)
+    await store.submit(text, nextModel.value, queueOnly)
     nextText.value = ''
-    selectedVersionStepId.value = null
+    if (!queueOnly) selectedVersionStepId.value = null
   } finally {
     submitting.value = false
   }
+}
+const canSend = computed(() => !!nextModel.value && (!!nextText.value.trim() || queuedMessages.value.length > 0))
+
+/** "3m 12s" for a finished round (started → finished). */
+function roundDuration(step: ResearchStep): string | null {
+  if (!step.started_at || !step.finished_at) return null
+  const seconds = Math.max(0, Math.round((Date.parse(step.finished_at) - Date.parse(step.started_at)) / 1000))
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const sec = seconds % 60
+  return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`
 }
 
 // ── Retry / cancel ──
@@ -179,7 +221,51 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
 </script>
 
 <template>
-  <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-6">
+  <div
+    class="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-6"
+    :style="narrow ? { paddingBottom: `calc(var(--bottom-bar-h, 56px) + ${mobileSection === 'instruct' ? dockedComposerHeight : 0}px + 16px)` } : undefined"
+  >
+    <!-- Next-round input (while a round runs, messages are queued and sent together when it ends):
+         a card at the top of the left column on wide screens, docked above the bottom bar on narrow ones -->
+    <DefineComposer v-slot="{ docked }">
+      <div :class="docked ? 'space-y-2' : 'space-y-2 rounded-md border bg-card p-3'">
+        <div v-if="queuedMessages.length" class="space-y-1.5" :class="docked ? 'max-h-32 overflow-y-auto' : ''">
+          <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock class="size-3.5" />{{ activeStep ? 'Queued — sent together as one message when the current round finishes' : 'Queued — sent together with your next message when you press Send' }}
+          </p>
+          <div v-for="m in queuedMessages" :key="m.id" class="flex items-start gap-2 rounded border border-dashed bg-muted/40 px-2 py-1.5">
+            <p class="min-w-0 flex-1 whitespace-pre-wrap text-sm">{{ m.text }}</p>
+            <Button variant="ghost" size="icon-sm" title="Remove from queue" @click="store.removeQueued(m.id)"><X /></Button>
+          </div>
+        </div>
+        <Textarea
+          v-model="nextText" :rows="docked ? 2 : 3"
+          :placeholder="activeStep ? 'Queue a message for when the current round finishes…' : 'Tell the agent how to refine the research…'"
+          @keydown.meta.enter="submitRound()" @keydown.ctrl.enter="submitRound()"
+        />
+        <div class="flex items-center gap-2">
+          <Select v-model="nextModel">
+            <SelectTrigger class="h-8 min-w-0 flex-1"><SelectValue placeholder="Codex model" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="m in store.codexModels" :key="m" :value="m">{{ m }}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            v-if="!activeStep" variant="outline" size="sm" :disabled="!nextText.trim() || !nextModel || submitting"
+            title="Add to the queue without sending, to write a long instruction in parts" @click="submitRound(true)"
+          >
+            <ListPlus /><span :class="docked ? 'sr-only' : ''">Add to queue</span>
+          </Button>
+          <Button size="sm" :disabled="(activeStep ? !nextText.trim() || !nextModel : !canSend) || submitting" @click="submitRound()">
+            <Loader2 v-if="submitting" class="animate-spin" /><ListPlus v-else-if="activeStep" /><Send v-else />{{ activeStep ? 'Queue' : 'Send' }}
+          </Button>
+        </div>
+        <p v-if="!viewingLatest" class="text-xs text-muted-foreground">
+          New rounds build on the current version ({{ versions.length }}). To build on version {{ selectedVersionNumber }}, use "Continue from this version" first.
+        </p>
+      </div>
+    </DefineComposer>
+
     <!-- Header -->
     <div class="flex items-start gap-2">
       <Button variant="ghost" size="icon-sm" class="mt-0.5 shrink-0" title="Back to Research" @click="router.push('/research')">
@@ -201,8 +287,8 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
     </div>
 
     <div v-else-if="session" class="grid grid-cols-1 gap-6 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <!-- Version view (first on narrow screens) -->
-      <section class="order-1 min-w-0 min-[900px]:order-2">
+      <!-- Version view (right column; Report / Papers sections on narrow screens) -->
+      <section v-show="!narrow || mobileSection !== 'instruct'" class="order-1 min-w-0 min-[900px]:order-2">
         <div v-if="!selectedVersion" class="rounded-md border bg-card p-10 text-center text-sm text-muted-foreground">
           <template v-if="activeStep">The first version is being written…</template>
           <template v-else>No version yet.</template>
@@ -232,7 +318,7 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
           </div>
           <h2 class="mb-2 text-base font-semibold">{{ listTitle(selectedVersion.paper_list!) }}</h2>
           <Tabs v-model="versionTab">
-            <TabsList>
+            <TabsList v-if="!narrow">
               <TabsTrigger value="report">Report</TabsTrigger>
               <TabsTrigger value="papers">Papers</TabsTrigger>
             </TabsList>
@@ -255,16 +341,17 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
         </template>
       </section>
 
-      <!-- Timeline + next round -->
-      <section class="order-2 min-w-0 space-y-3 min-[900px]:order-1">
-        <div v-if="session.seed" class="rounded-md border bg-muted/40 p-3 text-xs">
+      <!-- Timeline + next round (left column; Instruct section on narrow screens) -->
+      <section v-show="!narrow || mobileSection === 'instruct'" class="order-2 flex min-w-0 flex-col gap-3 min-[900px]:order-1">
+        <Composer v-if="canEdit && !narrow" />
+        <div v-if="session.seed" class="rounded-md border bg-muted/40 p-3 text-xs" :class="narrow ? '' : 'order-last'">
           <div class="font-medium">Started from a Q&A answer</div>
           <RouterLink :to="`/papers/${session.seed.paper_id}`" class="mt-1 block text-muted-foreground hover:underline">{{ session.seed.paper_title }}</RouterLink>
           <div class="mt-1 line-clamp-3">Q: {{ session.seed.question }}</div>
         </div>
 
         <ol class="space-y-2">
-          <li v-for="step in steps" :key="step.id">
+          <li v-for="step in orderedSteps" :key="step.id">
             <!-- Owner title edit -->
             <div v-if="step.kind === 'title_edit'" class="flex items-start gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
               <Pencil class="mt-0.5 size-3.5 shrink-0" />
@@ -284,6 +371,7 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
                 </Badge>
                 <Badge v-if="step.model_name" variant="outline" class="max-w-40 truncate">{{ step.model_name }}</Badge>
                 <Badge v-if="step.repaired" variant="outline" title="The paper list was fixed by an automatic repair request">Repaired</Badge>
+                <span v-if="!isActiveStep(step) && roundDuration(step)" class="text-xs text-muted-foreground" title="Time from start to finish">{{ roundDuration(step) }}</span>
                 <button
                   v-if="versionNumberOf(step)" type="button"
                   class="ml-auto text-xs text-primary hover:underline"
@@ -332,39 +420,21 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
           </li>
         </ol>
 
-        <!-- Next round (while a round runs, messages are queued and sent together when it ends) -->
-        <div v-if="canEdit" class="space-y-2 rounded-md border bg-card p-3">
-          <div v-if="queuedMessages.length" class="space-y-1.5">
-            <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Clock class="size-3.5" />Queued — sent together as one message when the current round finishes
-            </p>
-            <div v-for="m in queuedMessages" :key="m.id" class="flex items-start gap-2 rounded border border-dashed bg-muted/40 px-2 py-1.5">
-              <p class="min-w-0 flex-1 whitespace-pre-wrap text-sm">{{ m.text }}</p>
-              <Button variant="ghost" size="icon-sm" title="Remove from queue" @click="store.removeQueued(m.id)"><X /></Button>
-            </div>
-          </div>
-          <Textarea
-            v-model="nextText" rows="3"
-            :placeholder="activeStep ? 'Queue a message for when the current round finishes…' : 'Tell the agent how to refine the research…'"
-            @keydown.meta.enter="submitRound" @keydown.ctrl.enter="submitRound"
-          />
-          <div class="flex items-center gap-2">
-            <Select v-model="nextModel">
-              <SelectTrigger class="h-8 min-w-0 flex-1"><SelectValue placeholder="Codex model" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="m in store.codexModels" :key="m" :value="m">{{ m }}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button size="sm" :disabled="!nextText.trim() || !nextModel || submitting" @click="submitRound">
-              <Loader2 v-if="submitting" class="animate-spin" /><ListPlus v-else-if="activeStep" /><Send v-else />{{ activeStep ? 'Queue' : 'Send' }}
-            </Button>
-          </div>
-          <p v-if="!viewingLatest" class="text-xs text-muted-foreground">
-            New rounds build on the current version ({{ versions.length }}). To build on version {{ selectedVersionNumber }}, use "Continue from this version" first.
-          </p>
-        </div>
       </section>
     </div>
+
+    <!-- Narrow screens: the input docked above the bottom bar (Instruct section), and the bar itself -->
+    <template v-if="narrow && session">
+      <div
+        v-if="canEdit" v-show="mobileSection === 'instruct'" ref="dockedComposer"
+        class="fixed left-0 right-0 z-30 border-t bg-background/95 px-3 py-2 backdrop-blur md:left-[52px]"
+        :style="{ bottom: 'var(--bottom-bar-h, 56px)' }"
+        data-docked-composer
+      >
+        <Composer :docked="true" />
+      </div>
+      <MobileBottomBar v-model="mobileSection" :items="bottomBarItems" />
+    </template>
 
     <!-- Retry -->
     <Dialog v-model:open="retryOpen">
