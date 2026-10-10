@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import AppPage from '@/components/AppPage.vue'
 import InstallAppCard from '@/components/settings/InstallAppCard.vue'
 import AccountSettings from '@/components/settings/AccountSettings.vue'
+import UsageRecalculate from '@/components/settings/UsageRecalculate.vue'
 import UsageSection from '@/components/settings/UsageSection.vue'
 import UsageLeaderboard from '@/components/settings/UsageLeaderboard.vue'
 import { usePendingRegistrations } from '@/composables/usePendingRegistrations'
@@ -259,6 +260,8 @@ function copyToken() {
       </Table>
       <div v-if="!store.tokens.length" class="text-center py-10 text-sm text-muted-foreground">No tokens</div>
     </Card>
+
+    <UsageRecalculate />
 
     <UsageLeaderboard />
 

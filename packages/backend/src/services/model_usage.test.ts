@@ -12,7 +12,7 @@ import * as schema from '../db/schema.js'
 import { setDatabaseForTesting } from '../db/index.js'
 import { runQA } from '../api/qa.js'
 import { usageRoutes } from '../api/usage.js'
-import { estimateCost, recordModelUsage, usageLeaderboard, userUsage } from './model_usage.js'
+import { estimateCost, recalculateCosts, recordModelUsage, usageLeaderboard, userUsage } from './model_usage.js'
 import { translateText } from './translation_service.js'
 
 const realFetch = globalThis.fetch
@@ -182,5 +182,49 @@ describe('usage API', () => {
     expect((await app.inject({ url: '/api/usage/leaderboard', headers: { 'x-test-user': '1' } })).statusCode).toBe(403)
     const board = (await app.inject({ url: '/api/usage/leaderboard', headers: { 'x-test-user': '3' } })).json().data
     expect(board).toEqual([expect.objectContaining({ user_id: alice.id, username: 'alice', calls: 1 })])
+  })
+})
+
+describe('cost recalculation', () => {
+  function row(model: string, createdAt: string, cost: number | null) {
+    return db.insert(schema.modelUsage).values({
+      category: 'qa', user_id: alice.id, model_name: model, input_tokens: 30000, cached_input_tokens: 25000,
+      output_tokens: 100, total_tokens: 30100, cost_usd: cost, created_at: createdAt,
+    }).returning().get().id
+  }
+  const costOf = (id: number) => db.select().from(schema.modelUsage).where(eq(schema.modelUsage.id, id)).get()!.cost_usd
+
+  it('recomputes from tokens and current pricing, within an inclusive UTC day range, skipping unpriced models', () => {
+    const before = row('priced', '2026-10-09T23:59:59.000Z', null)
+    const first = row('priced', '2026-10-10T00:00:00.000Z', null)
+    const last = row('priced', '2026-10-10T23:59:59.999Z', 99)
+    const after = row('priced', '2026-10-11T00:00:00.000Z', null)
+    const unpriced = row('unpriced', '2026-10-10T12:00:00.000Z', 5)
+    const removed = row('codex-removed-model', '2026-10-10T12:00:00.000Z', 7)
+
+    expect(recalculateCosts({ from: '2026-10-10', to: '2026-10-10' })).toEqual({ updated: 2, skipped: 2, skipped_models: ['codex-removed-model', 'unpriced'] })
+    expect(costOf(first)).toBeCloseTo(0.010375, 9)
+    expect(costOf(last)).toBeCloseTo(0.010375, 9)
+    expect(costOf(before)).toBeNull()
+    expect(costOf(after)).toBeNull()
+    expect(costOf(unpriced)).toBe(5)
+    expect(costOf(removed)).toBe(7)
+
+    expect(recalculateCosts({}).updated).toBe(4)
+    expect(costOf(before)).toBeCloseTo(0.010375, 9)
+    expect(recalculateCosts({ from: '2026-10-11' }).updated).toBe(1)
+  })
+
+  it('is admin-only and validates the range', async () => {
+    const id = row('priced', '2026-10-10T12:00:00.000Z', null)
+    const post = (user: string | null, payload: unknown) => app.inject({ method: 'POST', url: '/api/usage/recalculate', headers: user ? { 'x-test-user': user } : {}, payload: payload as any })
+    expect((await post(null, {})).statusCode).toBe(401)
+    expect((await post('1', {})).statusCode).toBe(403)
+    expect(costOf(id)).toBeNull()
+    expect((await post('3', { from: '2026-13-01' })).statusCode).toBe(400)
+    expect((await post('3', { from: '2026-10-11', to: '2026-10-10' })).statusCode).toBe(400)
+    const ok = await post('3', { from: '2026-10-10', to: '' })
+    expect(ok.json().data).toEqual({ updated: 1, skipped: 0, skipped_models: [] })
+    expect(costOf(id)).toBeCloseTo(0.010375, 9)
   })
 })

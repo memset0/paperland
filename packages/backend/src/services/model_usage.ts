@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm'
 import type { ModelPricing, MyUsage, UsageCategory, UsageLeaderboardEntry, UsageTotals } from '@paperland/shared'
 import { getConfig } from '../config.js'
 import { getDatabase, schema } from '../db/index.js'
@@ -103,4 +103,64 @@ export function usageLeaderboard(days?: number): UsageLeaderboardEntry[] {
     .groupBy(schema.modelUsage.user_id)
     .orderBy(desc(cost), desc(tokens))
     .all()
+}
+
+// ---- recalculation ----
+
+export interface RecalculateRange {
+  /** Inclusive UTC day `YYYY-MM-DD`; omitted = open. */
+  from?: string
+  to?: string
+}
+
+export interface RecalculateResult {
+  updated: number
+  skipped: number
+  skipped_models: string[]
+}
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Parse a `YYYY-MM-DD` day to its UTC start, or null when it is not a real date. */
+export function parseUtcDay(day: string): Date | null {
+  if (!DAY_RE.test(day)) return null
+  const date = new Date(`${day}T00:00:00.000Z`)
+  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== day ? null : date
+}
+
+/**
+ * Recompute `cost_usd` from stored tokens and the current `pricing` of each row's model, for rows
+ * created in the inclusive UTC day range. Rows whose model is unconfigured or unpriced keep their cost.
+ */
+export function recalculateCosts(range: RecalculateRange = {}): RecalculateResult {
+  const db = getDatabase()
+  const u = schema.modelUsage
+  const conditions: SQL[] = []
+  if (range.from) conditions.push(gte(u.created_at, parseUtcDay(range.from)!.toISOString()))
+  if (range.to) conditions.push(lt(u.created_at, new Date(parseUtcDay(range.to)!.getTime() + 86_400_000).toISOString()))
+  const inRange = conditions.length ? and(...conditions) : undefined
+  const pricing = new Map(getConfig().models.available.filter((m) => m.pricing).map((m) => [m.name, m.pricing!]))
+
+  const counts = db.select({ model_name: u.model_name, n: sql<number>`count(*)` })
+    .from(u).where(inRange).groupBy(u.model_name).all()
+  const result: RecalculateResult = { updated: 0, skipped: 0, skipped_models: [] }
+  db.transaction((tx) => {
+    for (const { model_name, n } of counts) {
+      const p = pricing.get(model_name)
+      if (!p) {
+        result.skipped += n
+        result.skipped_models.push(model_name)
+        continue
+      }
+      // Same formula as estimateCost: cached input clamped to input, cached price defaults to input.
+      const cached = sql`min(${u.cached_input_tokens}, ${u.input_tokens})`
+      tx.update(u)
+        .set({ cost_usd: sql`((${u.input_tokens} - ${cached}) * ${p.input} + ${cached} * ${p.cached_input ?? p.input} + ${u.output_tokens} * ${p.output}) / 1000000.0` })
+        .where(and(eq(u.model_name, model_name), inRange))
+        .run()
+      result.updated += n
+    }
+  })
+  result.skipped_models.sort()
+  return result
 }

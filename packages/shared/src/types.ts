@@ -867,3 +867,10 @@ export interface UsageLeaderboardEntry extends UsageTotals {
   username: string | null
   nickname: string | null
 }
+
+/** `POST /api/usage/recalculate` (admin): rows recomputed, and rows/models skipped for lack of pricing. */
+export interface UsageRecalculateResult {
+  updated: number
+  skipped: number
+  skipped_models: string[]
+}
