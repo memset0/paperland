@@ -55,6 +55,37 @@ describe('OpenAIProvider streaming', () => {
     expect(requestBody.stream).toBe(true)
   })
 
+  test('requests and reports streaming usage from the final chunk', async () => {
+    process.env.PAPERLAND_OPENAI_STREAM_TEST_KEY = 'test-key'
+    let requestBody: any
+    globalThis.fetch = (async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body))
+      return streamingResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+        'data: {"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":7,"total_tokens":57,"prompt_tokens_details":{"cached_tokens":40},"completion_tokens_details":{"reasoning_tokens":2}}}\n\n',
+        'data: [DONE]\n\n',
+      ])
+    }) as typeof fetch
+    const reports: unknown[] = []
+    await expect(openAIProvider.invoke('q', config, { onUsage: (u) => { reports.push(u) } })).resolves.toBe('hi')
+    expect(requestBody.stream_options).toEqual({ include_usage: true })
+    expect(reports).toEqual([{ input_tokens: 50, cached_input_tokens: 40, output_tokens: 7, reasoning_tokens: 2, total_tokens: 57 }])
+  })
+
+  test('reports JSON response usage and stays silent without usage', async () => {
+    process.env.PAPERLAND_OPENAI_STREAM_TEST_KEY = 'test-key'
+    const jsonConfig = { ...config, stream: false }
+    globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: 'x' } }], usage: { prompt_tokens: 10, completion_tokens: 2 } })) as typeof fetch
+    const reports: unknown[] = []
+    await expect(openAIProvider.invoke('q', jsonConfig, { onUsage: (u) => { reports.push(u) } })).resolves.toBe('x')
+    expect(reports).toEqual([{ input_tokens: 10, cached_input_tokens: 0, output_tokens: 2, reasoning_tokens: 0, total_tokens: 12 }])
+
+    globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: 'y' } }] })) as typeof fetch
+    const none: unknown[] = []
+    await openAIProvider.invoke('q', jsonConfig, { onUsage: (u) => { none.push(u) } })
+    expect(none).toEqual([])
+  })
+
   test('supports final-string callers, HTTP errors, and pre-abort', async () => {
     process.env.PAPERLAND_OPENAI_STREAM_TEST_KEY = 'test-key'
     globalThis.fetch = (async () => streamingResponse([

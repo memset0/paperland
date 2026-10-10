@@ -16,7 +16,7 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 
 ### MCP 服务器（`/mcp`）
 
-`POST /mcp` 是 Paperland 的只读 MCP 服务器（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal 与 agent** 两种 token，按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
+`POST /mcp` 是 Paperland 的 MCP 服务器（除 `upload_image` 外全部只读）（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal 与 agent** 两种 token，按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token，Codex QA 回合注入提问者的 agent token（只开放 `upload_image`）。`upload_image` 用 `data`（base64 或 data URL，请求体上限随图床 `max_size_mb`）上传图片到图床并返回可嵌入的 Markdown；按服务器本地路径（`path`）上传只对 agent token 开放。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
 
 ---
 

@@ -36,9 +36,15 @@ export async function callModel(
   return provider.invoke(toModelInput(input), modelConfig, options)
 }
 
+/** Whether a configured model runs on Codex app-server, the only path that can attach MCP tools. */
+export function modelSupportsAgentTools(modelName: string): boolean {
+  const { modelConfig } = resolveModel(modelName)
+  return modelConfig.type === 'codex' && modelConfig.stream === true
+}
+
 /** Whether a configured model accepts image input (`vision: true`). */
 export function modelSupportsVision(modelName: string): boolean {
   return resolveModel(modelName).modelConfig.vision === true
 }
 
-export type { ModelCapabilities, ModelInput, ModelInputPart, ModelInvokeOptions } from './model_providers/types.js'
+export type { ModelCapabilities, ModelInput, ModelInputPart, ModelInvokeOptions, ModelUsage } from './model_providers/types.js'

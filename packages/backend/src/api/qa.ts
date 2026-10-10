@@ -5,6 +5,8 @@ import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { loadTemplates, loadTemplate } from '../services/template_loader.js'
 import { askQuestion, resolveContent } from '../services/qa_service.js'
+import { recordModelUsage } from '../services/model_usage.js'
+import type { ModelUsage } from '../services/model_invoke.js'
 import { getModelCapabilities } from '../services/model_invoke.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { touchPaperUpdatedAt } from '../db/utils.js'
@@ -369,7 +371,10 @@ export async function runQA(
 
     const writer = createPartialAnswerWriter({ db, entryId, resultId: result.id, batchMs })
     try {
-      const res = await askFn(paperId, prompt, modelName, { onChunk: writer.onChunk, signal, entryId })
+      const onUsage = (usage: ModelUsage) => recordModelUsage({
+        category: 'qa', userId: options.requestedByUserId, sourceId: result.id, modelName, usage,
+      })
+      const res = await askFn(paperId, prompt, modelName, { onChunk: writer.onChunk, onUsage, signal, entryId, agentUserId: options.requestedByUserId })
       writer.flushNow()
       const finishedAt = new Date().toISOString()
       const completed = updateResultIfActive(db, result.id, {

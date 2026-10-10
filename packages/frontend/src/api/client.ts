@@ -186,7 +186,7 @@ export const translationApi = {
 }
 
 // Auth + user management API
-import type { MyApiTokens, SessionUser, User, UserRole } from '@paperland/shared'
+import type { MyApiTokens, MyUsage, SessionUser, UsageLeaderboardEntry, User, UserRole } from '@paperland/shared'
 
 export const authApi = {
   me: () => api.get<{ user: SessionUser | null; registration_enabled: boolean }>('/api/auth/me'),
@@ -264,6 +264,11 @@ export const myTokensApi = {
   create: () => api.post<{ data: { id: number; token: string; created_at: string } }>('/api/auth/me/tokens'),
   revoke: (id: number) => api.delete<{ success: boolean }>(`/api/auth/me/tokens/${id}`),
   resetAgent: () => api.post<{ data: MyApiTokens['agent'] }>('/api/auth/me/agent-token/reset'),
+}
+
+export const usageApi = {
+  me: (days?: number) => api.get<{ data: MyUsage }>(`/api/usage/me${days ? `?days=${days}` : ''}`),
+  leaderboard: (days?: number) => api.get<{ data: UsageLeaderboardEntry[] }>(`/api/usage/leaderboard${days ? `?days=${days}` : ''}`),
 }
 
 export const usersApi = {

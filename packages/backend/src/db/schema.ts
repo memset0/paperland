@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, index, unique, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, primaryKey, index, unique, uniqueIndex, real } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 
 // User accounts. Website credentials live here (not in config.yml).
@@ -341,4 +341,27 @@ export const researchSteps = sqliteTable('research_steps', {
   updated_at: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('research_steps_session_step_unq').on(table.session_id, table.step_index),
+])
+
+// Token usage and estimated cost of one model invocation. A separate ledger (not columns on the
+// request tables): `category` says what caused the call and the matching source FK points at it;
+// FKs are SET NULL on delete so spending history survives deleting the source.
+export const modelUsage = sqliteTable('model_usage', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  category: text('category').notNull(), // qa | research | translation
+  user_id: integer('user_id').references(() => users.id, { onDelete: 'set null' }),
+  qa_result_id: integer('qa_result_id').references(() => qaResults.id, { onDelete: 'set null' }),
+  research_step_id: integer('research_step_id').references(() => researchSteps.id, { onDelete: 'set null' }),
+  translation_id: integer('translation_id').references(() => translations.id, { onDelete: 'set null' }),
+  model_name: text('model_name').notNull(),
+  input_tokens: integer('input_tokens').notNull().default(0), // includes cached input
+  cached_input_tokens: integer('cached_input_tokens').notNull().default(0),
+  output_tokens: integer('output_tokens').notNull().default(0), // includes reasoning
+  reasoning_tokens: integer('reasoning_tokens').notNull().default(0),
+  total_tokens: integer('total_tokens').notNull().default(0),
+  cost_usd: real('cost_usd'), // estimate from the model's configured pricing; null = no pricing
+  created_at: text('created_at').notNull(),
+}, (table) => [
+  index('model_usage_user_idx').on(table.user_id),
+  index('model_usage_created_idx').on(table.created_at),
 ])

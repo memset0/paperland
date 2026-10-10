@@ -58,7 +58,7 @@ The config SHALL support a `services` map where each key is a service name and t
 - **THEN** the system SHALL configure arxiv service to allow max 3 concurrent executions with 3-second cooldown between requests
 
 ### Requirement: Models configuration
-The config SHALL support a `models` section with `default` (string) and `available` (array of model definitions). Each definition SHALL have `name` and one of exactly two supported provider types: `openai_api` or `codex`. Each definition MAY set `vision` (boolean, default `false`) declaring that the model accepts image input; only vision models SHALL be selectable for Q&A entries with image inputs. Both providers SHALL use an optional `stream` boolean whose absent value defaults to `false`. An `openai_api` definition SHALL retain `endpoint` and `api_key_env`; `stream: false` SHALL use the existing JSON Chat Completions response and `stream: true` SHALL use Chat Completions SSE. A `codex` definition SHALL be independent from OpenAI API fields; `stream: false` SHALL use ephemeral `codex exec`, while `stream: true` SHALL use app-server and require `cli_path`, `codex_home`, provider `model_id`, and MAY configure `reasoning_effort`, timeout, and working directory. The backend SHALL pass `codex_home` to the child as `CODEX_HOME` without copying or parsing its credentials. The former `claude_cli` and `codex_cli` types SHALL be rejected after this breaking change.
+The config SHALL support a `models` section with `default` (string) and `available` (array of model definitions). Each definition SHALL have `name` and one of exactly two supported provider types: `openai_api` or `codex`. Each definition MAY set `vision` (boolean, default `false`) declaring that the model accepts image input; only vision models SHALL be selectable for Q&A entries with image inputs. Both providers SHALL use an optional `stream` boolean whose absent value defaults to `false`. An `openai_api` definition SHALL retain `endpoint` and `api_key_env`; `stream: false` SHALL use the existing JSON Chat Completions response and `stream: true` SHALL use Chat Completions SSE. A `codex` definition SHALL be independent from OpenAI API fields; `stream: false` SHALL use ephemeral `codex exec`, while `stream: true` SHALL use app-server and require `cli_path`, `codex_home`, provider `model_id`, and MAY configure `reasoning_effort`, timeout, and working directory. The backend SHALL pass `codex_home` to the child as `CODEX_HOME` without copying or parsing its credentials. The former `claude_cli` and `codex_cli` types SHALL be rejected after this breaking change. Each definition MAY set `pricing` with `input`, `cached_input` (optional) and `output` prices in USD per million tokens, used only to estimate the cost of recorded token usage.
 
 #### Scenario: OpenAI API model configured
 - **WHEN** config.yml contains a model with `type: openai_api`, `endpoint`, and `api_key_env`
@@ -87,6 +87,14 @@ The config SHALL support a `models` section with `default` (string) and `availab
 #### Scenario: Vision flag defaults to false
 - **WHEN** a model definition omits `vision`
 - **THEN** it SHALL be treated as not accepting image input
+
+#### Scenario: Pricing configured
+- **WHEN** a model definition sets `pricing: { input: 1.25, cached_input: 0.125, output: 10 }`
+- **THEN** config loading SHALL accept it and usage of that model SHALL be costed with those rates
+
+#### Scenario: Invalid pricing rejected
+- **WHEN** a `pricing` value is negative or not a number
+- **THEN** config loading SHALL fail with a path-specific error
 
 ### Requirement: Translation model selection is configuration-driven
 The existing `translation.model` field SHALL remain the translation service's dedicated default model selector. When present it SHALL match a `models.available[].name`; when absent the existing `models.default` fallback SHALL remain unchanged. An invalid translation-model reference SHALL fail startup rather than fail on the first translation request.

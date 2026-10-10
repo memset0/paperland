@@ -42,6 +42,7 @@ import { s2Routes } from './api/s2.js'
 import { researchRoutes } from './api/research.js'
 import { mcpRoutes } from './api/mcp.js'
 import { tokenRoutes } from './api/tokens.js'
+import { usageRoutes } from './api/usage.js'
 import { recoverInterruptedResearchSteps } from './services/research_runtime.js'
 import { registerFrontendHosting } from './frontend_hosting.js'
 
@@ -137,6 +138,7 @@ async function main() {
   await app.register(userRoutes)
   await app.register(settingsRoutes)
   await app.register(tokenRoutes)
+  await app.register(usageRoutes)
   await app.register(paperRoutes)
   await app.register(serviceRoutes)
   await app.register(qaRoutes)

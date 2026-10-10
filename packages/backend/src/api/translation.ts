@@ -53,7 +53,7 @@ export async function translationRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      const t = await translateText(text, { force: !!request.body?.force })
+      const t = await translateText(text, { force: !!request.body?.force, userId: request.user?.id })
       return responseBody(t)
     }
   )
@@ -102,6 +102,7 @@ export async function translationRoutes(app: FastifyInstance): Promise<void> {
       try {
         const result = await translateText(text, {
           force: !!request.body?.force,
+          userId: request.user?.id,
           signal: controller.signal,
           onStart: (start) => writeEvent('start', start),
           onChunk: (delta) => writeEvent('delta', { delta }),

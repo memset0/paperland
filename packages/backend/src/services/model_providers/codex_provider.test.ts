@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { ModelConfig } from '@paperland/shared'
-import { appServerInput, codexProvider, execArgs, mcpTokenEnvVar } from './codex_provider.js'
+import { appServerInput, codexProvider, execArgs, mcpTokenEnvVar, threadConfig } from './codex_provider.js'
 import type { ModelToolCallEvent } from './types.js'
 
 let fixtureDir = ''
@@ -118,6 +118,35 @@ exec sleep 1`)
     await expect(codexProvider.invoke('translate', appServerConfig(empty))).rejects.toThrow('no final answer')
   })
 
+  test('reports the last thread token usage once, also when the turn fails', async () => {
+    const usageLine = (input: number, cached: number, output: number) =>
+      `printf '%s\\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"totalTokens":${input + output},"inputTokens":${input},"cachedInputTokens":${cached},"outputTokens":${output},"reasoningOutputTokens":3},"last":{"totalTokens":1,"inputTokens":1,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0}}}}'`
+    const script = (status: string) => `
+IFS= read -r initialize; printf '%s\n' '{"id":0,"result":{}}'
+IFS= read -r initialized; IFS= read -r thread_start
+printf '%s\n' '{"id":1,"result":{"thread":{"id":"thread-1","ephemeral":true}}}'
+IFS= read -r turn_start
+printf '%s\n' '{"id":2,"result":{"turn":{"id":"turn-1"}}}'
+${usageLine(100, 0, 10)}
+printf '%s\n' '{"method":"item/started","params":{"item":{"type":"agentMessage","id":"final","phase":"final_answer"}}}'
+printf '%s\n' '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"final","phase":"final_answer","text":"ok"}}}'
+${usageLine(29997, 25088, 112)}
+printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"${status}","error":{"message":"boom"}}}}'
+exec sleep 1`
+    const reports: unknown[] = []
+    await expect(codexProvider.invoke('q', appServerConfig(executable('fake-codex-usage', script('completed'))), {
+      onUsage: (usage) => { reports.push(usage) },
+    })).resolves.toBe('ok')
+    const expected = { input_tokens: 29997, cached_input_tokens: 25088, output_tokens: 112, reasoning_tokens: 3, total_tokens: 30109 }
+    expect(reports).toEqual([expected])
+
+    const failedReports: unknown[] = []
+    await expect(codexProvider.invoke('q', appServerConfig(executable('fake-codex-usage-failed', script('failed'))), {
+      onUsage: (usage) => { failedReports.push(usage) },
+    })).rejects.toThrow('boom')
+    expect(failedReports).toEqual([expected])
+  })
+
   test('kills app-server on timeout and abort', async () => {
     const hanging = executable('fake-codex-hanging', 'IFS= read -r initialize\nexec sleep 5')
     await expect(codexProvider.invoke('translate', appServerConfig(hanging, { timeout: 0.05 }))).rejects.toThrow('timed out')
@@ -225,5 +254,26 @@ exec sleep 1`)
       { server: 'paperland', tool: 's2_search', status: 'started' },
       { server: 'paperland', tool: 's2_search', status: 'completed' },
     ])
+  })
+})
+
+describe('threadConfig', () => {
+  test('maps the tool allowlist and pre-approved tools of an MCP server', () => {
+    expect(threadConfig({
+      user: [],
+      mcp_servers: [{ name: 'paperland', url: 'http://x/mcp', bearer_token: 't', enabled_tools: ['upload_image'], approved_tools: ['upload_image'] }],
+    })).toEqual({
+      mcp_servers: {
+        paperland: {
+          url: 'http://x/mcp',
+          bearer_token_env_var: 'PAPERLAND_MCP_TOKEN_PAPERLAND',
+          enabled_tools: ['upload_image'],
+          tools: { upload_image: { approval_mode: 'approve' } },
+        },
+      },
+    })
+    expect(threadConfig({ user: [], mcp_servers: [{ name: 'p', url: 'u', bearer_token: 't' }] })).toEqual({
+      mcp_servers: { p: { url: 'u', bearer_token_env_var: 'PAPERLAND_MCP_TOKEN_P' } },
+    })
   })
 })

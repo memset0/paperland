@@ -17,6 +17,8 @@ import { Label } from '@/components/ui/label'
 import AppPage from '@/components/AppPage.vue'
 import InstallAppCard from '@/components/settings/InstallAppCard.vue'
 import AccountSettings from '@/components/settings/AccountSettings.vue'
+import UsageSection from '@/components/settings/UsageSection.vue'
+import UsageLeaderboard from '@/components/settings/UsageLeaderboard.vue'
 import { usePendingRegistrations } from '@/composables/usePendingRegistrations'
 
 const store = useSettingsStore()
@@ -135,6 +137,7 @@ function copyToken() {
     <!-- Order: Install app → the user's own account settings → administration (admins only) -->
     <InstallAppCard />
     <AccountSettings />
+    <UsageSection />
 
     <template v-if="auth.isAdmin">
     <h2 class="flex items-center gap-2 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -257,6 +260,7 @@ function copyToken() {
       <div v-if="!store.tokens.length" class="text-center py-10 text-sm text-muted-foreground">No tokens</div>
     </Card>
 
+    <UsageLeaderboard />
 
     </template>
 

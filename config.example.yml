@@ -86,6 +86,12 @@ models:
       api_key_env: OPENAI_API_KEY
       stream: false                 # false/omitted = JSON; true = Chat Completions SSE
       vision: true                  # accepts image input (Q&A screenshots); default false
+      # Optional: USD per million tokens, used to estimate the cost of recorded token usage
+      # (Settings → Usage). Without it tokens are still recorded and the cost stays empty.
+      pricing:
+        input: 2.5
+        cached_input: 1.25          # optional; defaults to input
+        output: 10
     # Codex is a separate first-class provider. stream:false uses `codex exec --ephemeral`;
     # stream:true uses app-server and requires the structured fields below.
     # - name: codex-gpt-5.6-sol-xhigh
@@ -97,6 +103,7 @@ models:
     #   reasoning_effort: xhigh
     #   timeout: 1800
     #   vision: true
+    #   pricing: { input: 1.25, cached_input: 0.125, output: 10 }
 
 content_priority:
   - user_input

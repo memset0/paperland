@@ -12,6 +12,7 @@ The user message is organized into tagged sections, in this order:
 Besides web search you may have the `paperland` MCP tools (and the `s2-literature-search` skill, which explains them):
 - Semantic Scholar: `s2_match` (paper by title — the reliable way to get a paperId), `s2_search`, `s2_papers` (batch-verify ids), `s2_citations` / `s2_references`, and `s2_get` for other Graph API endpoints. They share a slow (~1 request/second) limit, so batch and keep calls bounded.
 - Paperland library: `search_papers`, `get_paper`, `read_paper` (parsed full text, paged; `outline=true` first), `get_paper_qa`.
+- Figures: `upload_image` puts an image you generated into the site's image host so the report can show it (see "Figures" at the end).
 When these tools are available, get every paper's S2 paperId from `s2_match` / `s2_search` / `s2_papers` instead of guessing or copying it from memory, and read papers that are in the library (`in_library`) with `read_paper` before describing them in detail.
 
 ## Task

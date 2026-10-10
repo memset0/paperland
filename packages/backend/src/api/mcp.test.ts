@@ -71,7 +71,7 @@ describe('POST /mcp', () => {
     expect((await post({ jsonrpc: '2.0', id: 1, method: 'ping' })).statusCode).toBe(401)
   })
 
-  it('initializes with a supported protocol version and lists read-only tools', async () => {
+  it('initializes with a supported protocol version and lists tools (only upload_image writes)', async () => {
     const init = (await post({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } })).json()
     expect(init.result.protocolVersion).toBe('2025-03-26')
     expect(init.result.capabilities.tools).toBeDefined()
@@ -80,7 +80,8 @@ describe('POST /mcp', () => {
     const list = (await post({ jsonrpc: '2.0', id: 3, method: 'tools/list' })).json()
     const names = list.result.tools.map((t: any) => t.name)
     expect(names).toEqual(expect.arrayContaining(['search_papers', 'read_paper', 's2_search', 's2_match', 's2_get']))
-    expect(list.result.tools.every((t: any) => t.annotations.readOnlyHint === true)).toBe(true)
+    expect(list.result.tools.filter((t: any) => t.annotations.readOnlyHint !== true).map((t: any) => t.name)).toEqual(['upload_image'])
+    expect(list.result.tools.find((t: any) => t.name === 'upload_image').annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true })
   })
 
   it('answers notifications with 202, unknown methods with -32601, and supports batches', async () => {
@@ -98,6 +99,13 @@ describe('POST /mcp', () => {
     expect(JSON.parse(res.result.content[0].text)).toMatchObject({ paper_id: 5, title: 'Paper Five', in_my_library: false })
     const missing = (await post({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_paper', arguments: { paper_id: 404 } } })).json()
     expect(missing.result).toEqual({ content: [{ type: 'text', text: 'Paper 404 not found' }], isError: true })
+  })
+
+  it('accepts multi-megabyte upload_image payloads (base64 data) instead of 413', async () => {
+    const big = 'A'.repeat(3 * 1024 * 1024)
+    const res = await post({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'upload_image', arguments: { data: big } } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().result.isError).toBe(true) // not an image, but it reached the tool
   })
 
   it('GET and DELETE are not allowed', async () => {

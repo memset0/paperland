@@ -394,8 +394,10 @@ describe('agent tools', () => {
     await waitSettled(stepId)
     unsubscribe()
     const input = modelCalls[0].input
-    expect(input.mcp_servers).toEqual([{ name: 'paperland', url: 'http://127.0.0.1:3000/mcp', bearer_token: expect.any(String) }])
+    expect(input.mcp_servers).toEqual([{ name: 'paperland', url: 'http://127.0.0.1:3000/mcp', bearer_token: expect.any(String), approved_tools: ['upload_image'] }])
     expect(input.skill_roots).toEqual([getConfig().agent_tools.skills_dir])
+    expect(input.system).toContain('## Figures')
+    expect(input.system).toContain('upload_image')
     expect(validDuringCall).toBe(true)
     // The same agent token is reused (not re-created) by later rounds.
     const agentRows = db.select().from(schema.apiTokens).where(eq(schema.apiTokens.user_id, alice.id)).all().filter((t) => t.kind === 'agent')
@@ -411,6 +413,7 @@ describe('agent tools', () => {
       await waitSettled(session.steps[0].id)
       expect(modelCalls[0].input.mcp_servers).toBeUndefined()
       expect(modelCalls[0].input.skill_roots).toBeUndefined()
+      expect(modelCalls[0].input.system).not.toContain('## Figures')
     } finally {
       getConfig().agent_tools.enabled = true
     }
@@ -469,6 +472,27 @@ describe('automatic repair', () => {
     const done = await waitSettled((await create()).json().data.steps[0].id)
     expect(done).toMatchObject({ status: 'done', repaired: 1, report: 'A real report' })
     expect((modelCalls[1].input.user[0] as { text: string }).text).toContain('missing the research report')
+  })
+
+  it('records one usage row per call (round and repair) billed to the session owner', async () => {
+    const usage = { input_tokens: 1000, cached_input_tokens: 800, output_tokens: 50, reasoning_tokens: 10, total_tokens: 1050 }
+    setResearchRunOptionsForTesting({
+      callModelFn: async (input, model, opts) => {
+        modelCalls.push({ input, model })
+        opts.onUsage?.(usage)
+        if (input.web_search === false) return good
+        return 'Report body\n\n```paperlist\n{broken\n```'
+      },
+      batchMs: 1,
+    })
+    const stepId = (await create(bob)).json().data.steps[0].id
+    await waitSettled(stepId)
+    const rows = db.select().from(schema.modelUsage).all()
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      expect(row).toMatchObject({ category: 'research', research_step_id: stepId, user_id: bob.id, model_name: codexModel, input_tokens: 1000, cached_input_tokens: 800, output_tokens: 50 })
+      expect(row.qa_result_id).toBeNull()
+    }
   })
 
   it('keeps the previous version when the repair also fails or errors', async () => {

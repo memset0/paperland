@@ -1,16 +1,17 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { bearerFromHeader, checkBearerToken } from '../services/api_tokens.js'
+import { getConfig } from '../config.js'
+import { bearerFromHeader, checkBearerToken, type TokenKind } from '../services/api_tokens.js'
 import { AGENT_TOOLS, callAgentTool, type AgentToolContext } from '../services/agent_tools.js'
 
 // MCP server for agents (Streamable HTTP, stateless): every POST carries one JSON-RPC message or a
 // batch and is answered with application/json — no SSE stream, no session id. Lives outside /api so
 // the cookie login wall does not apply; every request needs `Authorization: Bearer <api token>`
 // (a user's personal token, or the agent token Paperland injects into its own Codex runs), and the
-// tools run with that user's visibility. Reachable from anywhere, like the External API.
+// tools run with that user's visibility (`upload_image` by path additionally needs an agent token). Reachable from anywhere, like the External API.
 
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const SERVER_INFO = { name: 'paperland', version: '1.0.0' }
-const INSTRUCTIONS = 'Read-only tools over the Paperland paper library and Semantic Scholar. ' +
+const INSTRUCTIONS = 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
   'Use s2_match / s2_search to get S2 paperIds instead of guessing them; read library papers with read_paper.'
 
 interface RpcMessage {
@@ -54,7 +55,7 @@ async function handleMessage(message: RpcMessage, ctx: AgentToolContext): Promis
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
-          annotations: { readOnlyHint: true, openWorldHint: t.name.startsWith('s2_') },
+          annotations: t.annotations ?? { readOnlyHint: true, openWorldHint: t.name.startsWith('s2_') },
         })),
       })
     case 'tools/call': {
@@ -73,12 +74,14 @@ function methodNotAllowed(_request: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function mcpRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/mcp', async (request, reply) => {
+  // `upload_image` may carry a base64 image in `data`: allow the image host's size limit (+ base64 and JSON overhead).
+  const bodyLimit = Math.ceil(getConfig().image_host.max_size_mb * 1024 * 1024 * 4 / 3) + 1024 * 1024
+  app.post('/mcp', { bodyLimit }, async (request, reply) => {
     const check = checkBearerToken(bearerFromHeader(request.headers.authorization), ['personal', 'agent'])
     if (!check.ok) {
       return reply.code(401).header('www-authenticate', 'Bearer').send(rpcError(null, -32001, check.message))
     }
-    const ctx: AgentToolContext = { viewer: { id: check.user.id, role: check.user.role } }
+    const ctx: AgentToolContext = { viewer: { id: check.user.id, role: check.user.role }, token_kind: check.token.kind as TokenKind }
 
     const body = request.body as RpcMessage | RpcMessage[] | undefined
     if (Array.isArray(body)) {

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { ModelConfig } from '@paperland/shared'
-import type { ModelInput, ModelInvokeOptions, ModelProvider, ModelToolCallEvent } from './types.js'
+import type { ModelInput, ModelInvokeOptions, ModelProvider, ModelToolCallEvent, ModelUsage } from './types.js'
 import { createAbortError, throwIfAborted, toModelInput, userText } from './types.js'
 
 const DEFAULT_TIMEOUT_SECONDS = 120
@@ -21,7 +21,8 @@ export function mcpTokenEnvVar(serverName: string): string {
 
 /**
  * `thread/start` config overrides: native web search and the MCP servers attached to this call
- * (Streamable HTTP; the bearer token is read from the env var named by `bearer_token_env_var`).
+ * (Streamable HTTP; the bearer token is read from the env var named by `bearer_token_env_var`;
+ * optional tool allowlist and pre-approved tools).
  */
 export function threadConfig(input: ModelInput): Record<string, unknown> | undefined {
   const config: Record<string, unknown> = {}
@@ -29,7 +30,15 @@ export function threadConfig(input: ModelInput): Record<string, unknown> | undef
   if (input.mcp_servers?.length) {
     config.mcp_servers = Object.fromEntries(input.mcp_servers.map((server) => [
       server.name,
-      { url: server.url, bearer_token_env_var: mcpTokenEnvVar(server.name) },
+      {
+        url: server.url,
+        bearer_token_env_var: mcpTokenEnvVar(server.name),
+        ...(server.enabled_tools ? { enabled_tools: server.enabled_tools } : {}),
+        // Without this, `approvalPolicy: never` rejects every tool not marked read-only.
+        ...(server.approved_tools?.length
+          ? { tools: Object.fromEntries(server.approved_tools.map((tool) => [tool, { approval_mode: 'approve' }])) }
+          : {}),
+      },
     ]))
   }
   return Object.keys(config).length ? config : undefined
@@ -50,6 +59,20 @@ export function toolCallEvent(method: string, item: any): ModelToolCallEvent | n
   }
   const status = method === 'item/started' ? 'started' : (item.status === 'failed' || item.error) ? 'failed' : 'completed'
   return { server, tool, status }
+}
+
+/** Usage from a `thread/tokenUsage/updated` notification: its `total` (every request of the thread so far). */
+export function tokenUsageFromNotification(params: any): ModelUsage | null {
+  const total = params?.tokenUsage?.total
+  if (!total || typeof total !== 'object') return null
+  const n = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
+  return {
+    input_tokens: n(total.inputTokens),
+    cached_input_tokens: n(total.cachedInputTokens),
+    output_tokens: n(total.outputTokens),
+    reasoning_tokens: n(total.reasoningOutputTokens),
+    total_tokens: n(total.totalTokens),
+  }
 }
 
 function shellQuote(value: string): string {
@@ -212,6 +235,8 @@ async function invokeAppServer(input: ModelInput, config: ModelConfig, options: 
   let turnId = ''
   let finalItemId = ''
   let finalText = ''
+  // Latest cumulative usage of the (single-turn, ephemeral) thread; reported once in `finally`.
+  let usage: ModelUsage | null = null
 
   const SKILL_ROOTS_REQUEST_ID = 10
   const overrides = threadConfig(input)
@@ -292,6 +317,11 @@ async function invokeAppServer(input: ModelInput, config: ModelConfig, options: 
 
       if (message.method === 'turn/started' && message.params?.turn?.id) {
         turnId = message.params.turn.id
+        continue
+      }
+
+      if (message.method === 'thread/tokenUsage/updated') {
+        usage = tokenUsageFromNotification(message.params) ?? usage
         continue
       }
 
@@ -377,6 +407,9 @@ async function invokeAppServer(input: ModelInput, config: ModelConfig, options: 
     await proc.exited.catch(() => {})
     await stderrTask
     if (ownsWorkingDir) rmSync(workingDir, { recursive: true, force: true })
+    if (usage) {
+      try { options.onUsage?.(usage) } catch {}
+    }
   }
 }
 

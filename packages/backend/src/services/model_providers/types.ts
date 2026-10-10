@@ -8,8 +8,21 @@ export interface ModelToolCallEvent {
   status: 'started' | 'completed' | 'failed'
 }
 
+/** Token usage of one invocation, summed over every model request it made. */
+export interface ModelUsage {
+  /** Includes cached input. */
+  input_tokens: number
+  cached_input_tokens: number
+  /** Includes reasoning. */
+  output_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+}
+
 export interface ModelInvokeOptions {
   onChunk?: (delta: string) => void | Promise<void>
+  /** Called at most once with the invocation's token usage, when the provider reports it (also for failed or cancelled runs). */
+  onUsage?: (usage: ModelUsage) => void
   /** Tool-call progress (Codex app-server only). */
   onToolCall?: (event: ModelToolCallEvent) => void
   signal?: AbortSignal
@@ -20,6 +33,10 @@ export interface ModelMcpServer {
   name: string
   url: string
   bearer_token: string
+  /** Only these tools are exposed to the agent (all when absent). */
+  enabled_tools?: string[]
+  /** Non-read-only tools allowed to run without approval (the run uses `approvalPolicy: never`). */
+  approved_tools?: string[]
 }
 
 export interface ModelCapabilities {

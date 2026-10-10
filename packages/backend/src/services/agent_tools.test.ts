@@ -168,3 +168,75 @@ describe('registry', () => {
     expect((await call('nope', {})).isError).toBe(true)
   })
 })
+
+describe('upload_image', () => {
+  // 1×1 PNG.
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const fs = require('fs') as typeof import('fs')
+  const os = require('os') as typeof import('os')
+  const path = require('path') as typeof import('path')
+  let tmp = ''
+  let savedDir = ''
+  let generated = ''
+  const AGENT = { viewer: OWNER, token_kind: 'agent' as const }
+  const PERSONAL = { viewer: OWNER, token_kind: 'personal' as const }
+  const upload = async (args: Record<string, unknown>, ctx: any = AGENT) => callAgentTool('upload_image', args, ctx)
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'paperland-upload-image-'))
+    const home = path.join(tmp, 'codex-home')
+    fs.mkdirSync(path.join(home, 'generated_images', 'thread-1'), { recursive: true })
+    generated = path.join(home, 'generated_images', 'thread-1', 'item-1.png')
+    fs.writeFileSync(generated, Buffer.from(PNG, 'base64'))
+    fs.writeFileSync(path.join(tmp, 'secret.png'), Buffer.from(PNG, 'base64'))
+    fs.symlinkSync(path.join(tmp, 'secret.png'), path.join(home, 'generated_images', 'thread-1', 'link.png'))
+    const config = getConfig()
+    savedDir = config.image_host.dir
+    config.image_host.dir = path.join(tmp, 'images')
+    config.models.available.push({ name: 'test-codex-upload', type: 'codex', stream: true, cli_path: '/bin/true', codex_home: home, model_id: 'm', vision: false } as any)
+  })
+
+  afterEach(() => {
+    const config = getConfig()
+    config.image_host.dir = savedDir
+    config.models.available = config.models.available.filter((m) => m.name !== 'test-codex-upload')
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('stores a Codex-generated image by path for agent tokens and returns embeddable Markdown', async () => {
+    const res = await upload({ path: generated, alt: 'A [diagram]' })
+    expect(res.isError).toBe(false)
+    const body = JSON.parse(res.text)
+    expect(body.url).toMatch(/^\/image\/\d{4}\/\d{2}\/\d{2}\/[0-9a-f]{6}\.png$/)
+    expect(body.markdown).toBe(`![A  diagram](${body.url})`)
+    expect(body).toMatchObject({ width: 1, height: 1, deduped: false })
+    const row = db.select().from(schema.images).get()!
+    expect(row).toMatchObject({ uploaded_by: 1, original_name: 'item-1.png' })
+    expect(fs.existsSync(path.join(tmp, 'images', row.path))).toBe(true)
+  })
+
+  it('rejects paths outside generated_images (absolute, .., symlink) and path uploads with personal tokens', async () => {
+    for (const p of ['/etc/passwd', path.join(path.dirname(generated), '..', '..', '..', 'secret.png'), path.join(path.dirname(generated), 'link.png'), 'relative.png']) {
+      const res = await upload({ path: p })
+      expect(res.isError).toBe(true)
+    }
+    const personal = await upload({ path: generated }, PERSONAL)
+    expect(personal.isError).toBe(true)
+    expect(personal.text).toContain('"data"')
+    expect(db.select().from(schema.images).all()).toHaveLength(0)
+  })
+
+  it('accepts base64 or data: URL data from any token and validates it', async () => {
+    const res = await upload({ data: `data:image/png;base64,${PNG}` }, PERSONAL)
+    expect(res.isError).toBe(false)
+    expect(JSON.parse((await upload({ data: PNG }, PERSONAL)).text).deduped).toBe(true)
+    expect((await upload({ data: 'bm90IGFuIGltYWdl' }, PERSONAL)).isError).toBe(true)
+    expect((await upload({}, PERSONAL)).isError).toBe(true)
+    expect((await upload({ data: PNG, path: generated })).isError).toBe(true)
+  })
+
+  it('is the only tool listed as non-read-only', () => {
+    const writable = AGENT_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name)
+    expect(writable).toEqual(['upload_image'])
+  })
+})

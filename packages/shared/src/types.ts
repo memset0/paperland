@@ -382,6 +382,15 @@ export interface ModelConfig {
   timeout?: number
   /** Whether the model accepts image input. */
   vision?: boolean
+  /** USD per million tokens; only used to estimate the cost of recorded usage. */
+  pricing?: ModelPricing
+}
+
+export interface ModelPricing {
+  input: number
+  /** Price of cached input; defaults to `input`. */
+  cached_input?: number
+  output: number
 }
 
 export interface ModelsConfig {
@@ -827,4 +836,32 @@ export interface PaginatedResponse<T> {
     total: number
     total_pages: number
   }
+}
+
+// ---- Model usage (token ledger) ----
+
+export type UsageCategory = 'qa' | 'research' | 'translation'
+
+export interface UsageTotals {
+  calls: number
+  /** Includes cached input. */
+  input_tokens: number
+  cached_input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  /** Sum of estimated costs (USD); calls on models without pricing count as 0. */
+  cost_usd: number
+}
+
+/** `GET /api/usage/me` */
+export interface MyUsage {
+  total: UsageTotals
+  by_category: Record<UsageCategory, UsageTotals>
+}
+
+/** One row of `GET /api/usage/leaderboard` (admin); `user_id` null = unattributed usage. */
+export interface UsageLeaderboardEntry extends UsageTotals {
+  user_id: number | null
+  username: string | null
+  nickname: string | null
 }

@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
-import { callModel, type ModelInvokeOptions } from './model_invoke.js'
+import { callModel, modelSupportsAgentTools, type ModelInvokeOptions } from './model_invoke.js'
+import { attachAgentTools, UPLOAD_IMAGE_TOOL } from './agent_attach.js'
 import { buildQAInput, resolvePaperContent } from './qa_formatter.js'
 
 /** Paper text for Q&A chosen by `content_priority`, or null when none is usable. */
@@ -11,6 +12,8 @@ function resolveContent(paper: any): string | null {
 export interface AskQuestionOptions extends ModelInvokeOptions {
   /** Entry being answered; its system prompt, inputs, and follow-up chain shape the model input. */
   entryId?: number
+  /** User the run is for: on Codex app-server models their agent token gives the run `upload_image`. */
+  agentUserId?: number | null
 }
 
 /**
@@ -25,7 +28,7 @@ export async function askQuestion(
   options: AskQuestionOptions = {},
 ): Promise<{ answer: string; model_name: string }> {
   const db = getDatabase()
-  const { entryId, ...invokeOptions } = options
+  const { entryId, agentUserId, ...invokeOptions } = options
   const entry = entryId != null
     ? db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, entryId)).get()
     : undefined
@@ -34,6 +37,9 @@ export async function askQuestion(
     status: 'pending', error: null, created_at: '', instruction: null, inputs: null, parent_entry_id: null,
   }, prompt)
 
+  if (agentUserId != null && modelSupportsAgentTools(modelName)) {
+    attachAgentTools(input, agentUserId, { tools: [UPLOAD_IMAGE_TOOL] })
+  }
   const answer = await callModel(input, modelName, invokeOptions)
   return { answer, model_name: modelName }
 }

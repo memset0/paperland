@@ -267,6 +267,13 @@
       "when": 1791600673432,
       "tag": "0037_agent_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1791651588242,
+      "tag": "0038_model_usage",
+      "breakpoints": true
     }
   ]
 }

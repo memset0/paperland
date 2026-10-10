@@ -3,7 +3,8 @@ import { eq, and } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { getTranslationPrompt, getTranslationModel } from './template_loader.js'
-import { callModel, getModelCapabilities, type ModelInvokeOptions } from './model_invoke.js'
+import { callModel, getModelCapabilities, type ModelInvokeOptions, type ModelUsage } from './model_invoke.js'
+import { recordModelUsage } from './model_usage.js'
 import { Semaphore } from './semaphore.js'
 import { RateLimiter } from './rate_limiter.js'
 import type { Translation } from '@paperland/shared'
@@ -72,6 +73,8 @@ export async function translateText(
       streaming: boolean
     }) => void | Promise<void>
     onChunk?: ModelInvokeOptions['onChunk']
+    /** User billed for the model call in the usage ledger (cache hits make no call). */
+    userId?: number | null
   } = {}
 ): Promise<Translation & { cached: boolean }> {
   const db = getDatabase()
@@ -106,6 +109,12 @@ export async function translateText(
   const { sem, rl } = getGate()
   await sem.acquire()
   let translated: string
+  // Usage is recorded once the translation row id is known (or without it if the call fails).
+  let usage: ModelUsage | null = null
+  const record = (translationId: number | null) => {
+    if (usage) recordModelUsage({ category: 'translation', userId: opts.userId, sourceId: translationId, modelName, usage })
+    usage = null
+  }
   try {
     if (opts.signal?.aborted) {
       const error = new Error('Translation cancelled')
@@ -120,12 +129,19 @@ export async function translateText(
     }
     translated = (await callModel(prompt, modelName, {
       onChunk: opts.onChunk,
+      onUsage: (u) => { usage = u },
       signal: opts.signal,
     })).trim()
+  } catch (error) {
+    record(null)
+    throw error
   } finally {
     sem.release()
   }
-  if (!translated) throw new Error('Translation model returned empty output')
+  if (!translated) {
+    record(null)
+    throw new Error('Translation model returned empty output')
+  }
 
   const now = new Date().toISOString()
   // Upsert: insert on miss (created_at = updated_at); on conflict (re-translate or a concurrent
@@ -146,5 +162,6 @@ export async function translateText(
   }).run()
 
   const row = getCachedTranslation(sourceHash, TARGET_LANG)!
+  record(row.id)
   return { ...row, cached: false }
 }

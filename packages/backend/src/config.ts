@@ -66,6 +66,12 @@ const modelSchema = z.object({
   timeout: z.number().positive().optional(),
   // Whether the model accepts image input (Q&A screenshot inputs require it).
   vision: z.boolean().default(false),
+  // USD per million tokens, used only to estimate the cost of recorded token usage.
+  pricing: z.object({
+    input: z.number().nonnegative(),
+    cached_input: z.number().nonnegative().optional(),
+    output: z.number().nonnegative(),
+  }).optional(),
 }).superRefine((model, ctx) => {
   if (model.type !== 'codex') return
 

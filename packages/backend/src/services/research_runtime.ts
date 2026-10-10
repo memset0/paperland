@@ -1,4 +1,3 @@
-import { existsSync } from 'fs'
 import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { ResearchPaperList, ResearchSeed, ResearchStep, ResearchStepStatus } from '@paperland/shared'
 import { getDatabase, schema } from '../db/index.js'
@@ -6,9 +5,10 @@ import { getConfig } from '../config.js'
 import { Semaphore } from './semaphore.js'
 import { RateLimiter } from './rate_limiter.js'
 import { QAResultStreamBroker } from './qa_result_stream.js'
-import { callModel, type ModelInput, type ModelInvokeOptions } from './model_invoke.js'
+import { callModel, type ModelInput, type ModelInvokeOptions, type ModelUsage } from './model_invoke.js'
+import { recordModelUsage } from './model_usage.js'
 import { buildRepairInput, buildResearchInput, type HistoryStep } from './research_prompt.js'
-import { ensureAgentToken } from './api_tokens.js'
+import { attachAgentTools } from './agent_attach.js'
 import { mergeRepairedAnswer, parseRoundAnswer, type ParsedRoundAnswer } from './research_list.js'
 
 // Deep Research rounds run like QA Results (see api/qa.ts `runQA`): lifecycle queued →
@@ -149,17 +149,9 @@ export function buildStepInput(db: Database, step: StepRow): Promise<ModelInput>
   })
 }
 
-/**
- * Attach the Paperland agent tools to a round's input when `agent_tools.enabled`: the `/mcp` server
- * authenticated with the session owner's agent token (created on first use), and the repo skill
- * directory as an extra skill root.
- */
-export function attachAgentTools(input: ModelInput, ownerId: number): void {
-  const tools = getConfig().agent_tools
-  if (!tools.enabled) return
-  const token = ensureAgentToken(ownerId).token
-  input.mcp_servers = [{ name: 'paperland', url: `${tools.base_url.replace(/\/+$/, '')}/mcp`, bearer_token: token }]
-  if (existsSync(tools.skills_dir)) input.skill_roots = [tools.skills_dir]
+/** Attach every Paperland agent tool and the skill directory to a round (see `agent_attach.ts`). */
+export function attachResearchTools(input: ModelInput, ownerId: number): void {
+  attachAgentTools(input, ownerId, { skills: true })
 }
 
 // Scheduler state: one semaphore + rate limiter for all research rounds (created on first use from
@@ -226,9 +218,14 @@ async function runAgentStep(stepId: number, signal: AbortSignal, options: RunSte
       const input = await buildStepInput(db, step)
       const session = db.select({ user_id: schema.researchSessions.user_id }).from(schema.researchSessions)
         .where(eq(schema.researchSessions.id, step.session_id)).get()
-      if (session) attachAgentTools(input, session.user_id)
+      if (session) attachResearchTools(input, session.user_id)
+      // Round and repair calls each record their own usage row for this step.
+      const onUsage = (usage: ModelUsage) => recordModelUsage({
+        category: 'research', userId: session?.user_id, sourceId: stepId, modelName: step.model_name!, usage,
+      })
       const answer = await callModelFn(input, step.model_name!, {
         onChunk: writer.onChunk,
+        onUsage,
         onToolCall: (e) => researchStepStreamBroker.publish(stepId, { event: 'tool', result_id: stepId, ...e }),
         signal,
       })
@@ -242,7 +239,7 @@ async function runAgentStep(stepId: number, signal: AbortSignal, options: RunSte
         const repairing = db.select().from(schema.researchSteps).where(eq(schema.researchSteps.id, stepId)).get()
         if (repairing) researchStepStreamBroker.publish(stepId, { event: 'repairing', result: serializeStep(repairing) })
         try {
-          const fixed = await callModelFn(buildRepairInput(answer, parsed.failure, parsed.parse_error ?? ''), step.model_name!, { signal })
+          const fixed = await callModelFn(buildRepairInput(answer, parsed.failure, parsed.parse_error ?? ''), step.model_name!, { signal, onUsage })
           const second = await parseFn(mergeRepairedAnswer(answer, fixed, parsed.failure))
           if (!second.failure) {
             parsed = second

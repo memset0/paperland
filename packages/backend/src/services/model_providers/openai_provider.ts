@@ -1,6 +1,6 @@
 import type { ModelConfig } from '@paperland/shared'
 import { readFileSync } from 'fs'
-import type { ModelInput, ModelInvokeOptions, ModelProvider } from './types.js'
+import type { ModelInput, ModelInvokeOptions, ModelProvider, ModelUsage } from './types.js'
 import { throwIfAborted, toModelInput } from './types.js'
 
 /**
@@ -19,6 +19,27 @@ export function chatMessages(input: ModelInput): unknown[] {
     : input.user.map((part) => (part as { text: string }).text).join('\n\n')
   messages.push({ role: 'user', content })
   return messages
+}
+
+/** Chat Completions `usage` → ModelUsage, or null when absent. */
+export function usageFromChatCompletion(usage: any): ModelUsage | null {
+  if (!usage || typeof usage !== 'object') return null
+  const n = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
+  const input = n(usage.prompt_tokens)
+  const output = n(usage.completion_tokens)
+  return {
+    input_tokens: input,
+    cached_input_tokens: n(usage.prompt_tokens_details?.cached_tokens),
+    output_tokens: output,
+    reasoning_tokens: n(usage.completion_tokens_details?.reasoning_tokens),
+    total_tokens: n(usage.total_tokens) || input + output,
+  }
+}
+
+function reportUsage(options: ModelInvokeOptions, raw: unknown): void {
+  const usage = usageFromChatCompletion(raw)
+  if (!usage) return
+  try { options.onUsage?.(usage) } catch {}
 }
 
 export class SSEDataParser {
@@ -85,6 +106,7 @@ async function invokeJson(input: ModelInput, config: ModelConfig, options: Model
 
   if (!response.ok) throw await responseError(response)
   const data = await response.json() as any
+  reportUsage(options, data.usage)
   return data.choices?.[0]?.message?.content || ''
 }
 
@@ -105,6 +127,7 @@ async function invokeStream(input: ModelInput, config: ModelConfig, options: Mod
       messages: chatMessages(input),
       max_tokens: 8192,
       stream: true,
+      stream_options: { include_usage: true },
     }),
     signal: options.signal,
   })
@@ -116,6 +139,7 @@ async function invokeStream(input: ModelInput, config: ModelConfig, options: Mod
   const decoder = new TextDecoder()
   const reader = response.body.getReader()
   let fullText = ''
+  let usage: unknown = null
 
   const consume = async (raw: string) => {
     if (raw.trim() === '[DONE]') return
@@ -125,6 +149,8 @@ async function invokeStream(input: ModelInput, config: ModelConfig, options: Mod
     } catch {
       throw new Error('OpenAI streaming response contained invalid JSON')
     }
+    // With include_usage the last chunk carries `usage` (and no choices).
+    if (event.usage) usage = event.usage
     const delta = event.choices?.[0]?.delta?.content
     if (typeof delta !== 'string' || delta.length === 0) return
     fullText += delta
@@ -147,6 +173,7 @@ async function invokeStream(input: ModelInput, config: ModelConfig, options: Mod
     throw error
   } finally {
     reader.releaseLock()
+    reportUsage(options, usage)
   }
 
   return fullText
