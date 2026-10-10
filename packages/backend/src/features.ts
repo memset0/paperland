@@ -39,6 +39,12 @@ export const FEATURES: FeatureDefinition[] = [
     released_at: '2026-05-29', // 2026-05-29-add-paper-notes
   },
   {
+    key: 'deep-research',
+    title: 'Deep Research paper lists',
+    description: 'Describe a research topic and an agent searches the web to build a sectioned, commented paper list with a full report. Refine it over several rounds and compare versions.',
+    released_at: '2026-10-09', // 2026-10-09-add-deep-research
+  },
+  {
     key: 'qa-conversation-view',
     title: 'Q&A conversation view',
     description: 'Read a Q&A thread as a chat: follow up on any answer and see the whole conversation in order.',

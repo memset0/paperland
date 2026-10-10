@@ -49,7 +49,7 @@ paperland/
 │   │   │   │   ├── ResearchDetail.vue  # /research/:id：步骤时间线、版本视图（Report / Papers）、标题编辑、从历史版本继续
 │   │   │   │   ├── ServiceDashboard.vue
 │   │   │   │   └── Settings.vue        # /settings（所有登录用户）：Install app → Account → Administration（仅 admin）
-│   │   │   ├── components/         # 通用组件（含 home/：UsageDashboard.vue（时间窗口切换）、UsagePodium.vue（前三名颁奖台 + 第 4 名起表格）、UsageSummary.vue（本人用量）、usage-format.ts；含 settings/：InstallAppCard.vue（PWA 安装）、AccountSettings.vue（个人账户 / Sharing / API Tokens / 浏览器插件）；含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板；PaperRefList.vue：可复用论文列表，QA 引用列表 / Deep Research 共用（论文 / 链接行、Markdown comment、New / Unverified / Removed）；ResearchPaperList.vue：一个研究列表版本 + 与上一版本逐段对比）
+│   │   │   ├── components/         # 通用组件（含 home/：UsageDashboard.vue（时间窗口切换）、UsagePodium.vue（前三名颁奖台 + 第 4 名起表格）、UsageSummary.vue（本人用量）、usage-format.ts、FeatureList.vue（首页只列未看过的功能）、FeatureHistoryDialog.vue（All features 历史弹窗）；含 settings/：InstallAppCard.vue（PWA 安装）、AccountSettings.vue（个人账户 / Sharing / API Tokens / 浏览器插件）；含 PdfUploadPanel.vue：PDF 缺失时的获取中 / 需要上传面板；PaperRefList.vue：可复用论文列表，QA 引用列表 / Deep Research 共用（论文 / 链接行、Markdown comment、New / Unverified / Removed）；ResearchPaperList.vue：一个研究列表版本 + 与上一版本逐段对比）
 │   │   │   ├── composables/        # Vue composables（含 useS2Papers.ts：S2 id 批量解析与会话缓存）
 │   │   │   ├── lib/                # 纯函数工具（含 cite-links.ts：`#cite:` 提取与 id 规范化；research-list.ts：研究列表格式边界——流式拆分报告/列表块、逐段版本对比）
 │   │   │   ├── router/

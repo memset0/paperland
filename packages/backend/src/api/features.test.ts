@@ -80,13 +80,13 @@ const markSeen = (u: { id: number }, keys: unknown) =>
   app.inject({ method: 'POST', url: '/api/features/seen', headers: as(u), payload: { keys } })
 
 describe('feature registry', () => {
-  it('has unique keys, valid dates and no Deep Research', () => {
+  it('has unique keys, valid dates and the registered features', () => {
     expect(new Set(FEATURES.map((f) => f.key)).size).toBe(FEATURES.length)
     for (const f of FEATURES) expect(f.released_at).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(FEATURES.map((f) => f.key).sort()).toEqual(
-      ['copy-latex', 'custom-qa', 'highlight-model-output', 'notes', 'qa-conversation-view', 'usage-dashboard'],
+      ['copy-latex', 'custom-qa', 'deep-research', 'highlight-model-output', 'notes', 'qa-conversation-view', 'usage-dashboard'],
     )
-    expect(FEATURES.some((f) => /research/i.test(f.key + f.title))).toBe(false)
+    expect(FEATURES.find((f) => f.key === 'deep-research')).toMatchObject({ title: 'Deep Research paper lists', released_at: '2026-10-09' })
   })
 })
 

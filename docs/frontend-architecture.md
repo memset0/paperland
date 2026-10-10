@@ -1495,11 +1495,12 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 
 ## 功能公告（Features）
 
-让用户发现新功能：首页一个 **Features** section，按用户记录是否看过。**不主动推送**（没有弹窗）：未看过的功能卡片带小红点，侧边栏 Home 与 Features 标题旁显示红色计数。
+让用户发现新功能：首页一个 **Features** section（只显示新功能）+ "All features" 历史弹窗，按用户记录是否看过。**不主动推送**（没有弹窗）：未看过的功能卡片带小红点，侧边栏 Home 与 Features 标题旁显示红色计数。
 
 - **注册表**：`packages/backend/src/features.ts` 的 `FEATURES` 数组（后端是唯一来源，前端不硬编码功能）。每项 `key`（稳定，存进 `feature_views`，不要改名）、`title` / `description`（英文）、`released_at`（`YYYY-MM-DD`）。插图是 `packages/frontend/public/features/<key>.svg`（public 目录，免登录访问，API 返回 `image_url: /features/<key>.svg`）。
 - **上线日期** = 交付该功能的 OpenSpec change 的 archive 日期（`openspec/changes/archive/` 目录名的日期前缀）；没有对应 change 时用最早引入它的 commit 日期。在注释里写上来源 change。
 - **新增一个功能**：① 在 `FEATURES` 追加一项（日期 = archive 当天）；② 加一张 320×180 viewBox 的简洁 SVG（固定浅色调色板，深浅主题都可读，不放真实用户数据，尽量 < 2KB）；③ 跑 `bun test src/api/features.test.ts`（其中的初始 key 列表断言需同步）。无需迁移。
 - **数据流**：`stores/features.ts`（Pinia）持有 `GET /api/features` 的结果（新到旧、每项带本人 `seen`），`newCount` = 未看过的数量。`App.vue` 在登录用户 id 变化时强制拉取（嵌入模式不拉），侧边栏 Home 项复用 Settings 的红色计数徽标（`badgeCount(item)`），tooltip 显示 "(N new features)"。`markSeen(keys)` 先本地置 `seen`、再 fire-and-forget `POST /api/features/seen`。
-- **首页 Features**（`components/home/FeatureList.vue`，在 Usage 之后）：标题旁红色计数 = 未看过的数量；所有功能卡片（`components/FeatureCard.vue`：插图、标题、日期、说明），未看过的卡片右上角小红点、可点击（`role=button`，Enter/Space 同样生效），点击即 `markSeen([key])`，红点消失、计数减一。仅打开首页不会标记已看。
+- **首页 Features**（`components/home/FeatureList.vue`，在 Usage 之后）：**只列未看过的功能**（新到旧，`components/FeatureCard.vue`：插图、标题、日期、说明，右上角小红点，`role=button`，Enter/Space 同样生效）；标题旁红色计数 = 未看过的数量。点击卡片即 `markSeen([key])`，卡片淡出离开列表（`TransitionGroup`）、计数减一。全部看过时显示 "No new features"。仅打开首页不会标记已看。
+- **历史功能弹窗**（`components/home/FeatureHistoryDialog.vue`）：Features 标题栏右侧 "All features" 按钮（始终显示）打开，列出全部功能（新到旧、两列网格、可滚动）；未看过的仍带红点、点击同样标记已看（首页卡片随之消失）；打开弹窗本身不标记任何东西。
 
