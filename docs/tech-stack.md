@@ -174,7 +174,7 @@ papers
   title           text      not null
   authors         text      not null          // JSON array
   abstract        text      nullable
-  contents        text      nullable          // JSON: { user_input, pdf_parsed, doc2x_parsed, ... }。论文列表 GET /api/papers 不读也不返回此列（只在详情返回）；metadata 在列表中瘦身为 citation_count/reference_count/s2_url
+  contents        text      nullable          // JSON: { user_input, pdf_parsed, doc2x_parsed, ... }。论文列表 GET /api/papers 不读也不返回此列（只在详情返回）；metadata 在列表中瘦身为 citation_count/reference_count/s2_url；列表项另带调用者的 in_library 与 added_at（user_papers.created_at，不在库为 null），sort_by=added_at 在 Mine 范围内按加入时间排序（匿名 / scope=all 回落为 created_at）
   pdf_path        text      nullable
   metadata        text      nullable          // JSON
   listed          integer   not null default 1 // 全局可见性: 1=列表显示+完整管线, 0=仅元数据/隐藏

@@ -1491,9 +1491,11 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 
 `/` 是欢迎页 / dashboard（`views/HomePage.vue`，`AppPage` 包裹，`meta.title` Home、`meta.icon` House，默认 `max-w-5xl` 宽度），侧边栏 **Home** 排在 **Papers** 之前、仅在 `/` 高亮。论文列表在 `/papers`（`views/PaperList.vue`，路由名 `papers`）；Papers 侧边栏项在 `/papers` 与 `/papers/:id` 高亮（`startsWith`）。论文详情的返回按钮、点击标签（`/papers?tags=<id>`）、删除后跳转与 OpenArxiv 错误页 "Back to papers" 均指向 `/papers`。旧的 `/?tags=…` 书签不会再过滤（`/` 不再是列表）。
 
-首页模块按 section 纵向堆叠（`space-y-6`），目前有：
+首页模块按 section 纵向堆叠（`space-y-6`），顺序固定为 Recent papers → Features → Usage（排行榜在最下）：
 
-- **Usage**（`components/home/UsageDashboard.vue`）：右上角一个时间窗口切换 All time（默认）/ Last 7 days / Last 30 days（`USAGE_WINDOWS`，All time 不带 `days`，其余 `?days=7|30`），同时驱动下面两部分；切换时并行请求 `usageApi.me` 与 `usageApi.leaderboard`，过期响应丢弃。
+- **Recent papers**（`components/home/RecentPapers.vue`，最上方）：当前用户 Mine 库中最近加入的 6 篇论文（`GET /api/papers?scope=mine&sort_by=added_at&sort_order=desc&page_size=6`，按 `user_papers.created_at` 排序；默认 `listed` 过滤，metadata-only 论文不出现）。卡片网格 1/2/3 列，每张卡显示标题（两行截断）、作者（单行截断）、用户可见标签（`TagBadge`，按标签 visible 过滤，同论文列表）、"Added <日期>" 与 arXiv id，整卡是到 `/papers/:id` 的链接（卡片 `min-w-0`，避免长标题在手机上撑出网格）。标题栏右侧 "All papers" 链接到 `/papers`；库为空时显示 "No papers in your library yet · Go to Papers"。
+- **Features**：见下方「功能公告（Features）」。
+- **Usage**（`components/home/UsageDashboard.vue`，最下方）：右上角一个时间窗口切换 All time（默认）/ Last 7 days / Last 30 days（`USAGE_WINDOWS`，All time 不带 `days`，其余 `?days=7|30`），同时驱动下面两部分；切换时并行请求 `usageApi.me` 与 `usageApi.leaderboard`，过期响应丢弃。
   - `UsagePodium.vue`：排行榜（`GET /api/usage/leaderboard`，所有登录用户可读，按估算费用、再按 token 降序）。前三名做成颁奖台，视觉顺序 2nd · 1st · 3rd，台阶高度递减，金/银/铜色调（Tailwind `amber`/`slate`/`orange` 半透明色，深浅主题通用），1st 带 `Crown`、2/3 带 `Medal`；每格显示首字母头像、显示名（昵称 + 用户名 / 用户名 / Unattributed）、估算费用与 token。不足三名只显示已有名次；第 4 名起在台下表格列出（排名、用户、调用数、token、缓存占比、费用），≤3 名不显示表格；窗口内无用量显示 "No usage recorded yet"。当前用户在台上头像加 ring、名字旁 "You" 徽标，表格行浅色高亮。
   - `UsageSummary.vue`：本人用量（`GET /api/usage/me`）：调用数、token、缓存命中占比、估算费用 + 按类别（Q&A / Deep Research / Translation）表格。
   - 数字格式化与显示名在 `components/home/usage-format.ts`（`formatTokens` 1.2K / 3.4M、`formatCost`、`cacheShare`、`usageDisplayName`）。
@@ -1506,6 +1508,6 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 - **上线日期** = 交付该功能的 OpenSpec change 的 archive 日期（`openspec/changes/archive/` 目录名的日期前缀）；没有对应 change 时用最早引入它的 commit 日期。在注释里写上来源 change。
 - **新增一个功能**：① 在 `FEATURES` 追加一项（日期 = archive 当天）；② 加一张 320×180 viewBox 的简洁 SVG（固定浅色调色板，深浅主题都可读，不放真实用户数据，尽量 < 2KB）；③ 跑 `bun test src/api/features.test.ts`（其中的初始 key 列表断言需同步）。无需迁移。
 - **数据流**：`stores/features.ts`（Pinia）持有 `GET /api/features` 的结果（新到旧、每项带本人 `seen`），`newCount` = 未看过的数量。`App.vue` 在登录用户 id 变化时强制拉取（嵌入模式不拉），侧边栏 Home 项复用 Settings 的红色计数徽标（`badgeCount(item)`），tooltip 显示 "(N new features)"。`markSeen(keys)` 先本地置 `seen`、再 fire-and-forget `POST /api/features/seen`。
-- **首页 Features**（`components/home/FeatureList.vue`，在 Usage 之后）：**只列未看过的功能**（新到旧，`components/FeatureCard.vue`：插图、标题、日期、说明，右上角小红点，`role=button`，Enter/Space 同样生效）；标题旁红色计数 = 未看过的数量。点击卡片即 `markSeen([key])`，卡片淡出离开列表（`TransitionGroup`）、计数减一。全部看过时显示 "No new features"。仅打开首页不会标记已看。
+- **首页 Features**（`components/home/FeatureList.vue`，在 Recent papers 之后、Usage 之前）：**只列未看过的功能**（新到旧，`components/FeatureCard.vue`：插图、标题、日期、说明，右上角小红点，`role=button`，Enter/Space 同样生效）；标题旁红色计数 = 未看过的数量。点击卡片即 `markSeen([key])`，卡片淡出离开列表（`TransitionGroup`）、计数减一。全部看过时显示 "No new features"。仅打开首页不会标记已看。
 - **历史功能弹窗**（`components/home/FeatureHistoryDialog.vue`）：Features 标题栏右侧 "All features" 按钮（始终显示）打开，列出全部功能（新到旧、两列网格、可滚动）；未看过的仍带红点、点击同样标记已看（首页卡片随之消失）；打开弹窗本身不标记任何东西。
 

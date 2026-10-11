@@ -17,6 +17,8 @@ export interface Paper {
   listed: boolean
   /** Derived per caller: the paper is in the caller's personal library (Mine list). False for anonymous. */
   in_library?: boolean
+  /** Derived per caller (list only): when the caller added the paper to their library; null if not in it. */
+  added_at?: string | null
   /** Derived (detail only): whether a PDF is available, being fetched, or must be uploaded. */
   pdf_status?: 'available' | 'fetching' | 'upload_required'
   /** Derived (detail only): why no PDF could be obtained automatically. */

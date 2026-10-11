@@ -6,7 +6,7 @@ import { resolve } from 'path'
 import { matchLibraryPapers } from '../services/qa_formatter.js'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { ingestPaper } from '../services/ingest_paper.js'
-import { addToLibrary, removeFromLibrary, libraryIds } from '../services/user_library.js'
+import { addToLibrary, removeFromLibrary, libraryIds, libraryAddedAt } from '../services/user_library.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { removeDoc2xArtifacts } from '../services/doc2x_cli.js'
 import { requireUser } from '../auth/guards.js'
@@ -33,8 +33,8 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       const search = request.query.search
       const tagIdsParam = request.query.tag_ids
 
-      const allowedSortBy = ['created_at', 'updated_at'] as const
-      const sortBy = allowedSortBy.includes(request.query.sort_by as any) ? (request.query.sort_by as 'created_at' | 'updated_at') : 'created_at'
+      const allowedSortBy = ['created_at', 'updated_at', 'added_at'] as const
+      const requestedSort = allowedSortBy.includes(request.query.sort_by as any) ? (request.query.sort_by as typeof allowedSortBy[number]) : 'created_at'
       const sortOrder = request.query.sort_order === 'asc' ? 'asc' : 'desc'
 
       // If tag_ids filter, find paper IDs that have ALL specified tags
@@ -76,7 +76,10 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       // Scope: 'mine' (default for logged-in users) = the caller's personal library; 'all' = site-wide.
       // Anonymous callers have no library and always get 'all'.
       const userId = request.user?.id ?? null
-      if (userId != null && request.query.scope !== 'all') {
+      const mineScope = userId != null && request.query.scope !== 'all'
+      // `added_at` = when the caller put the paper in their library; only meaningful within Mine.
+      const sortBy = requestedSort === 'added_at' && !mineScope ? 'created_at' : requestedSort
+      if (mineScope) {
         conditions.push(inArray(
           schema.papers.id,
           db.select({ id: schema.userPapers.paper_id }).from(schema.userPapers)
@@ -91,20 +94,26 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       const { contents: _contents, ...listColumns } = getTableColumns(schema.papers)
       const order = sortOrder === 'desc' ? desc : asc
       const data = db.select(listColumns).from(schema.papers).where(where)
-        .orderBy(order(schema.papers[sortBy]), order(schema.papers.id))
+        .orderBy(
+          order(sortBy === 'added_at'
+            ? sql`(select ${schema.userPapers.created_at} from ${schema.userPapers} where ${schema.userPapers.user_id} = ${userId} and ${schema.userPapers.paper_id} = ${schema.papers.id})`
+            : schema.papers[sortBy]),
+          order(schema.papers.id),
+        )
         .limit(pageSize).offset((page - 1) * pageSize)
         .all()
 
       // Parse JSON fields + attach the current user's tags (none for anonymous)
       const tagsByPaper = userTagsByPapers(db, data.map(p => p.id), request.user?.id ?? null)
-      const inLibrary = libraryIds(userId, data.map(p => p.id))
+      const addedAt = libraryAddedAt(userId, data.map(p => p.id))
       const parsed = data.map(p => ({
         ...p,
         authors: JSON.parse(p.authors),
         metadata: slimListMetadata(p.metadata),
         listed: !!p.listed,
         tags: tagsByPaper.get(p.id) ?? [],
-        in_library: inLibrary.has(p.id),
+        in_library: addedAt.has(p.id),
+        added_at: addedAt.get(p.id) ?? null,
       }))
 
       return {

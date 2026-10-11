@@ -74,4 +74,28 @@ describe('paper list payload', () => {
     expect(mine.pagination.total).toBe(0)
     expect(mine.data).toEqual([])
   })
+
+  test('sort_by=added_at orders the library by when the caller added each paper', async () => {
+    const [p1, p2, p3] = [addPaper(1), addPaper(2), addPaper(3)]
+    const add = (paper_id: number, at: string) =>
+      db.insert(schema.userPapers).values({ user_id: 1, paper_id, in_library: 1, created_at: at, updated_at: at }).run()
+    add(p1, '2026-02-02T00:00:00.000Z')
+    add(p2, '2026-02-01T00:00:00.000Z')
+    add(p3, '2026-02-03T00:00:00.000Z')
+
+    const mine = await get('/api/papers?sort_by=added_at&page_size=6')
+    expect(mine.data.map((p: any) => p.id)).toEqual([p3, p1, p2])
+    expect(mine.data[0].added_at).toBe('2026-02-03T00:00:00.000Z')
+    const asc = await get('/api/papers?sort_by=added_at&sort_order=asc')
+    expect(asc.data.map((p: any) => p.id)).toEqual([p2, p1, p3])
+
+    // Outside Mine there is no single "added" time: fall back to created_at; non-library → null.
+    const p4 = addPaper(4)
+    const all = await get('/api/papers?scope=all&sort_by=added_at')
+    expect(all.data.map((p: any) => p.id)).toEqual([p4, p3, p2, p1])
+    expect(all.data[0].added_at).toBeNull()
+    const anon = await app.inject({ method: 'GET', url: '/api/papers?sort_by=added_at' }).then(r => r.json())
+    expect(anon.data.map((p: any) => p.id)).toEqual([p4, p3, p2, p1])
+    expect(anon.data.every((p: any) => p.added_at === null)).toBe(true)
+  })
 })

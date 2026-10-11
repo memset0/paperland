@@ -39,6 +39,20 @@ export function libraryIds(userId: number | null, paperIds: number[]): Set<numbe
   return new Set(rows.map(r => r.paper_id))
 }
 
+/** When the user added each of `paperIds` that is in their library (ISO time), keyed by paper id. */
+export function libraryAddedAt(userId: number | null, paperIds: number[]): Map<number, string> {
+  if (userId == null || paperIds.length === 0) return new Map()
+  const rows = getDatabase().select({ paper_id: schema.userPapers.paper_id, created_at: schema.userPapers.created_at })
+    .from(schema.userPapers)
+    .where(and(
+      eq(schema.userPapers.user_id, userId),
+      eq(schema.userPapers.in_library, 1),
+      inArray(schema.userPapers.paper_id, paperIds),
+    ))
+    .all()
+  return new Map(rows.map(r => [r.paper_id, r.created_at]))
+}
+
 function starterArxivId(): string {
   try { return getConfig().library.starter_arxiv_id.trim() } catch { return '1706.03762' }
 }
