@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { useMediaQuery } from '@vueuse/core'
 import { useQAStore } from '@/stores/qa'
 import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
-import { useQAWindow } from '@/composables/useQAWindow'
-import FloatingWindow from './FloatingWindow.vue'
 import { useQAComposer, inputPageLabel } from '@/composables/useQAComposer'
 import { useQAConversation } from '@/composables/useQAConversation'
 import { usePapersStore } from '@/stores/papers'
@@ -14,11 +11,10 @@ import { api } from '@/api/client'
 import { Send, LogIn, X, TextQuote, Image as ImageIcon, MessagesSquare } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Card } from '@/components/ui/card'
 
 const props = defineProps<{
   paperId: number
-  /** Docked at the bottom of the conversation view instead of floating. */
+  /** Docked at the bottom of the conversation view; otherwise inline above the User Q&A list. */
   docked?: boolean
   /** Why asking is unavailable right now (e.g. the thread's last answer is still running). */
   blocked?: string | null
@@ -26,8 +22,6 @@ const props = defineProps<{
 const store = useQAStore()
 const auth = useAuthStore()
 const { openLogin } = useLoginPrompt()
-const { win, close } = useQAWindow()
-const isMobile = useMediaQuery('(max-width: 768px)')
 const composer = useQAComposer()
 const conversation = useQAConversation()
 const question = composer.question
@@ -107,6 +101,15 @@ const nonVisionSelected = computed(() => composer.hasImage()
   : [])
 
 onBeforeUnmount(() => composer.registerInserter(null))
+
+// "Follow up", #moonlight links and PDF "Add to question" ask for the box: bring it into view.
+const rootRef = ref<HTMLElement | null>(null)
+watch(composer.openRequests, () => {
+  void nextTick(() => {
+    rootRef.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    textareaEl()?.focus({ preventScroll: true })
+  })
+})
 watch(() => [auth.user?.id, props.paperId] as const, ([userId, paperId]) => composer.bind(userId, paperId), { immediate: true })
 
 onMounted(async () => {
@@ -144,18 +147,12 @@ function selectModel(name: string) {
 </script>
 
 <template>
-  <!-- Floating: the shared FloatingWindow shell in its bare look (this card IS the window; drag
-       empty card areas to move, bottom-right grip to resize). Docked: a plain block. -->
-  <component
-    :is="docked ? 'div' : FloatingWindow"
-    v-if="docked || win"
-    v-bind="docked ? { class: 'h-full' } : { win, bare: true, minWidth: 300, minHeight: 120 }"
-  >
-  <Card
-    size="sm"
-    :class="docked
-      ? 'relative flex h-full flex-col rounded-none border-0 border-t px-3 shadow-none ring-0'
-      : ['flex h-full flex-1 flex-col px-2.5 md:px-3 shadow-2xl', isMobile ? 'rounded-none' : 'rounded-lg']"
+  <!-- Docked at the bottom of the conversation view, or inline under the User Q&A header -->
+  <div
+    ref="rootRef"
+    class="relative flex flex-col gap-1.5"
+    :class="docked ? 'h-full border-t bg-card px-3 py-2' : 'border-b bg-muted/20 px-5 py-3'"
+    :data-qa-input="docked ? 'docked' : 'inline'"
   >
     <template v-if="auth.isAuthenticated">
       <!-- Top row: Submit (left) · model selector · Close (top-right) -->
@@ -191,9 +188,6 @@ function selectModel(name: string) {
             </Button>
           </template>
         </div>
-        <Button v-if="!docked" variant="ghost" size="icon-sm" class="shrink-0" title="Close" @click="close()">
-          <X />
-        </Button>
       </div>
       <!-- Follow-up target and attachments sit between the controls and the input -->
       <div v-if="composer.followup.value" class="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground">
@@ -235,8 +229,8 @@ function selectModel(name: string) {
           @click="updateMention"
           @blur="mention = null"
           placeholder="Ask a question; @ to reference a selection or screenshot…"
-          rows="2"
-          class="flex-1 min-h-0 w-full resize-none"
+          :rows="docked ? 2 : 3"
+          :class="docked ? 'flex-1 min-h-0 w-full resize-none' : 'w-full resize-none bg-background'"
         />
         <div
           v-if="mention && mentionItems.length"
@@ -266,11 +260,6 @@ function selectModel(name: string) {
       >
         <LogIn class="h-4 w-4" /> Log in to ask about this paper
       </button>
-      <Button variant="ghost" size="icon-sm" class="shrink-0" title="Close" @click="close()">
-        <X />
-      </Button>
     </div>
-
-  </Card>
-  </component>
+  </div>
 </template>

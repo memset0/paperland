@@ -89,10 +89,10 @@ watch(
           ><X class="h-3 w-3" /></button>
         </div>
       </div>
-      <Button variant="ghost" size="icon-sm" class="my-auto shrink-0" title="New conversation" @click="conversation.newTab()">
+      <Button variant="ghost" size="icon-sm" class="my-auto shrink-0" :class="{ 'mr-1': conversation.mobile.value }" title="New conversation" @click="conversation.newTab()">
         <MessageSquarePlus />
       </Button>
-      <Button variant="ghost" size="icon-sm" class="my-auto mr-1 shrink-0" title="Close conversation view" @click="conversation.hide()">
+      <Button v-if="!conversation.mobile.value" variant="ghost" size="icon-sm" class="my-auto mr-1 shrink-0" title="Close conversation view" @click="conversation.hide()">
         <PanelRightClose />
       </Button>
     </div>

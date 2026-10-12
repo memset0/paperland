@@ -5,8 +5,7 @@ import NoteEditor from './notes/NoteEditor.vue'
 import QATreeView from './QATreeView.vue'
 
 // Renders the app's titled floating windows (note editors, Q&A tree) above the app chrome, all
-// through the shared FloatingWindow shell. Mounted once (App.vue). The question box (`qa-ask`)
-// uses the same store and shell but is rendered by QAInput itself.
+// through the shared FloatingWindow shell. Mounted once (App.vue).
 const store = useWindowsStore()
 </script>
 

@@ -5,21 +5,16 @@ import { X } from '@lucide/vue'
 import { useWindowsStore, type FloatingWindowState } from '@/stores/windows'
 
 /**
- * The one floating-window shell of the app (note editors, Q&A tree, the question box). Geometry,
+ * The one floating-window shell of the app (note editors, Q&A tree). Geometry,
  * z-order and size memory live in `stores/windows.ts`. Desktop: fixed at the window's geometry,
  * resizable from a bottom-right grip, raised on pointer-down. Mobile: a fullscreen overlay.
- *
- * Two looks:
- * - default: popover chrome with a title bar (drag by the title bar, close button on the right);
- * - `bare`: no chrome at all — the slot content (e.g. the question box card) is the window, and it
- *   is moved by dragging any empty area (not inputs/buttons/links).
+ * Popover chrome with a title bar: drag by the title bar, close button on the right.
  */
 const props = withDefaults(defineProps<{
   win: FloatingWindowState
-  bare?: boolean
   minWidth?: number
   minHeight?: number
-}>(), { bare: false, minWidth: 280, minHeight: 200 })
+}>(), { minWidth: 280, minHeight: 200 })
 
 const store = useWindowsStore()
 const isMobile = useMediaQuery('(max-width: 768px)')
@@ -30,7 +25,7 @@ const style = computed(() =>
     : { left: props.win.x + 'px', top: props.win.y + 'px', width: props.win.w + 'px', height: props.win.h + 'px', zIndex: props.win.z },
 )
 
-// --- Move: by the title bar, or (bare) by any empty area ---
+// --- Move: by the title bar ---
 let moving = false, sx = 0, sy = 0, ox = 0, oy = 0
 function startMove(e: PointerEvent) {
   if (isMobile.value) return
@@ -38,12 +33,8 @@ function startMove(e: PointerEvent) {
   sx = e.clientX; sy = e.clientY; ox = props.win.x; oy = props.win.y
   ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
 }
-function onBodyDown(e: PointerEvent) {
+function onBodyDown() {
   store.focus(props.win.key)
-  if (!props.bare) return
-  const t = e.target as HTMLElement
-  if (t.closest('button, textarea, a, input, select, label, [data-window-resize], [data-window-nodrag]')) return
-  startMove(e)
 }
 function onMove(e: PointerEvent) {
   if (!moving) return
@@ -77,19 +68,13 @@ function onResizeUp(e: PointerEvent) {
 
 <template>
   <div
-    class="fixed flex flex-col"
-    :class="[
-      bare ? '' : 'overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-2xl',
-      isMobile ? 'inset-0 rounded-none' : (bare ? 'cursor-move' : ''),
-    ]"
+    class="fixed flex flex-col overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-2xl"
+    :class="{ 'inset-0 rounded-none': isMobile }"
     :style="style"
     :data-floating-window="win.kind"
     @pointerdown="onBodyDown"
-    @pointermove="onMove"
-    @pointerup="onUp"
   >
     <div
-      v-if="!bare"
       class="flex shrink-0 select-none items-center gap-2 border-b bg-muted/40 px-3 py-2"
       :class="isMobile ? '' : 'cursor-move'"
       @pointerdown="startMove"
@@ -108,7 +93,7 @@ function onResizeUp(e: PointerEvent) {
       </button>
     </div>
 
-    <div class="min-h-0 flex-1" :class="bare ? 'flex flex-col' : 'overflow-hidden'">
+    <div class="min-h-0 flex-1 overflow-hidden">
       <slot />
     </div>
 

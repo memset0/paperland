@@ -15,6 +15,8 @@ import {
   ChevronsDownUp, ChevronsUpDown, User, Lock, Network
 } from '@lucide/vue'
 import QAResultView from './QAResultView.vue'
+import QAInputBox from './QAInput.vue'
+import { useQAConversation } from '@/composables/useQAConversation'
 import { useWindowsStore } from '@/stores/windows'
 import QAEntryBackgroundPicker from './QAEntryBackgroundPicker.vue'
 import HighlightScopeToggle from './HighlightScopeToggle.vue'
@@ -27,6 +29,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 const props = defineProps<{ paperId: number }>()
+// The one question box lives here unless the conversation view (which docks it) is shown.
+const conversation = useQAConversation()
 const store = useQAStore()
 const auth = useAuthStore()
 const availableModels = ref<Array<{ name: string }>>([])
@@ -411,6 +415,8 @@ function openTree() {
         </Button>
       </div>
     </div>
+
+    <QAInputBox v-if="!conversation.visible.value" :paper-id="paperId" />
 
     <div class="divide-y">
       <template v-for="entry in freeEntries" :key="entry.key">

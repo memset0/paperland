@@ -602,7 +602,7 @@ notes:
 **QA 前端流式渲染**：Pinia 为当前可见 active Result 管理一个可重连 SSE observer，delta 先经 animation-frame batch；`QAThinkingTimer` 只更新固定宽度计时文本。`QAStreamingMarkdown` 保留稳定 Markdown block DOM、只解析尾部，流式期禁用不稳定的 hash 高亮/锚点；done 等待 pending paint 后切到标准 `MarkdownContent` 做一次 canonical render。不自动滚动或对答案容器做 transition。
 新增流式 UI copy 统一为英文：`Queued / Thinking / Streaming / Done / Stopped / Failed`、`Thought for · mm:ss`、`This model will display its answer when complete`、`Agent is thinking…`。
 
-**QA 对话 / 树视图**：纯前端，无新依赖。对话视图的 thread 不落库，由尾回答经已有的 `GET /api/qa/entries/:id/tree` 推导；Q&A 树沿用笔记思维导图的手写布局（嵌套 flex + DOM 实测 SVG 连线），不引入图形库，并在全站共用的浮动窗口机制（`stores/windows.ts` + `FloatingWindow.vue`）中打开。提问框一次只选一个模型（后端接口仍支持多模型）。论文页三种布局（"Two columns" / "Paper + conversation" / "Three columns"）中，论文信息 + Q&A 栏用 VueUse 已有的 `createReusableTemplate` 只定义一次，不新增依赖。
+**QA 对话 / 树视图**：纯前端，无新依赖。对话视图的 thread 不落库，由尾回答经已有的 `GET /api/qa/entries/:id/tree` 推导；Q&A 树沿用笔记思维导图的手写布局（嵌套 flex + DOM 实测 SVG 连线），不引入图形库，并在全站共用的浮动窗口机制（`stores/windows.ts` + `FloatingWindow.vue`）中打开。提问框一次只选一个模型（后端接口仍支持多模型）。论文页三种布局（"Two columns" / "Paper + conversation" / "Three columns"）中，论文信息 + Q&A 栏用 VueUse 已有的 `createReusableTemplate` 只定义一次，不新增依赖。提问框不再是浮动窗口：对话视图未显示时内嵌在 User Q&A 上方，显示时停靠在对话视图（手机为底部栏 Ask 分区）。
 
 **QA 多回答选择**：`QAResultView` 对所有状态都按 `created_at`（缺失回退 `completed_at`）+ result id 判定最新回答（按提问时间，不按完成时间）。多模型提交时后端按模型列表逆序创建 Result，排在前面的模型默认被选中；默认追问对象额外限定为 done（`defaultFollowupResult`）。首次显示和新增 Result 时激活最新；status、Thinking 计时、answer delta 和等价轮询都不进入 selection signature，因此不重置手动 tab；删除当前 Result 回退最新；`requestedResultId` 锚点为一次性高优先级选择。
 

@@ -94,8 +94,12 @@ const splitLeft = ref(readSplitLeft())
 const three = ref(readThree())
 const tabs = ref<ConversationTab[]>([])
 const active = ref(0)
-/** Set by the paper page: the view exists only on the wide split layout for logged-in users. */
+/** Set by the paper page: the view exists for signed-in users on the wide or the phone layout. */
 const available = ref(false)
+/** Phone layout: the view is the bottom bar's Ask section, always "open" there. */
+const mobile = ref(false)
+/** Bumped by `show()` on phones; the paper page switches to the Ask section. */
+export const showRequests = ref(0)
 /**
  * Bumped when a Q&A entry is about to be revealed; in the `split-conv` layout the info & Q&A
  * column lives in a viewer tab, which then activates so the entry is in the DOM.
@@ -135,8 +139,8 @@ watch([layout, lastConversationLayout], () => writeJSON(LAYOUT_KEY, { layout: la
 watch(splitLeft, (value) => writeJSON(SPLIT_KEY, round1(value)))
 watch(three, (value) => writeJSON(THREE_KEY, { left: round1(value.left), conv: round1(value.conv) }), { deep: true })
 
-/** The conversation view is part of both conversation layouts. */
-const open = computed(() => layout.value !== 'split')
+/** The conversation view is part of both conversation layouts, and always there on phones. */
+const open = computed(() => mobile.value || layout.value !== 'split')
 
 function sameTail(tab: ConversationTab, entryId: number, resultId: number) {
   return tab.entry_id === entryId && tab.result_id === resultId
@@ -160,7 +164,10 @@ export function useQAConversation() {
     restoring = false
   }
 
-  function setAvailable(value: boolean) { available.value = value }
+  function setAvailable(value: boolean, isMobile = false) {
+    available.value = value
+    mobile.value = value && isMobile
+  }
 
   function setLayout(value: PaperLayout) {
     if (value !== 'split' && tabs.value.length === 0) newTab()
@@ -168,10 +175,14 @@ export function useQAConversation() {
     if (value !== 'split') lastConversationLayout.value = value
   }
 
-  /** Show the conversation view: switch to the most recently used conversation layout. */
+  /**
+   * Show the conversation view: on phones ask for the Ask section, on desktop switch to the most
+   * recently used conversation layout.
+   */
   function show() {
     if (tabs.value.length === 0) newTab()
-    if (layout.value === 'split') setLayout(lastConversationLayout.value)
+    if (mobile.value) showRequests.value++
+    else if (layout.value === 'split') setLayout(lastConversationLayout.value)
   }
 
   /** Hide the conversation view: back to the plain split layout. */
@@ -221,7 +232,7 @@ export function useQAConversation() {
   }
 
   return {
-    open, layout, splitLeft, three, tabs, active, available, visible, activeTab,
+    open, layout, splitLeft, three, tabs, active, available, mobile, visible, activeTab,
     bind, setAvailable, setLayout, show, hide, toggle, openThread, newTab, closeTab, setActiveTail,
   }
 }

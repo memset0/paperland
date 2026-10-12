@@ -8,10 +8,8 @@ import { ref } from 'vue'
  *   (keyed by `sectionId`; null = the preamble/center node); the single whole-DOCUMENT window
  *   (`doc`) edits the entire note body. Doc and section windows are mutually exclusive per paper.
  * - `qa-tree`: the paper's Q&A follow-up tree (mind map).
- * - `qa-ask`: the floating question box (`QAInput`). Its geometry is computed fresh by the caller
- *   on every open and never remembered.
  */
-export type FloatingWindowKind = 'section' | 'doc' | 'qa-tree' | 'qa-ask'
+export type FloatingWindowKind = 'section' | 'doc' | 'qa-tree'
 
 export interface NoteWindowTarget {
   paperId: number
@@ -38,8 +36,8 @@ export type NoteWindow = FloatingWindowState
 
 interface SizeMemory { storageKey: string; w: number; h: number }
 
-/** Kinds whose size is remembered (the question box is not). */
-const SIZE_MEMORY: Partial<Record<FloatingWindowKind, SizeMemory>> = {
+/** Remembered window size per kind. */
+const SIZE_MEMORY: Record<FloatingWindowKind, SizeMemory> = {
   section: { storageKey: 'paperland_note_window_size', w: 460, h: 400 },
   doc: { storageKey: 'paperland_note_window_size', w: 460, h: 400 },
   'qa-tree': { storageKey: 'paperland_qa_tree_window_size', w: 760, h: 520 },
@@ -75,7 +73,7 @@ export const useWindowsStore = defineStore('floating-windows', () => {
     const existing = windows.value.find((w) => w.key === base.key)
     if (existing) { focus(base.key); return }
     const memory = SIZE_MEMORY[base.kind]
-    const { w, h } = memory ? loadSize(memory) : { w: 460, h: 400 }
+    const { w, h } = loadSize(memory)
     const cascade = windows.value.length * 26
     const x = at?.x ?? window.innerWidth / 2 - w / 2 + cascade
     const y = at?.y ?? 110 + cascade
@@ -97,12 +95,6 @@ export const useWindowsStore = defineStore('floating-windows', () => {
   /** Open (or focus) the Q&A tree window of a paper. */
   function openQATree(paperId: number, title: string) {
     openSized({ key: `${paperId}:qa-tree`, kind: 'qa-tree', paperId, sectionId: null, title })
-  }
-
-  /** Place a window at exactly the given geometry (no size memory) — used by the question box. */
-  function place(base: Omit<FloatingWindowState, 'z'>) {
-    windows.value = windows.value.filter((w) => w.key !== base.key)
-    windows.value.push({ ...base, z: ++topZ })
   }
 
   function get(key: string): FloatingWindowState | undefined {
@@ -143,7 +135,7 @@ export const useWindowsStore = defineStore('floating-windows', () => {
     if (!w) return
     Object.assign(w, geo)
     const memory = SIZE_MEMORY[w.kind]
-    if (memory && (geo.w != null || geo.h != null)) {
+    if (geo.w != null || geo.h != null) {
       try { localStorage.setItem(memory.storageKey, JSON.stringify({ w: w.w, h: w.h })) } catch { /* ignore */ }
     }
   }
@@ -153,5 +145,5 @@ export const useWindowsStore = defineStore('floating-windows', () => {
     if (w) w.title = title
   }
 
-  return { windows, open, openQATree, place, get, close, closeForPaper, closeKind, closeAll, isDocOpen, focus, setGeometry, setTitle }
+  return { windows, open, openQATree, get, close, closeForPaper, closeKind, closeAll, isDocOpen, focus, setGeometry, setTitle }
 })

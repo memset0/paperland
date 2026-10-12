@@ -338,7 +338,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 #### 窄屏布局
 
 单栏布局（<900px）：
-- **非 embed（手机 / 平板）**：页面底部出现 **mobile bottom bar**（见「响应式 / 移动端布局」），一次只显示一个分区：**Info**（信息卡、引用、笔记卡、Kimi summary）/ **Read**（`PaperViewerPanel`：PDF / 双语 PDF / Markdown / Note 等标签，首次切到 Read 时才挂载，之后 `v-show` 保活）/ **Q&A**（`QAList` + `QAPanelNav`），外加 **Ask** 操作项（打开提问框，手机上全屏）。各分区独立滚动并保留位置；header 不再显示功能按钮，也没有 FAB。深链切分区：`requestedPdfTarget`、`requestedPublicNote`、`?view=note` → Read；`paperInfoRequests`（`revealQAEntry` / `locateBlock` 触发）→ Q&A。信息卡模板 `DefineNarrowInfo` 与 embed 单栏共用。
+- **非 embed（手机 / 平板）**：页面底部出现 **mobile bottom bar**（见「响应式 / 移动端布局」），一次只显示一个分区：**Info**（信息卡、引用、笔记卡、Kimi summary）/ **Read**（`PaperViewerPanel`：PDF / 双语 PDF / Markdown / Note 等标签，首次切到 Read 时才挂载，之后 `v-show` 保活）/ **Q&A**（`QAList` + `QAPanelNav`），以及登录用户的 **Ask**（对话视图 `QAConversationPanel`：thread tabs + 停靠提问框，首次切到时才挂载，之后 `v-show` 保活）。Q&A 图标为 `List`，Ask 为 `MessagesSquare`。「在对话视图中打开」、Follow up、`#moonlight`、PDF "Add to question" 都会切到 Ask（未登录切到 Q&A）。各分区独立滚动并保留位置；header 不再显示功能按钮，也没有 FAB。深链切分区：`requestedPdfTarget`、`requestedPublicNote`、`?view=note` → Read；`paperInfoRequests`（`revealQAEntry` / `locateBlock` 触发）→ Q&A。信息卡模板 `DefineNarrowInfo` 与 embed 单栏共用。
 - **embed（Zotero 侧栏）**：保持原来的长单栏（信息卡 + Q&A），不显示底部栏。
 
 #### doc2x 提问确认 + 复制全文
@@ -351,7 +351,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 选段、框选截图（必须先上传到本服务图床，按 `image_hash` 引用）、对话历史（只引用父回答 id）。普通提问就是没有 inputs 的特例。
 
 - **直接提问**（`PdfViewer`）：选区工具栏 "Ask" 或截图菜单 "Ask about screenshot" → `qaStore.askDirect(paperId, input)` → `POST /api/papers/:id/qa/free` 带 `direct_ask: true`。后端把问题定为 `@Quote1 <qa_prompt.direct_ask.question>`，只用 `models.default`。提问前同样走 doc2x 确认。回答在选区/截图旁的浮层 `.pdf-ask-panel` 里流式显示（浮层读 `qaStore.qaData.free` 中对应 entry，由 store 的 SSE 实时更新；完成后用 `MarkdownContent qa-answer`），底部有 "Show in list"（`revealQAEntry`）和 "Follow up"（默认接续最近一次已完成的回答，`defaultFollowupResult`）。与翻译浮层互斥。
-- **加入提问框**：选区 "Add to question" 或截图菜单 "Add to question" → `useQAComposer().addAttachment(input)`：按类别续号（`Quote1`、`Image2`…，追问时从祖先链已用的最大编号往后数），在输入框光标处插入 `@Quote1 ` 并请求打开提问面板（`PaperDetail` 监听 `composer.openRequests` 调 `openQA()`）。
+- **加入提问框**：选区 "Add to question" 或截图菜单 "Add to question" → `useQAComposer().addAttachment(input)`：按类别续号（`Quote1`、`Image2`…，追问时从祖先链已用的最大编号往后数），在输入框光标处插入 `@Quote1 ` 并发出 `composer.openRequests`（当前挂载的 `QAInput` 滚入视野并聚焦；手机上 `PaperDetail` 切到 Ask 分区，未登录切到 Q&A）。
 - **提问框 composer（`composables/useQAComposer.ts`）**：模块级单例，保存问题文本、附件（已带标号）、追问目标（父 result/entry + 祖先链 inputs）。草稿按「用户 + 论文」存 `localStorage`（`paperland_qa_draft_<user>_<paper>`，读写 try/catch），刷新后恢复，提交成功后清空；附件不限数量。移除附件时其他标号不重排，并删掉问题里该附件的 token。
 - **`QAInput` 面板**：顶部行下依次是追问提示条（"Following up on QA-12 · <model> · <question>"，× 取消追问）、附件栏（类别图标 + `@标号` + 摘要/缩略图 + 页码，跨页显示 `p.3–4`，可移除）、输入框。输入 `@` 弹出补全菜单，列出祖先链和本轮的全部可引用输入（↑↓ 选择、Enter/Tab 插入）。整条链有图片时，所选模型都必须 `vision: true`（来自 `/api/config/models`），否则禁用提交并提示。论文没有可用全文（`lib/qa-content.ts` 的 `paperHasQAContent`）时提交和 PDF 提问入口都置灰并提示。
 - **追问**：每个回答下的 `MessagesSquare` 按钮（只有 done 的回答可用）、回答里模型给出的 `[💬 …](#moonlight)` 链接（`MarkdownContent` 以 `qa-answer` 渲染时拦截，预填问题）都会调 `composer.startFollowup(...)`；它先取 `GET /api/qa/entries/:id/tree` 收集祖先链 inputs 供 `@` 菜单使用。`/qa` 页没有提问框，追问跳到论文页 `?qa=<entry>&result=<id>&followup=1[&fq=<预填>]`，由 `PaperDetail.handleAnchorFromRoute` 打开。
@@ -366,34 +366,26 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 - **图床不再支持删除**：`/images` 去掉删除按钮（后端也没有删除接口），每张图同时显示「被笔记引用次数」和「被 QA 引用次数」（`qa_reference_count`，统计所有 `qa_entries.inputs` 中的 image input），保证追问和重新生成时截图一直可用。
 - **默认选中的回答**：`lib/qa-result-selection.ts` 对所有状态按 `created_at`（缺失回退 `completed_at`）+ id 判定最新；多模型提交时后端按模型列表逆序创建，所以排在前面的模型默认被选中。
 
-#### 按需浮动提问面板（QAInput）+ 功能入口（PaperActionLauncher）
+#### 提问框（QAInput）：User Q&A 上方内嵌 / 对话视图停靠
 
-提问框不再常驻遮挡视野，改为**点击功能入口后才弹出的浮动面板**。面板**就是 `QAInput` 卡片本身（单层）**——不套额外窗口外壳/标题栏，外圈即卡片自身边框，避免"窗口套卡片"的双层边框。
+全站只挂载**一个** `QAInput`，没有浮动提问窗口，也没有右上角 "Ask" 按钮（原 `PaperActionLauncher` 与 `useQAWindow` 已删除）：
 
-- **功能入口（`PaperActionLauncher.vue`）**：渲染调用方（`PaperDetail`）按页面功能顺序（引用 → 笔记 → 提问）注入的有序功能项，当前仅 "Ask"（`Bot` 图标）。
-  - **桌面端**（≥ md）：在论文详情页 header **右侧内联直接平铺**功能按钮（图标 + 文字），无下拉菜单。
-  - **移动端**（< md）：右下角**圆形悬浮按钮（FAB）**，点击展开竖直功能列表，选中即触发并收起。
-- **面板状态（`composables/useQAWindow.ts`）**：提问框是全站浮动窗口之一（`stores/windows.ts` 的 `qa-ask`），`QAInput` 用共享的 `FloatingWindow` 外壳（`bare` 外观）渲染，移动 / 缩放逻辑与笔记窗口、Q&A 树窗口同一份代码。与它们不同，**不记忆/不持久化**上次位置大小，每次 `open()`（`store.place`）用调用方按当前布局算好的默认几何覆盖。
-- **默认几何（由 `PaperDetail.openQA()` 计算）**：默认放在内容区左下角，默认高 `QA_DEFAULT_HEIGHT`（约 2 行输入框）。
-  - 双栏：贴左下角，宽 = 左侧（PDF）栏当前宽度（`#split-container` 实测 × `leftWidth`），`top = 容器底 − height`。
-  - 单栏：贴底部，占内容区完整横向宽度（`narrowScrollRef` 实测）。
-  - 移动端：`inset-0` 全屏浮层。
-- **面板内布局**：顶部一行自左至右为 **提交按钮（左）→ 模型选择 → 关闭按钮（右上角）**；其下为占满整行的输入框（`rows="2"` 默认两行、`flex-1` 随面板增高填充、`resize-none` 去掉自身缩放手柄）。
-- **拖动 / 缩放分工（桌面端）**：面板**右下角有缩放手柄**（对角线 SVG，`@pointerdown.stop`，改 `width/height`）；**移动**则在卡片**空白处**（非输入框 / 非按钮 / 非手柄，`onCardDown` 用 `closest(...)` 排除）按下拖动，改 `left/top`。移动端全屏，二者均不提供。
-- **提交按钮**：图标 + "Submit" 文字（不再仅图标）。
-- 切换论文 / 组件卸载时 `qaWin.close()`，避免浮动面板跨论文残留。
+- **内嵌（对话视图未显示：桌面双栏、embed）**：`QAList` 在 User Q&A 卡片标题栏下方渲染 `QAInput`（`data-qa-input="inline"`，`!conversation.visible` 时）。顶部一行为 **提交按钮 → 模型按钮**（单选），下面是追问目标行（可取消）、附件栏和 3 行输入框（`resize-none`）。User Q&A 卡片只对登录用户显示，所以未登录用户看不到提问框。
+- **停靠（对话视图显示：桌面「论文 + 对话」/ 三栏，手机 Ask 分区）**：`QAConversationPanel` 底部 `QAInput docked`（模型为下拉框），内嵌框不渲染。
+- **打开请求**：「Follow up」、`#moonlight`、PDF "Add to question" 都调 `composer.requestOpen()`；`QAInput`（两种模式都）监听 `composer.openRequests`，`scrollIntoView({ block: 'nearest' })` 并聚焦输入框。对话视图显示时，`startFollowup` 先 `openThread`：已有以该回答结尾的 tab 就激活它，否则复用当前空白「新对话」tab 或新开 tab。
+- **草稿**：在 `useQAComposer`（按「用户 + 论文」存 localStorage），内嵌框和停靠框共用，切换布局不丢。
+- **提交按钮**：图标 + "Submit" 文字。
 - **单模型**：模型按钮为单选（`selectModel` 直接把 `selectedModels` 设为 `[name]`）；`stores/qa.ts` 读取旧的多模型缓存时只保留第一个。重新生成弹窗仍可多选。
-- **对话视图打开时**：浮动面板不渲染（`PaperDetail` 只挂载一个 `QAInput`），`openQA()` 与 `composer.openRequests` 都不再弹浮窗，内容进入对话栏底部停靠的同一个提问框。
 
 #### 对话视图（QAConversationPanel）与树视图（QATreeView）
 
-- **三种页面布局**：宽屏且已登录时，页头右上角（`PaperActionLauncher` 左侧）有布局切换按钮组（`data-layout-selector`，单选）：
+- **三种页面布局**：宽屏且已登录时，页头右上角有布局切换按钮组（`data-layout-selector`，单选）：
   - **Two columns**（`split`，`Columns2`）：原来的「阅读器 | 论文信息 + Q&A」。
   - **Paper + conversation**（`split-conv`，`MessagesSquare`）：「阅读器 | 对话视图」两栏。原右栏拆成左侧阅读器里 Note 右边的两个 tab（`PaperViewerPanel` 的 `info-tabs` prop + `#metadata` / `#qa` 插槽）：「Metadata」放论文信息卡片、引用、笔记卡片、Kimi 摘要；「Q&A」放 Preset Q&A 与 User Q&A 列表，以及 `QAPanelNav`。左右比例与双栏共用，拖任一布局的分隔线都会改变两者。
   - **Three columns**（`three`，`Columns3`）：「阅读器 | 论文信息 + Q&A | 对话视图」，两条分隔线都可拖动，比例独立保存。
   - 论文信息卡片（`Metadata`）和整栏（`PaperColumn`，`part: all | metadata | qa`）只在模板里定义一次（VueUse `createReusableTemplate`）：中间栏渲染 `all`，两个 tab 各渲染一部分。`QAPanelNav` 的滚动容器 `wideScrollRef` 跟随含 Q&A 的那个实例。
   - 定位 Q&A（`revealQAEntry`，以及 `locateBlock` 命中回答）前会调 `requestPaperInfo()`，"Paper + conversation" 布局下阅读器会先切到「Q&A」tab。
-  - 窄屏/移动端、未登录不提供布局切换和对话视图。
+  - 窄屏（非 embed）且已登录时，对话视图是手机底部栏的 **Ask** 分区（`setAvailable(true, mobile)`：`open` 恒为真，`show()` 改为递增 `showRequests`，`PaperDetail` 据此切到 Ask）；对话栏不显示「关闭对话视图」按钮。手机上没有布局切换；embed 与未登录不提供对话视图。
 - **比例与持久化（修复刷新后比例错乱）**：所有比例都按 split 容器宽度的**百分比**存储，不再存 px。旧实现的对话栏宽度是 px，左栏 45% 也不持久化，刷新或窗口宽度变化后中栏会被挤窄或溢出。
   - `paperland_paper_layout` 存 `{ layout, last }`，`last` 是最近用过的对话布局。
   - `paperland_paper_split_left` 存双栏 / 论文 + 对话共用的左栏比例，范围 20–80%。
@@ -1410,11 +1402,11 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 
 ### 浮动编辑窗口（`components/notes/`）
 
-- **全站浮动窗口共用一套机制**：`stores/windows.ts`（store id `floating-windows`）管理所有浮动窗口——笔记 `section` / `doc`、Q&A 树 `qa-tree`、提问框 `qa-ask`——同一个 z-index 栈（从 200 起，按下即置顶）、同一种几何（`x/y/w/h`），可任意多个同时打开。尺寸记忆按种类（笔记 `paperland_note_window_size`，Q&A 树 `paperland_qa_tree_window_size`；提问框不记忆）。笔记窗口按 `${paperId}:${sectionId ?? 'preamble'}` 唯一键——一个 section 至多一个窗（再次打开只聚焦）；`closeForPaper` 只关笔记窗口，`closeKind(kind)` 关某一类。
-- `components/FloatingWindow.vue`：**唯一的浮窗外壳组件**。默认外观带标题栏（拖标题栏移动、右侧关闭、`#actions` 插槽）；`bare` 外观无任何外壳，插槽内容（提问框卡片）本身就是窗口，按空白处拖动。两者都有右下角缩放手柄，手机端全屏。
+- **全站浮动窗口共用一套机制**：`stores/windows.ts`（store id `floating-windows`）管理所有浮动窗口——笔记 `section` / `doc`、Q&A 树 `qa-tree`——同一个 z-index 栈（从 200 起，按下即置顶）、同一种几何（`x/y/w/h`），可任意多个同时打开。尺寸记忆按种类（笔记 `paperland_note_window_size`，Q&A 树 `paperland_qa_tree_window_size`）。笔记窗口按 `${paperId}:${sectionId ?? 'preamble'}` 唯一键——一个 section 至多一个窗（再次打开只聚焦）；`closeForPaper` 只关笔记窗口，`closeKind(kind)` 关某一类。
+- `components/FloatingWindow.vue`：**唯一的浮窗外壳组件**。带标题栏（拖标题栏移动、右侧关闭、`#actions` 插槽）和右下角缩放手柄，手机端全屏。提问框不是浮动窗口。
 - `NoteEditor.vue`：编辑**单个 section 的叶子正文**（中心节点 → 编辑前言）；三显示模式（Editor / Split / Preview）；编辑面用共享的 `MonacoMarkdownEditor`；预览用 `demoteHeadings(editBody)` 渲染（所见即所存）；写穿到 `store.updateLeaf(sectionId, text)` / `store.updatePreamble(text)`，1.2s 防抖 + 失焦/Ctrl+S/关窗即提交，IME 安全；冲突时顶部红条提示。标题栏显示该 section 的标题（只读——改名是结构操作，在思维导图里做）。
 - `MonacoMarkdownEditor.vue`：**全站笔记编辑统一用的 Markdown 编辑器**（Monaco，替代原 `<textarea>`），同时用于浮窗（section/doc，`NoteEditor`）与左面板 edit/split（`NoteWalkthrough`）。Markdown 语法高亮（含 **LaTeX 数学**：`lib/monaco.ts` 用 `withMath` 扩展 Monaco 自带 markdown Monarch 文法，给 `$…$` 行内 / `$$…$$` 块级数学加 token，块内还高亮 `\命令` 与花括号——KaTeX 用的就是这套定界符）、**显示行号**、跟随明暗主题（`stores/theme` → 透明背景融入面板，`*.math` token 配色随主题）、**按需懒加载**（`lib/monaco.ts` 动态 `import()` 仅取 `editor.api` + markdown 文法；用 `editor.worker?worker` 注册到 `MonacoEnvironment`，Vite `worker.format:'es'`，故 Monaco 是独立 async chunk，不进首包）。散文化配置（自动换行、无 minimap/补全弹窗）。对外暴露 `v-model` 及 `compositionstart/end`、`blur`、`save`(Ctrl/Cmd+S)、`paste`(原生 `ClipboardEvent`) 事件与 `insertAtCursor()`/`focus()`/`getEditor()`，内部在 IME 合成期间不触发 `update:modelValue`（同 Vue v-model 语义）——**自动保存/IME 守卫/粘贴上传/heading 降级/冲突检测全部仍留在父组件**，零行为回归。注意 markdown 是自行 `register` + `setMonarchTokensProvider`（不走 `.contribution` 的惰性 loader），以免扩展文法被覆盖。
-- `components/FloatingWindowHost.vue`：在 `App.vue` 挂载一次，用 `FloatingWindow` 渲染笔记窗口（`NoteEditor`）和 Q&A 树窗口（`QATreeView`）；提问框窗口由 `QAInput` 自己用同一外壳渲染。
+- `components/FloatingWindowHost.vue`：在 `App.vue` 挂载一次，用 `FloatingWindow` 渲染笔记窗口（`NoteEditor`）和 Q&A 树窗口（`QATreeView`）。
 
 ### 分支思维导图（heading 派生）
 

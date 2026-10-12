@@ -9,7 +9,7 @@ import { usePdfNavigation, requestedPdfTarget } from '@/composables/usePdfNaviga
 import { usePublicNoteOpen, requestedPublicNote } from '@/composables/usePublicNoteOpen'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from 'vue-sonner'
-import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, Columns2, Columns3, MessagesSquare, RefreshCw, Pencil, Trash2, X, Save, Loader2, Bot, BookmarkPlus, BookmarkCheck, Info, BookOpen } from '@lucide/vue'
+import { ArrowLeft, ExternalLink, Calendar, Users, Tag, ChevronsUpDown, ChevronsDownUp, PanelLeftClose, PanelLeftOpen, Columns2, Columns3, MessagesSquare, RefreshCw, Pencil, Trash2, X, Save, Loader2, BookmarkPlus, BookmarkCheck, Info, BookOpen, List } from '@lucide/vue'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
@@ -24,16 +24,13 @@ import PaperNotesCard from '@/components/PaperNotesCard.vue'
 import ReferenceLinksSection from '@/components/ReferenceLinksSection.vue'
 import PaperFullTextCopy from '@/components/PaperFullTextCopy.vue'
 import PaperCitations from '@/components/PaperCitations.vue'
-import QAInput from '@/components/QAInput.vue'
 import BilingualText from '@/components/BilingualText.vue'
-import PaperActionLauncher, { type LauncherAction } from '@/components/PaperActionLauncher.vue'
 import MobileBottomBar, { type BottomBarItem } from '@/components/MobileBottomBar.vue'
-import { useQAWindow, QA_DEFAULT_HEIGHT } from '@/composables/useQAWindow'
 import { useWindowsStore } from '@/stores/windows'
 import { useQAComposer } from '@/composables/useQAComposer'
 import QAPanelNav from '@/components/QAPanelNav.vue'
 import QAConversationPanel from '@/components/QAConversationPanel.vue'
-import { useQAConversation, clampSplitLeft, clampThree, paperInfoRequests, type PaperLayout } from '@/composables/useQAConversation'
+import { useQAConversation, clampSplitLeft, clampThree, paperInfoRequests, showRequests, type PaperLayout } from '@/composables/useQAConversation'
 import { createReusableTemplate } from '@vueuse/core'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useHighlightStore } from '@/stores/highlights'
@@ -81,11 +78,14 @@ const showSplitView = computed(() => isWide.value && !isEmbed.value)
 
 // ── Narrow (non-embed) layout: Info / Read / Q&A sections switched from the mobile bottom bar ──
 const showBottomBar = computed(() => !isWide.value && !isEmbed.value)
-type MobileSection = 'info' | 'read' | 'qa'
+type MobileSection = 'info' | 'read' | 'qa' | 'ask'
 const mobileSection = ref<MobileSection>('info')
 // The viewer (PDF etc.) mounts the first time Read is opened, then stays alive (v-show).
 const readMounted = ref(false)
 watch(mobileSection, (section) => { if (section === 'read') readMounted.value = true }, { immediate: true })
+// The conversation view (Ask) likewise mounts on first use.
+const askMounted = ref(false)
+watch(mobileSection, (section) => { if (section === 'ask') askMounted.value = true }, { immediate: true })
 const mobileQAScrollRef = ref<HTMLElement | null>(null)
 // Deep links pick the section that holds their target.
 watch(requestedPdfTarget, (target) => { if (target) mobileSection.value = 'read' })
@@ -96,7 +96,14 @@ watch(paperInfoRequests, () => { mobileSection.value = 'qa' })
 // ---- Wide layouts: split / paper + conversation / three columns (see useQAConversation) ----
 const conversation = useQAConversation()
 watch(() => [auth.user?.id, paperId.value] as const, ([userId, id]) => conversation.bind(userId, id), { immediate: true })
-watch(() => showSplitView.value && auth.isAuthenticated, (value) => conversation.setAvailable(value), { immediate: true })
+// Signed-in users get the conversation view on the wide layout and as the phone Ask section.
+watch(
+  () => [auth.isAuthenticated && (showSplitView.value || showBottomBar.value), showBottomBar.value] as const,
+  ([available, isMobile]) => conversation.setAvailable(available, isMobile),
+  { immediate: true },
+)
+// Signing out on a phone drops the Ask section.
+watch(() => conversation.available.value, (available) => { if (!available && mobileSection.value === 'ask') mobileSection.value = 'qa' })
 
 /** The effective layout: conversation layouts only where the view is available. */
 const layout = computed<PaperLayout>(() => conversation.available.value ? conversation.layout.value : 'split')
@@ -165,71 +172,24 @@ const [DefineMetadata, Metadata] = createReusableTemplate()
 const [DefinePaperColumn, PaperColumn] = createReusableTemplate<{ part: PaperColumnPart }>()
 const [DefineNarrowInfo, NarrowInfo] = createReusableTemplate()
 
-// ---- Paper-detail function launcher (top-right list / mobile FAB) + QA window ----
-const qaWin = useQAWindow()
+// ---- Question box: inline above User Q&A, or docked in the conversation view ----
 const floatingWindows = useWindowsStore()
 const composer = useQAComposer()
 
-/**
- * Open the "Ask" panel with a default geometry computed fresh from the current
- * layout (default-placed at the content's bottom-left; never remembered, unlike
- * the notes window). The panel is then movable (drag empty areas) and resizable
- * (bottom-right grip). Mobile opens fullscreen, so its geometry is a placeholder.
- */
-function openQA() {
-  // The conversation view docks the question box; there is no floating panel while it is open.
-  if (conversation.visible.value) return
-  if (window.innerWidth < 768) {
-    qaWin.open({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight })
-    return
-  }
-  // Leave room for the follow-up line / attachment chips when the draft has them.
-  const height = QA_DEFAULT_HEIGHT
-    + (composer.followup.value ? 20 : 0)
-    + (composer.attachments.value.length ? 28 : 0)
-  const m = 12 // small inset so the default panel sits a bit smaller within the area
-  if (showSplitView.value) {
-    // Double-column: bottom-left within the left (PDF) column (sticking to the
-    // previous QAInput placement rule; "一半" was loose wording).
-    const rect = document.getElementById('split-container')?.getBoundingClientRect()
-    const leftColW = rect ? (rect.width * leftWidth.value) / 100 : 0
-    qaWin.open({
-      left: (rect ? rect.left : 12) + m,
-      top: Math.max(0, (rect ? rect.bottom : window.innerHeight) - height - m),
-      width: Math.max(300, (Math.round(leftColW) || 460) - m * 2),
-      height,
-    })
-  } else {
-    // Single-column: bottom strip across the content area.
-    const rect = narrowScrollRef.value?.getBoundingClientRect()
-    qaWin.open({
-      left: (rect ? rect.left : 0) + m,
-      top: Math.max(0, (rect ? rect.bottom : window.innerHeight) - height - m),
-      width: Math.max(300, (rect ? rect.width : window.innerWidth) - m * 2),
-      height,
-    })
-  }
-}
-
-// PDF "Add to question", answer "Follow up", and #moonlight links ask for the question box.
+// "Follow up", #moonlight and PDF "Add to question" ask for the box. On desktop the mounted box
+// scrolls itself into view; on phones switch to the section holding it.
 watch(composer.openRequests, () => {
-  if (!qaWin.isOpen.value && !conversation.visible.value) openQA()
+  if (showBottomBar.value) mobileSection.value = conversation.available.value ? 'ask' : 'qa'
 })
-
-// Ordered per the paper-detail function order (citations → notes → ask); only Ask today.
-const paperActions = computed<LauncherAction[]>(() => [
-  { key: 'ask', label: 'Ask', icon: Bot, onSelect: openQA },
-])
+// Opening an answer in the conversation view on a phone shows the Ask section.
+watch(showRequests, () => { if (showBottomBar.value) mobileSection.value = 'ask' })
 
 const bottomBarItems = computed<BottomBarItem[]>(() => [
   { key: 'info', label: 'Info', icon: Info },
   { key: 'read', label: 'Read', icon: BookOpen },
-  { key: 'qa', label: 'Q&A', icon: MessagesSquare },
-  ...paperActions.value.map((a): BottomBarItem => ({ key: a.key, label: a.label, icon: a.icon, kind: 'action' })),
+  { key: 'qa', label: 'Q&A', icon: List },
+  ...(conversation.available.value ? [{ key: 'ask', label: 'Ask', icon: MessagesSquare }] : []),
 ])
-function onBottomBarAction(key: string) {
-  paperActions.value.find((a) => a.key === key)?.onSelect()
-}
 
 /**
  * A `?note=<id>` link auto-opens another user's public note in the right panel. If the note is the
@@ -329,7 +289,6 @@ onMounted(async () => {
 // keyed, so navigating paper→paper reuses this component — reload data on id change.
 watch(() => [route.params.id, route.query.qa, route.query.result, route.query.note, route.query.h, route.query.s, route.query.e, route.query.pdf, route.query.ts, route.query.te, route.query.rx, route.query.ry, route.query.rw, route.query.rh], async (next, prev) => {
   if (next[0] !== prev[0]) {
-    qaWin.close() // don't carry an open QA window across papers
     floatingWindows.closeKind('qa-tree') // the tree shows the current paper's Q&A
     await loadPaperData()
   }
@@ -372,7 +331,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   qaStore.stopPolling()
   doc2xStore.release()
-  qaWin.close()
   floatingWindows.closeKind('qa-tree')
 })
 
@@ -860,7 +818,7 @@ async function promote() {
         <h1 class="text-sm font-semibold truncate">{{ store.currentPaper?.title || 'Loading…' }}</h1>
       </div>
       <div
-        v-if="store.currentPaper && conversation.available.value"
+        v-if="store.currentPaper && showSplitView && conversation.available.value"
         class="flex shrink-0 items-center rounded-md border p-0.5"
         role="radiogroup"
         aria-label="Page layout"
@@ -879,7 +837,6 @@ async function promote() {
           <component :is="option.icon" />
         </Button>
       </div>
-      <PaperActionLauncher v-if="store.currentPaper && !showBottomBar" :actions="paperActions" />
     </div>
 
     <!-- Wide screen: split view -->
@@ -982,8 +939,11 @@ async function promote() {
           <div class="p-5 max-w-3xl mx-auto pb-10"><QAList :paper-id="paperId" /></div>
           <QAPanelNav :entries="qaNavEntries" :scroll-container="mobileQAScrollRef" :paper-id="paperId" />
         </div>
+        <div v-if="askMounted && conversation.available.value" v-show="mobileSection === 'ask'" class="h-full" data-mobile-section="ask">
+          <QAConversationPanel :paper-id="paperId" />
+        </div>
       </template>
-      <MobileBottomBar v-model="mobileSection" :items="bottomBarItems" @action="onBottomBarAction" />
+      <MobileBottomBar v-model="mobileSection" :items="bottomBarItems" />
     </div>
 
     <!-- Narrow screen, embed (Zotero side panel): one long column -->
@@ -998,7 +958,6 @@ async function promote() {
       <QAPanelNav v-if="store.currentPaper" :entries="qaNavEntries" :scroll-container="narrowScrollRef" :paper-id="paperId" />
     </div>
 
-    <QAInput v-if="store.currentPaper && !conversation.visible.value" :paper-id="paperId" />
 
     <Dialog v-model:open="showDeleteDialog">
       <DialogContent class="max-w-md">
