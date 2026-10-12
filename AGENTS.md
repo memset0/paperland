@@ -39,10 +39,22 @@ This file provides shared guidance for AI coding tools working in this repositor
 - If a task requires unexpected scope beyond the artifacts, pause and surface it instead of silently narrowing, deferring, or simplifying specified behavior.
 - Mark a task complete immediately after its full behavior and proportionate verification succeed; do not mark partial or deferred work complete.
 - Do not let implementation drift ahead of the spec. Before archiving, ensure the change artifacts describe what was actually built.
+- After apply completes and verification succeeds, continue into the automatic deployment and user review flow below; do not stop at a verification build.
+
+### After apply: automatic deployment and user review
+
+- Unless the user explicitly asks to defer deployment, automatically deploy the completed change after apply and the required checks succeed. Do not wait for a separate deployment request.
+- For frontend changes, deploy with `bun run build:frontend` from the project root into `packages/frontend/dist`. A scratch build with `--out-dir` verifies the change but does not deploy it. Follow the build queue rules below and wait for the build result.
+- For backend or runtime configuration changes, use the project's existing deployment mechanism to activate them as needed, and preserve the requirement that the backend runs from the project root.
+- Verify the deployment result with proportionate checks: confirm the deployment command succeeded, check the running service's health and relevant page/assets or behavior, and report any limits of verification. Do not equate a successful build alone with verified deployment.
+- Once deployment succeeds, report what was deployed and the verification result, then ask the user whether further changes are needed and whether the change can be archived. Keep the change active until the user authorizes archive; if the user already explicitly authorized archive, proceed under that authorization.
+- If deployment fails, investigate and fix it within the authorized scope when possible, report any unresolved failure, and keep the change active. Do not describe a failed deployment as complete or proceed to archive it as successfully deployed.
+- For changes that only affect documentation or workflow instructions and require no runtime deployment, explicitly report that deployment is not applicable, verify the files, and ask the same modification/archive question.
 
 ### Archiving
 
 - After all implementation tasks complete, validate the active change before archive. If archive has not been requested or completed, report the change as active and ready to archive rather than claiming it is archived.
+- Complete the applicable deployment and user review flow above before archiving; user authorization to archive is required unless already provided explicitly.
 - When `/opsx:archive` prompts about delta spec sync, default to syncing: choose `Sync now (recommended)` so the change's delta specs under `openspec/changes/<name>/specs/` are merged into the main specs under `openspec/specs/<capability>/spec.md`.
 - Only skip syncing if the user explicitly asks to archive without syncing.
 - After archiving, verify both the updated main specs and the archived change.

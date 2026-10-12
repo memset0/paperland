@@ -20,6 +20,10 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 
 ---
 
+## 用户姓名展示
+
+网页中普通用户可见的其他用户姓名（包括首页排行榜、共享列表和悬停提示）仅显示 nickname；未设置昵称时回退到 username。共享资源已有的 display_name 遵循这一规则；本次 UI 调整不删除或更改 API 的 username 字段、认证标识和响应结构。
+
 ## 认证
 
 ### 获取 Token

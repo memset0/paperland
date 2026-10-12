@@ -51,7 +51,7 @@ The Home usage dashboard SHALL show the signed-in user's own usage for the selec
 - **THEN** it SHALL see its own totals and per-category breakdown loaded from `GET /api/usage/me`
 
 ### Requirement: Leaderboard podium and overflow table
-The Home usage dashboard SHALL show the leaderboard for the selected window, visible to every signed-in user, in the API's order (estimated cost descending, then total tokens). The first three entries SHALL be shown as a podium: the 1st place in the center on the tallest step, 2nd place on the left, 3rd place on the right on the shortest step, each step showing its rank, the entry's display name (nickname with username, or username, or "Unattributed" for usage without a user), estimated cost and total tokens. When fewer than three entries exist, only the occupied places SHALL be shown. When more than three entries exist, entries from rank 4 onward SHALL be listed in a table below the podium with rank, user, calls, tokens, cached share and estimated cost; with three or fewer entries no table SHALL be shown. When no usage exists in the window, the dashboard SHALL show an empty state "No usage recorded yet" instead of the podium. The signed-in user's own entry SHALL be visually marked wherever it appears.
+The Home usage dashboard SHALL show the leaderboard for the selected window, visible to every signed-in user, in the API's order (estimated cost descending, then total tokens). The first three entries SHALL be shown as a podium: the 1st place in the center on the tallest step, 2nd place on the left, 3rd place on the right on the shortest step, each step showing its rank, the entry's display name (nickname only when set, otherwise username, or "Unattributed" for usage without a user), estimated cost and total tokens. When fewer than three entries exist, only the occupied places SHALL be shown. When more than three entries exist, entries from rank 4 onward SHALL be listed in a table below the podium with rank, user, calls, tokens, cached share and estimated cost; with three or fewer entries no table SHALL be shown. When no usage exists in the window, the dashboard SHALL show an empty state "No usage recorded yet" instead of the podium. The signed-in user's own entry SHALL be visually marked wherever it appears.
 
 #### Scenario: Five users with usage
 - **WHEN** the leaderboard returns five entries
@@ -69,6 +69,10 @@ The Home usage dashboard SHALL show the leaderboard for the selected window, vis
 #### Scenario: Empty window
 - **WHEN** no usage was recorded in the last 7 days and the user selects "Last 7 days"
 - **THEN** the leaderboard area SHALL show "No usage recorded yet"
+
+#### Scenario: Nickname on all leaderboard ranks
+- **WHEN** a user with nickname "Alice" and username "alice_login" appears on the podium or overflow table
+- **THEN** their name and name tooltip SHALL show only "Alice" without "alice_login"
 
 ### Requirement: Recent papers on Home
 The Home page SHALL show a "Recent papers" section listing up to 6 of the signed-in user's own library papers (the Mine scope, listed papers only), ordered by when the user added each paper to their library, newest first. Each paper SHALL be a card showing its title, authors (truncated) and the date the user added it, plus the user's tags on it; clicking a card SHALL open that paper's detail page (`/papers/:id`). The section header SHALL have an "All papers" link to `/papers`. When the user's library is empty, the section SHALL show "No papers in your library yet" with a link to `/papers`.

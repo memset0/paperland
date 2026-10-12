@@ -1015,7 +1015,7 @@ models:
   - 可选 `#icon` 插槽，`HighlightScopeToggle` 在这里放高亮图标。
   - 样式为分段控件：`bg-muted` 轨道（内边距 2px，无边框），选中项是嵌在里面的 `bg-background` 圆角块（带轻阴影；暗色主题下比轨道更深）。
   - 两个选项等宽，选中块切换时平移（200ms，`prefers-reduced-motion` 下关闭）；选中态只改颜色、不加粗，宽度不抖动。
-- **前端展示**：`/notes`、`/qa`、论文详情 User Q&A、参考链接区、高亮（`HighlightScopeToggle`）都有 Mine / All 切换；不属于自己的条目显示属主 **display name**（`display_name` = 昵称，未设置时为用户名；昵称在 Settings 页 Account 卡片设置，admin 可在 Settings 用户表修改，可重复）；`shared: false` 的条目（admin 看到的别人未共享数据，或自己未共享的数据）显示 **Private** 标记。
+- **前端展示**：`/notes`、`/qa`、论文详情 User Q&A、参考链接区、高亮（`HighlightScopeToggle`）都有 Mine / All 切换；不属于自己的条目显示属主 **display name**（`display_name` = 昵称，未设置时为用户名；普通用户可见的姓名标签和悬停提示只显示该名字，不附加登录用户名；昵称在 Settings 页 Account 卡片设置，admin 可在 Settings 用户表修改，可重复）；`shared: false` 的条目（admin 看到的别人未共享数据，或自己未共享的数据）显示 **Private** 标记。
 - **只读**：可见不代表可写。别人的高亮/笔记/QA/参考链接对普通用户不显示编辑删除入口，后端也只允许 owner（QA 另允许 admin）修改。
 - **笔记发布是特例**：`is_public` 是单篇的 “Published” 状态，提供免登录访问的链接；已发布笔记无论属主笔记开关如何都出现在 All 列表。
 
@@ -1496,7 +1496,7 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 - **Recent papers**（`components/home/RecentPapers.vue`，最上方）：当前用户 Mine 库中最近加入的 6 篇论文（`GET /api/papers?scope=mine&sort_by=added_at&sort_order=desc&page_size=6`，按 `user_papers.created_at` 排序；默认 `listed` 过滤，metadata-only 论文不出现）。卡片网格 1/2/3 列，每张卡显示标题（两行截断）、作者（单行截断）、用户可见标签（`TagBadge`，按标签 visible 过滤，同论文列表）、"Added <日期>" 与 arXiv id，整卡是到 `/papers/:id` 的链接（卡片 `min-w-0`，避免长标题在手机上撑出网格）。标题栏右侧 "All papers" 链接到 `/papers`；库为空时显示 "No papers in your library yet · Go to Papers"。
 - **Features**：见下方「功能公告（Features）」。
 - **Usage**（`components/home/UsageDashboard.vue`，最下方）：右上角一个时间窗口切换 All time（默认）/ Last 7 days / Last 30 days（`USAGE_WINDOWS`，All time 不带 `days`，其余 `?days=7|30`），同时驱动下面两部分；切换时并行请求 `usageApi.me` 与 `usageApi.leaderboard`，过期响应丢弃。
-  - `UsagePodium.vue`：排行榜（`GET /api/usage/leaderboard`，所有登录用户可读，按估算费用、再按 token 降序）。前三名做成颁奖台，视觉顺序 2nd · 1st · 3rd，台阶高度递减，金/银/铜色调（Tailwind `amber`/`slate`/`orange` 半透明色，深浅主题通用），1st 带 `Crown`、2/3 带 `Medal`；每格显示首字母头像、显示名（昵称 + 用户名 / 用户名 / Unattributed）、估算费用与 token。不足三名只显示已有名次；第 4 名起在台下表格列出（排名、用户、调用数、token、缓存占比、费用），≤3 名不显示表格；窗口内无用量显示 "No usage recorded yet"。当前用户在台上头像加 ring、名字旁 "You" 徽标，表格行浅色高亮。
+  - `UsagePodium.vue`：排行榜（`GET /api/usage/leaderboard`，所有登录用户可读，按估算费用、再按 token 降序）。前三名做成颁奖台，视觉顺序 2nd · 1st · 3rd，台阶高度递减，金/银/铜色调（Tailwind `amber`/`slate`/`orange` 半透明色，深浅主题通用），1st 带 `Crown`、2/3 带 `Medal`；每格显示首字母头像、显示名（仅昵称，未设置时为用户名；无属主时为 Unattributed）、估算费用与 token；姓名悬停提示同样不附加用户名。不足三名只显示已有名次；第 4 名起在台下表格列出（排名、用户、调用数、token、缓存占比、费用），≤3 名不显示表格；窗口内无用量显示 "No usage recorded yet"。当前用户在台上头像加 ring、名字旁 "You" 徽标，表格行浅色高亮。
   - `UsageSummary.vue`：本人用量（`GET /api/usage/me`）：调用数、token、缓存命中占比、估算费用 + 按类别（Q&A / Deep Research / Translation）表格。
   - 数字格式化与显示名在 `components/home/usage-format.ts`（`formatTokens` 1.2K / 3.4M、`formatCost`、`cacheShare`、`usageDisplayName`）。
 

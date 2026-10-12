@@ -25,8 +25,8 @@ export const USAGE_WINDOWS = [
   { label: 'Last 30 days', days: 30 },
 ] as const
 
-/** Leaderboard display name: nickname with username, username, or "Unattributed" for usage without a user. */
+/** Leaderboard display name: nickname, falling back to username, or "Unattributed" for usage without a user. */
 export function usageDisplayName(e: { user_id: number | null; username: string | null; nickname: string | null }): string {
   if (e.user_id == null) return 'Unattributed'
-  return e.nickname ? `${e.nickname} (${e.username})` : (e.username ?? `#${e.user_id}`)
+  return e.nickname || (e.username ?? `#${e.user_id}`)
 }

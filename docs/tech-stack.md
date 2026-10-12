@@ -183,7 +183,7 @@ papers
 users
   id              integer   primary key autoincrement
   username        text      unique not null
-  nickname        text      nullable          // 对外显示名，可重复；为空时显示 username（≤32 字符，去首尾空格）
+  nickname        text      nullable          // 对外显示名，可重复；普通用户可见的姓名和悬停提示仅显示昵称，不附加 username；为空时显示 username（≤32 字符，去首尾空格）
   password_hash   text      not null          // Bun.password (argon2id)
   role            text      not null          // "admin" | "user"
   status          text      not null default 'active'  // "active" | "pending"（自助注册待审核，不能登录；迁移 0036）
