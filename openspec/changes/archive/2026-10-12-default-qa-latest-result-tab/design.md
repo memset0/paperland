@@ -19,11 +19,11 @@
 
 ### 1. Extract pure selection helpers
 
-Create a small helper that compares results by parsed completion time then id, returns newest-first ordering, and decides the next active id from previous/current id sets. Pure tests cover invalid/tied times, added/removed ids, and equivalent refreshes.
+Create a small helper that compares results by parsed creation time (legacy completion-time fallback) then id, returns newest-first ordering, and decides the next active id from previous/current id sets. Pure tests cover invalid/tied times, added/removed ids, and equivalent refreshes.
 
 ### 2. Watch a stable result-id signature
 
-Watch a stable signature containing result ids and completion timestamps rather than the array reference. On first run select latest. On change:
+Watch a stable signature containing result ids and creation/completion timestamps rather than the array reference. On first run select latest. On change:
 
 - requested anchor exists → let anchor selection win;
 - a new id exists → select latest;
@@ -45,3 +45,7 @@ Latest selection ignores pin state. Display sorting applies existing pinned-mode
 ## Migration Plan
 
 No migration. Add helper/tests, update `QAResultView`, build frontend, verify PaperDetail/feed with multiple results, regeneration arrival, manual historical selection during polling, deletion fallback, and anchor navigation. Rollback is a single frontend revert.
+
+## Archive reconciliation
+
+Later streaming behavior defines latest by created_at, then id, regardless of completion or status; legacy rows without created_at fall back to completed_at. The selection helper and focused tests verify this current behavior. Preserve manual selection, new-ID activation, deletion fallback and anchor priority.

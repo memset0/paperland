@@ -1,8 +1,10 @@
+# qa-reading-indicators Specification
+
 ## Purpose
 
 在 QA 折叠状态中展示当前用户真实的高亮与笔记引用数量，让阅读进度可见，同时不复制计数或泄露其他用户的私有阅读数据。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Current-viewer reading counts
 Each visible QA entry SHALL expose `highlight_count` and `note_anchor_count` for the current authenticated viewer. Anonymous viewers SHALL receive zero counts. Counts SHALL be derived from authoritative highlight rows and the viewer's current note body rather than mutable cached counters.
@@ -20,9 +22,8 @@ PaperDetail and feed SHALL show compact labeled indicators for non-zero counts w
 
 #### Scenario: Collapsed entry has counts
 - **WHEN** either count is non-zero
-- **THEN** the collapsed header SHALL show “高亮 N” and/or “笔记引用 N”
+- **THEN** the collapsed header SHALL show English labels such as "N highlights" and/or "N note references", with singular forms for a count of one
 
 #### Scenario: Counts change
 - **WHEN** the viewer creates/deletes a highlight or adds/removes a note anchor
 - **THEN** the next refreshed entry SHALL report and display the new value
-

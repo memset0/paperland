@@ -234,3 +234,25 @@ The `/qa` page SHALL require an authenticated user. The sidebar Q&A entry SHALL 
 #### Scenario: Admin sees private marker
 - **WHEN** an admin views All and an entry belongs to a user who does not share Q&A
 - **THEN** that entry SHALL show a "Private" marker
+
+### Requirement: Feed QA background control
+The QA feed SHALL use the same palette, preference API, and pale container rendering as PaperDetail. A color changed on either surface SHALL appear on the other after refresh.
+
+#### Scenario: Set color in feed
+- **WHEN** a user colors an entry in `/qa`
+- **THEN** the same entry SHALL show that color on its paper detail page
+
+#### Scenario: Feed pagination
+- **WHEN** a page of feed entries loads
+- **THEN** each entry SHALL include the current viewer's preference without per-card preference requests
+
+### Requirement: Feed QA reading indicators
+The QA feed SHALL display the same current-viewer indicators as PaperDetail. A feed page SHALL obtain counts without separate highlight/note requests per card.
+
+#### Scenario: Load a feed page
+- **WHEN** up to page_size entries across several papers load
+- **THEN** counts SHALL be batched by the page's entries/papers and rendered on each collapsed card
+
+#### Scenario: Cross-surface consistency
+- **WHEN** the same entry appears on PaperDetail and feed
+- **THEN** both surfaces SHALL show the same current-viewer counts after refresh

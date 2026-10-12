@@ -1,7 +1,7 @@
 ## 1. Selection Logic
 
-- [x] 1.1 Add pure latest-result comparison/newest-first sorting helpers with completed_at then id fallback; verify focused unit tests cover normal, tied, and invalid timestamps
-- [x] 1.2 Add pure active-selection transition logic for initial render, newly added ids, equivalent refreshes, deleted selection, and requested anchor priority; verify all state cases in unit tests
+- [x] 1.1 Add pure latest-result comparison/newest-first sorting helpers with created_at (legacy completed_at fallback) then id; verify focused unit tests cover normal, tied, and invalid timestamps
+- [x] 1.2 Add pure active-selection transition logic for initial render, newly created run ids, equivalent refreshes, deleted selection, and requested anchor priority; verify all state cases in unit tests
 
 ## 2. QAResultView Integration
 

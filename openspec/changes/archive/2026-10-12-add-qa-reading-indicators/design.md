@@ -53,3 +53,7 @@ Return two integer fields per entry. PaperDetail loads one paper; feed performs 
 
 Back up and validate SQLite; add result hash/highlight relation/index; run idempotent result-hash and unique-highlight backfill on a disposable snapshot first; deploy API aggregation then frontend context/indicators. Validate counts for two users, repeated anchors, ambiguous/stale data, PaperDetail/feed consistency, and paper/result deletion. Rollback leaves additive nullable columns harmless.
 
+
+## Archive reconciliation
+
+Database requirements retain subsequent contextual question fields, streaming lifecycle and soft deletion while combining persisted prompt, exact execution identity and stable answer hashes. Existing scenario coverage is retained during main-spec sync. No new runtime or database changes are made during archive.

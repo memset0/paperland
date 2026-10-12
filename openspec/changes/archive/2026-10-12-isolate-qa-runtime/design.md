@@ -66,3 +66,7 @@ Historical links are preserved because the service table lacks model/prompt data
 4. After separate authorization, create a second backup and transactionally delete only the eight listed unrecoverable entries.
 5. Extend ServiceRunner callback context and replace latest-execution lookup for new results.
 6. Update all three required docs and run only mocked/local QA tests plus backend/frontend builds.
+
+## Archive reconciliation
+
+Database requirements retain subsequent contextual question fields, streaming lifecycle and soft deletion while combining persisted prompt, exact execution identity and stable answer hashes. Existing scenario coverage is retained during main-spec sync. No new runtime or database changes are made during archive.

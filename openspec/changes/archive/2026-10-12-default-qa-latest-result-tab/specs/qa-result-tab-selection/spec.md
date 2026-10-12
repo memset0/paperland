@@ -5,20 +5,20 @@
 ## ADDED Requirements
 
 ### Requirement: Latest result is selected initially
-When an entry has multiple results, the result with the greatest valid `completed_at` SHALL be active on first render. If timestamps tie or are invalid/equal, the greatest result id SHALL win deterministically.
+When an entry has multiple results, the result with the greatest valid `created_at` (falling back to `completed_at` for legacy results without a creation timestamp) SHALL be active on first render. If timestamps tie or are invalid/equal, the greatest result id SHALL win deterministically.
 
 #### Scenario: Open entry with old and new answers
 - **WHEN** an entry first renders with several results
-- **THEN** the newest completed answer SHALL be visible without an extra click
+- **THEN** the most recently created result SHALL be visible, including an active run, without an extra click
 
-#### Scenario: Same completion time
-- **WHEN** two results have the same completion time
+#### Scenario: Same creation time
+- **WHEN** two results have the same creation time (or the same completion time for legacy results without creation timestamps)
 - **THEN** the result with the greater id SHALL be selected
 
 ### Requirement: New results become active without polling churn
-When the result id set gains a newly completed result, the view SHALL switch to the newest result. Replacing/reordering the results array with the same id set SHALL preserve a still-valid manual selection.
+When the result id set gains a newly created result, the view SHALL switch to the newest result. Replacing/reordering the results array with the same id set SHALL preserve a still-valid manual selection.
 
-#### Scenario: Regeneration completes
+#### Scenario: Regeneration creates a run
 - **WHEN** polling adds a new result id
 - **THEN** the newly latest answer SHALL become active
 
@@ -38,7 +38,7 @@ If the selected result disappears, the view SHALL select the latest remaining re
 - **THEN** that result SHALL become active even though it is not latest
 
 ### Requirement: Newest-first tab order
-Without changing pin semantics, unpinned results SHALL be ordered newest-first by completion time and id. Pinning MAY move matching model results ahead visually but SHALL NOT change which result automatic latest selection chooses.
+Without changing pin semantics, unpinned results SHALL be ordered newest-first by creation time and id (legacy rows without creation time fall back to completion time). Pinning MAY move matching model results ahead visually but SHALL NOT change which result automatic latest selection chooses.
 
 #### Scenario: Unpinned tab list
 - **WHEN** no model is pinned

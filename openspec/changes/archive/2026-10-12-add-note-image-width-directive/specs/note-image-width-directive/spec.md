@@ -1,3 +1,7 @@
+## Purpose
+
+Controls individual note image widths with alt-text directives, configurable preset tiers and pixel caps, while preserving container bounds and mindmap layout.
+
 ## ADDED Requirements
 
 ### Requirement: Image width directive in alt text
