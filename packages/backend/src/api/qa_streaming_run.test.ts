@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { addContextualQATestSchema } from '../db/test_contextual_qa.js'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
-import { runQA } from './qa.js'
+import { QATimeLimitError, runQA } from './qa.js'
 import { setDatabaseForTesting } from '../db/index.js'
 import * as schema from '../db/schema.js'
 import { serviceRunner } from '../services/service_runner.js'
@@ -132,5 +132,69 @@ describe('durable QA streaming runs', () => {
     expect(sqlite.query('SELECT answer,error FROM qa_results WHERE id=?').get(run.result_id)).toEqual({
       answer: 'before cancel', error: 'cancelled by user',
     })
+  })
+
+  test('time limit fails the result with partial output and a limit error', async () => {
+    const ask = async (_paperId: number, _prompt: string, _modelName: string, options: any): Promise<any> => {
+      await options.onChunk('partial before limit')
+      await new Promise<void>((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          const error = new Error('aborted')
+          error.name = 'AbortError'
+          reject(error)
+        }, { once: true })
+      })
+    }
+    const timed = await runQA(7, 42, 'question', 'slow-model', {
+      askFn: ask, capabilitiesFn: () => ({ streaming: true }), batchMs: 5, timeLimitMs: 50,
+    })
+    const events: any[] = []
+    qaResultStreamBroker.subscribe(timed.result_id, (event) => events.push(event))
+    await waitFor(() => (sqlite.query('SELECT status FROM qa_results WHERE id=?').get(timed.result_id) as any)?.status === 'failed')
+    expect(sqlite.query('SELECT answer,error FROM qa_results WHERE id=?').get(timed.result_id)).toEqual({
+      answer: 'partial before limit', error: expect.stringMatching(/^Answer exceeded the .+ time limit$/),
+    })
+    expect(events.at(-1)).toMatchObject({ event: 'error' })
+    await waitFor(() => (sqlite.query('SELECT status FROM service_executions WHERE id=?').get(timed.execution_id) as any)?.status === 'failed')
+    expect((sqlite.query('SELECT error FROM service_executions WHERE id=?').get(timed.execution_id) as any).error)
+      .toMatch(/^Answer exceeded the .+ time limit$/)
+  })
+
+  test('time limit finalizes even when the provider ignores the abort', async () => {
+    const ask = async (): Promise<any> => new Promise(() => {}) // never settles
+    const run = await runQA(7, 42, 'question', 'stuck-model', {
+      askFn: ask as any, capabilitiesFn: () => ({ streaming: false }), timeLimitMs: 30,
+    })
+    await waitFor(() => (sqlite.query('SELECT status FROM service_executions WHERE id=?').get(run.execution_id) as any)?.status === 'failed')
+    expect(sqlite.query('SELECT status,error FROM qa_results WHERE id=?').get(run.result_id)).toEqual({
+      status: 'failed', error: expect.stringMatching(/time limit$/),
+    })
+  })
+
+  test('queue time does not count toward the limit', async () => {
+    serviceRunner.initialize({ qa: { max_concurrency: 1 } } as any)
+    try {
+      const ask = async (_p: number, _q: string, modelName: string) => {
+        await Bun.sleep(100)
+        return { answer: 'ok', model_name: modelName }
+      }
+      const opts = { askFn: ask, capabilitiesFn: () => ({ streaming: false }), timeLimitMs: 160 }
+      const first = await runQA(7, 42, 'question', 'm', opts)
+      const second = await runQA(7, 42, 'question', 'm', opts)
+      const status = (id: number) => (sqlite.query('SELECT status FROM qa_results WHERE id=?').get(id) as any)?.status
+      await waitFor(() => status(second.result_id) === 'done' || status(second.result_id) === 'failed')
+      expect(status(first.result_id)).toBe('done')
+      expect(status(second.result_id)).toBe('done')
+    } finally {
+      serviceRunner.initialize({ qa: { max_concurrency: 1000 } } as any)
+    }
+  })
+})
+
+describe('QATimeLimitError', () => {
+  test('names the limit in hours, minutes, or seconds', () => {
+    expect(new QATimeLimitError(7_200_000).message).toBe('Answer exceeded the 2h time limit')
+    expect(new QATimeLimitError(5_400_000).message).toBe('Answer exceeded the 90m time limit')
+    expect(new QATimeLimitError(45_000).message).toBe('Answer exceeded the 45s time limit')
   })
 })

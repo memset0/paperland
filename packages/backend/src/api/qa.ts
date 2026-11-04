@@ -228,6 +228,35 @@ export interface RunQAOptions {
   askFn?: AskQuestionFn
   capabilitiesFn?: typeof getModelCapabilities
   batchMs?: number
+  /** Overrides `services.qa.time_limit` (tests). */
+  timeLimitMs?: number
+}
+
+export const DEFAULT_QA_TIME_LIMIT_SECONDS = 7200
+
+/** Raised when an answer run exceeds `services.qa.time_limit`. */
+export class QATimeLimitError extends Error {
+  constructor(limitMs: number) {
+    super(`Answer exceeded the ${formatLimit(limitMs)} time limit`)
+    this.name = 'QATimeLimitError'
+  }
+}
+
+function formatLimit(ms: number): string {
+  const s = Math.round(ms / 1000)
+  if (s >= 3600 && s % 3600 === 0) return `${s / 3600}h`
+  if (s >= 60 && s % 60 === 0) return `${s / 60}m`
+  return `${s}s`
+}
+
+function qaTimeLimitMs(): number {
+  let seconds = DEFAULT_QA_TIME_LIMIT_SECONDS
+  try {
+    seconds = getConfig().services.qa?.time_limit ?? seconds
+  } catch {
+    // Config not loaded (unit tests that don't inject a limit): keep the default.
+  }
+  return seconds * 1000
 }
 
 export interface ScheduledQARun {
@@ -370,11 +399,27 @@ export async function runQA(
     recomputeQAEntryState(db, entryId)
 
     const writer = createPartialAnswerWriter({ db, entryId, resultId: result.id, batchMs })
+    // Time limit from run start (queue time excluded). The race settles without waiting for the
+    // provider, so a model call that never returns after the abort can't hold the result or the
+    // `qa` concurrency slot.
+    const limitMs = options.timeLimitMs ?? qaTimeLimitMs()
+    const limit = new AbortController()
+    let limitTimer: ReturnType<typeof setTimeout> | undefined
+    const limitReached = new Promise<never>((_, reject) => {
+      limitTimer = setTimeout(() => {
+        reject(new QATimeLimitError(limitMs))
+        limit.abort()
+      }, limitMs)
+    })
     try {
       const onUsage = (usage: ModelUsage) => recordModelUsage({
         category: 'qa', userId: options.requestedByUserId, sourceId: result.id, modelName, usage,
       })
-      const res = await askFn(paperId, prompt, modelName, { onChunk: writer.onChunk, onUsage, signal, entryId, agentUserId: options.requestedByUserId })
+      const ask = askFn(paperId, prompt, modelName, {
+        onChunk: writer.onChunk, onUsage, signal: AbortSignal.any([signal, limit.signal]), entryId, agentUserId: options.requestedByUserId,
+      })
+      ask.catch(() => {}) // abandoned when the limit wins
+      const res = await Promise.race([ask, limitReached])
       writer.flushNow()
       const finishedAt = new Date().toISOString()
       const completed = updateResultIfActive(db, result.id, {
@@ -398,7 +443,7 @@ export async function runQA(
     } catch (reason: unknown) {
       writer.flushNow()
       const err = reason instanceof Error ? reason : new Error(String(reason))
-      const cancelled = signal.aborted || err.name === 'AbortError'
+      const cancelled = !(err instanceof QATimeLimitError) && (signal.aborted || err.name === 'AbortError')
       const finishedAt = new Date().toISOString()
       const failed = updateResultIfActive(db, result.id, {
         status: cancelled ? 'cancelled' : 'failed',
@@ -410,6 +455,8 @@ export async function runQA(
       if (failed) qaResultStreamBroker.publish(result.id, { event: 'error', result: failed })
       recomputeQAEntryState(db, entryId)
       throw err // re-throw so executePureService also marks service_executions as failed
+    } finally {
+      clearTimeout(limitTimer)
     }
   }, {
     onCreated: ({ executionId }) => {

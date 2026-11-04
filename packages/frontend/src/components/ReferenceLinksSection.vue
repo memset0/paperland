@@ -8,7 +8,11 @@ import { referenceLinksApi } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import type { PaperReferenceLink, VisibilityScope } from '@paperland/shared'
 
-const props = defineProps<{ paperId: number }>()
+const props = defineProps<{
+  paperId: number
+  /** Blog posts: their original URL, pinned as the first, read-only entry. */
+  sourceLink?: string | null
+}>()
 
 const auth = useAuthStore()
 
@@ -190,7 +194,21 @@ watch(scope, load)
       </Button>
     </div>
 
-    <ul v-if="links.length" class="space-y-1.5">
+    <ul v-if="links.length || sourceLink" class="space-y-1.5">
+      <li v-if="sourceLink" class="flex items-start gap-1.5">
+        <div class="min-w-0 flex-1">
+          <a
+            :href="sourceLink"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 text-sm text-primary hover:underline break-all"
+          >
+            Original post
+            <ExternalLink class="h-3 w-3 shrink-0" />
+          </a>
+          <p class="text-xs text-muted-foreground leading-snug break-all">{{ sourceLink }}</p>
+        </div>
+      </li>
       <li
         v-for="link in links"
         :key="link.id"

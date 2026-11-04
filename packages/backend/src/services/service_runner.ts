@@ -1,10 +1,12 @@
-import { eq, desc } from 'drizzle-orm'
+import { and, eq, desc } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { Semaphore } from './semaphore.js'
 import { RateLimiter } from './rate_limiter.js'
 import type { PaperBoundServiceDef, PureServiceDef, ServiceDef } from './base_service.js'
 import type { ServiceConfig } from '@paperland/shared'
+import { comparePdf, invalidatePdfDerived } from './pdf_store.js'
+import { removeDoc2xArtifacts } from './doc2x_cli.js'
 
 export interface PureServiceExecutionContext {
   executionId: number
@@ -272,6 +274,24 @@ export class ServiceRunner {
     return keys
   }
 
+  private derivedResetAt(paper: any): string | null {
+    try {
+      const meta = typeof paper.metadata === 'string' ? JSON.parse(paper.metadata) : paper.metadata
+      return typeof meta?.derived_reset_at === 'string' ? meta.derived_reset_at : null
+    } catch {
+      return null
+    }
+  }
+
+  /** Whether a paper-bound service has a pending or running execution for the paper. */
+  isServiceActive(serviceName: string, paperId: number): boolean {
+    return getDatabase().select({ status: schema.serviceExecutions.status })
+      .from(schema.serviceExecutions)
+      .where(and(eq(schema.serviceExecutions.paper_id, paperId), eq(schema.serviceExecutions.service_name, serviceName)))
+      .all()
+      .some((e) => e.status === 'pending' || e.status === 'running')
+  }
+
   private markBlocked(serviceName: string, paperId: number): void {
     const db = getDatabase()
     const now = new Date().toISOString()
@@ -339,6 +359,9 @@ export class ServiceRunner {
       // Execute the service
       const result = await (svc as PaperBoundServiceDef).execute(paperId, paper)
 
+      // Set when the service replaced an existing PDF (manual re-fetch): recorded as the execution result.
+      let pdfOutcome: 'updated' | 'unchanged' | null = null
+
       // Apply results to paper
       if (result && Object.keys(result).length > 0) {
         const updates: Record<string, any> = {}
@@ -351,6 +374,13 @@ export class ServiceRunner {
         const contentsObj: Record<string, any> = currentPaper?.contents ? JSON.parse(currentPaper.contents) : {}
         let metadataChanged = false
         let contentsChanged = false
+        // A download (re-fetch) for a paper that already has a PDF: keep it when identical,
+        // otherwise switch to the new file and drop everything derived from the old one.
+        if (typeof result.pdf_path === 'string' && currentPaper?.pdf_path && result.pdf_path !== currentPaper.pdf_path) {
+          pdfOutcome = comparePdf(currentPaper.pdf_path, result.pdf_path) === 'unchanged' ? 'unchanged' : 'updated'
+        } else if (typeof result.pdf_path === 'string' && currentPaper?.pdf_path === result.pdf_path) {
+          pdfOutcome = 'unchanged'
+        }
 
         for (const [key, value] of Object.entries(result)) {
           if (value === undefined || value === null) continue
@@ -367,6 +397,8 @@ export class ServiceRunner {
                 updates.authors = JSON.stringify(value)
               }
             }
+          } else if (key === 'pdf_path' && pdfOutcome === 'unchanged') {
+            continue
           } else if (key === 'arxiv_id' || key === 'corpus_id' || key === 's2_paper_id' || key === 'pdf_path' || key === 'link') {
             // corpus_id / s2_paper_id are UNIQUE: if another paper already holds the value,
             // skip writing it (keeping the rest of the enrichment) instead of failing the run.
@@ -391,6 +423,12 @@ export class ServiceRunner {
           }
         }
 
+        if (pdfOutcome === 'updated') {
+          invalidatePdfDerived(metadataObj, contentsObj)
+          metadataChanged = true
+          contentsChanged = true
+        }
+
         if (metadataChanged) updates.metadata = JSON.stringify(metadataObj)
         if (contentsChanged) updates.contents = JSON.stringify(contentsObj)
 
@@ -404,9 +442,16 @@ export class ServiceRunner {
 
       // Mark done
       db.update(schema.serviceExecutions)
-        .set({ status: 'done', progress: 100, finished_at: new Date().toISOString(), result: 'OK' })
+        .set({ status: 'done', progress: 100, finished_at: new Date().toISOString(), result: pdfOutcome ?? 'OK' })
         .where(eq(schema.serviceExecutions.id, execution.id))
         .run()
+
+      if (pdfOutcome === 'updated') {
+        // New PDF: old doc2x output is stale; re-run the PDF-dependent pipeline on the new file.
+        removeDoc2xArtifacts(paperId)
+        this.triggerForPaper(paperId).catch(() => {})
+        return
+      }
 
       // After completing, check if any waiting services can now run
       // Re-trigger to handle newly available keys
@@ -425,10 +470,13 @@ export class ServiceRunner {
           const allProduced = depSvc.produces.every((k) => this.getExistingKeys(updatedPaper).has(k))
           if (depsSatisfied && !allProduced) {
             // Check if not already running/pending
+            // `done` runs from before a PDF replacement (`derived_reset_at`) worked on the old file.
+            const resetAt = this.derivedResetAt(updatedPaper)
             const existing = db.select().from(schema.serviceExecutions)
               .where(eq(schema.serviceExecutions.paper_id, paperId))
               .all()
-              .filter((e) => e.service_name === depSvc.name && (e.status === 'pending' || e.status === 'running' || e.status === 'done'))
+              .filter((e) => e.service_name === depSvc.name && (e.status === 'pending' || e.status === 'running' ||
+                (e.status === 'done' && !(resetAt && e.created_at < resetAt))))
             if (existing.length === 0) {
               this.executeServiceForPaper(depSvc.name, paperId).catch(() => {})
             }

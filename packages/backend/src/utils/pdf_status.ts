@@ -24,7 +24,7 @@ interface ExecutionLike {
   id?: number
 }
 
-const PDF_SERVICES = ['arxiv_pdf_service', 's2_pdf_service']
+const PDF_SERVICES = ['arxiv_pdf_service', 's2_pdf_service', 'url_pdf_service']
 const ACTIVE = new Set(['pending', 'running'])
 
 /** Latest execution status per service (by created_at, then id). */

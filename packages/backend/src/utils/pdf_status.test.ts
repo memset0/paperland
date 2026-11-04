@@ -21,6 +21,12 @@ describe('derivePdfStatus', () => {
     expect(derivePdfStatus(paper({ arxiv_id: '1' }), [exec('semantic_scholar_service', 'running')]).pdf_status).toBe('upload_required')
   })
 
+  it('covers url_pdf_service (user PDF URL)', () => {
+    expect(derivePdfStatus(paper(), [exec('url_pdf_service', 'running')]).pdf_status).toBe('fetching')
+    expect(derivePdfStatus(paper(), [exec('url_pdf_service', 'failed')]))
+      .toEqual({ pdf_status: 'upload_required', pdf_unavailable_reason: 'download_failed' })
+  })
+
   it('download_failed when the latest PDF execution failed', () => {
     expect(derivePdfStatus(paper(), [exec('s2_pdf_service', 'failed')]))
       .toEqual({ pdf_status: 'upload_required', pdf_unavailable_reason: 'download_failed' })

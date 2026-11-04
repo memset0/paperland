@@ -44,9 +44,11 @@ const serviceSchema = z.object({
   // Services sharing a group share one concurrency semaphore (e.g. doc2x parse + translate
   // share the Doc2X account-level task limit). Members should use the same max_concurrency.
   concurrency_group: z.string().optional(),
-  // Download services (s2_pdf_service): per-request timeout (seconds) and max body size (MB).
+  // Download services (s2_pdf_service, url_pdf_service): per-request timeout (seconds) and max body size (MB).
   download_timeout: z.number().positive().optional(),
   max_file_size_mb: z.number().positive().optional(),
+  // qa: wall-clock limit (seconds) for one answer run, counted from its start; default 7200.
+  time_limit: z.number().positive().optional(),
 })
 
 const modelSchema = z.object({
@@ -182,11 +184,24 @@ const translationSchema = z.object({
   }).default(DEFAULT_TRANSLATION_PROMPT),
 }).default({ prompt: DEFAULT_TRANSLATION_PROMPT })
 
+const IMAGE_HOST_DEFAULTS = {
+  dir: './data/images',
+  max_size_mb: 18,
+  max_video_size_mb: 200,
+  allowed_types: ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'],
+  download_timeout: 60,
+  public_base_url: '',
+}
+
 const imageHostSchema = z.object({
-  dir: z.string().default('./data/images'),
-  max_size_mb: z.number().positive().default(18),
-  allowed_types: z.array(z.string()).default(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
-  public_base_url: z.string().default(''),
+  dir: z.string().default(IMAGE_HOST_DEFAULTS.dir),
+  // Images and videos have separate size limits (MB).
+  max_size_mb: z.number().positive().default(IMAGE_HOST_DEFAULTS.max_size_mb),
+  max_video_size_mb: z.number().positive().default(IMAGE_HOST_DEFAULTS.max_video_size_mb),
+  allowed_types: z.array(z.string()).default(IMAGE_HOST_DEFAULTS.allowed_types),
+  // Seconds per server-side download of a remote image/video (`?url=` / upload_image url).
+  download_timeout: z.number().positive().default(IMAGE_HOST_DEFAULTS.download_timeout),
+  public_base_url: z.string().default(IMAGE_HOST_DEFAULTS.public_base_url),
 })
 
 const pdfUploadSchema = z.object({
@@ -336,7 +351,7 @@ const configSchema = z.object({
   // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
   qa_prompt: qaPromptSchema.default(QA_PROMPT_DEFAULTS),
   translation: translationSchema,
-  image_host: imageHostSchema.default({}),
+  image_host: imageHostSchema.default(IMAGE_HOST_DEFAULTS),
   // Note: `.default({})` on an object schema is returned as-is when the key is absent, so the
   // inner `screenshot_dpi` default would NOT apply for a config.yml without a `pdf_viewer` block.
   // Use an explicit literal default so the 300 fallback holds whether the key is absent or empty.

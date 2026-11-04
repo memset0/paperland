@@ -4,8 +4,9 @@
 Lets users edit a paper's basic fields and content from the paper detail page, backed by internal and external API endpoints.
 
 ## Requirements
+
 ### Requirement: Edit paper basic fields via internal API
-The system SHALL provide a `PATCH /api/papers/:id` endpoint that accepts a JSON body with optional fields: `title` (string), `authors` (string[], comma-separated also accepted), `link` (string). Only provided fields SHALL be updated. The response SHALL return the updated paper object. `updated_at` SHALL be set to current ISO 8601 timestamp on every successful update.
+The system SHALL provide a `PATCH /api/papers/:id` endpoint that accepts a JSON body with optional fields: `title` (string), `authors` (string[], comma-separated also accepted), `link` (string), `abstract` (string; empty clears it), `year` (integer or null), `venue` (string; empty clears it), `kind` (`paper` | `article`), and `pdf_url` (http/https URL; empty clears it). Only provided fields SHALL be updated; `year`, `venue`, and `pdf_url` SHALL be stored in the paper's metadata. Invalid `kind`, `year`, or `pdf_url` values SHALL be rejected with 422 `VALIDATION_ERROR` without changing the paper. The response SHALL return the updated paper object. `updated_at` SHALL be set to current ISO 8601 timestamp on every successful update. Setting `pdf_url` on a listed paper without `arxiv_id` and without `pdf_path` SHALL schedule the paper's service pipeline.
 
 #### Scenario: Update title of manual paper
 - **WHEN** a PATCH request is sent to `/api/papers/5` with body `{"title": "New Title"}`
@@ -16,6 +17,14 @@ The system SHALL provide a `PATCH /api/papers/:id` endpoint that accepts a JSON 
 - **WHEN** a PATCH request is sent to `/api/papers/5` with body `{"title": "T", "authors": ["A", "B"], "link": "https://example.com"}`
 - **AND** paper 5 has no arxiv_id
 - **THEN** all three fields SHALL be updated and `updated_at` SHALL be refreshed
+
+#### Scenario: Edit manual paper metadata
+- **WHEN** a PATCH request to a manual paper sends `{"abstract": "A", "year": 2026, "venue": "Tech report", "kind": "article"}`
+- **THEN** the paper's abstract, `metadata.year`, `metadata.venue`, and kind SHALL be updated
+
+#### Scenario: Invalid year
+- **WHEN** a PATCH request sends `{"year": "soon"}`
+- **THEN** the response SHALL be 422 and the paper SHALL be unchanged
 
 #### Scenario: Reject title/authors edit on arXiv paper
 - **WHEN** a PATCH request is sent to `/api/papers/3` with body `{"title": "New Title"}`
@@ -55,8 +64,8 @@ The system SHALL provide a `PATCH /external-api/v1/papers/:id` endpoint with Bea
 
 ### Requirement: Frontend edit mode in paper detail
 The paper detail page SHALL have an "Edit" button that toggles the view into edit mode. In edit mode:
-- Title, authors, and link fields SHALL become editable input fields
-- For papers with arxiv_id, title and authors fields SHALL be disabled (visually grayed out)
+- Title, authors, link, abstract, year, venue, type ("Paper" / "Web article"), and PDF URL fields SHALL become editable input fields
+- For papers with arxiv_id, title and authors fields SHALL be disabled (visually grayed out), and the PDF URL field SHALL NOT be shown
 - A content textarea SHALL appear with monospace font (`font-family: monospace`) displaying the current `contents.user_input` value
 - "Save" and "Cancel" buttons SHALL appear
 - "Cancel" SHALL discard changes and return to view mode
@@ -64,7 +73,7 @@ The paper detail page SHALL have an "Edit" button that toggles the view into edi
 
 #### Scenario: Enter edit mode for manual paper
 - **WHEN** user clicks "Edit" on a paper with no arxiv_id
-- **THEN** title, authors, link, and content fields SHALL all be editable
+- **THEN** title, authors, link, abstract, year, venue, type, PDF URL, and content fields SHALL all be editable
 
 #### Scenario: Enter edit mode for arXiv paper
 - **WHEN** user clicks "Edit" on a paper with arxiv_id

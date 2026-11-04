@@ -311,3 +311,17 @@ describe('s2_paper_id support', () => {
     expect('s2_paper_id' in r).toBe(false)
   })
 })
+
+describe('semanticScholarService.execute', () => {
+  it('records s2_fetched_at with the refreshed enrichment', async () => {
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url)
+      if (u.includes('/references') || u.includes('/citations')) return makeResponse(200, { data: [] })
+      return makeResponse(200, { paperId: 'p', externalIds: { CorpusId: 5 }, citationCount: 25, referenceCount: 3, influentialCitationCount: 1, references: [] })
+    }) as typeof fetch
+    const before = new Date().toISOString()
+    const r = await semanticScholarService.execute(1, { arxiv_id: '2401.00001', corpus_id: '5', metadata: null })
+    expect(r.citation_count).toBe(25)
+    expect(r.s2_fetched_at >= before).toBe(true)
+  }, 15000)
+})

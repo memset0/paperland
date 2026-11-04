@@ -45,7 +45,7 @@ basic fields（title/abstract/authors）"任何 fetch 服务为空则补"。`ing
 - promote 入口：`PATCH /api/papers/:id { listed: true }`（或 `POST /api/papers/:id/list`）。
 
 ### D4. S2 优先元数据，arxiv 退兜底
-`semantic_scholar_service` 在富集时**顺手填 basic fields（title/authors）+ abstract（为空才填）**——这样仅元数据论文无需 arxiv 即有完整文本信息。`arxiv_metadata_service` 仍产出 `link` 并作为 abstract/字段的**补缺**（S2 偶尔 `abstract=null` 时），且 `listed` 后才跑。PDF：优先用 S2 `openAccessPdf.url` 作为来源，`arxiv_pdf_service` 兜底——二者均 `requires_listed`。
+`semantic_scholar_service` 在富集时**顺手填 basic fields（title/authors）+ abstract（为空才填）**——这样仅元数据论文无需 arxiv 即有完整文本信息。`arxiv_metadata_service` 仍产出 `link` 并作为 abstract/字段的**补缺**（S2 偶尔 `abstract=null` 时），且 `listed` 后才跑。PDF：有 arxiv_id 的论文仍由 `arxiv_pdf_service` 下载；S2 open-access PDF 仅用于无 arxiv_id 的论文（后续由 `s2_pdf_service` 实现，见 `s2-pdf-fetch`）——二者均 `requires_listed`。
 - S2 现以 `arxiv_id` 为 key，故 ingest 先 seed `arxiv_id` 再跑 S2。**边角**：仅有 `corpus_id`（无 arxiv）的论文，需让 S2 支持以 `corpus_id` 取数（小改）或暂留待手动；本列表绝大多数有 arxiv。
 
 ### D7. 列表过滤的波及面（务必逐个覆盖）

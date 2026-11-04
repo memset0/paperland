@@ -51,7 +51,7 @@ function topicTitle(topic: string): string {
   return oneLine.length > TOPIC_TITLE_LENGTH ? `${oneLine.slice(0, TOPIC_TITLE_LENGTH - 1)}…` : oneLine
 }
 
-function loadSteps(db: Db, sessionIds: number[]): Map<number, StepRow[]> {
+export function loadSteps(db: Db, sessionIds: number[]): Map<number, StepRow[]> {
   const map = new Map<number, StepRow[]>()
   if (sessionIds.length === 0) return map
   for (const step of db.select().from(schema.researchSteps)
@@ -78,15 +78,20 @@ function currentVersionStep(steps: StepRow[]): StepRow | null {
   return null
 }
 
-function summarize(session: SessionRow, steps: StepRow[], owner: string): ResearchSessionSummary {
+/** A session's display title: its current list title, else its (shortened) topic. */
+export function researchSessionTitle(session: SessionRow, steps: StepRow[]): string {
   const current = currentVersionStep(steps)
   const list = current ? parseList(current.paper_list) : null
+  return list ? listTitle(list) : topicTitle(session.topic)
+}
+
+function summarize(session: SessionRow, steps: StepRow[], owner: string): ResearchSessionSummary {
   return {
     id: session.id,
     user_id: session.user_id,
     owner_name: owner,
     topic: session.topic,
-    title: list ? listTitle(list) : topicTitle(session.topic),
+    title: researchSessionTitle(session, steps),
     step_count: steps.length,
     version_count: steps.filter((s) => s.paper_list).length,
     latest_status: (steps[steps.length - 1]?.status as ResearchStepStatus | undefined) ?? null,

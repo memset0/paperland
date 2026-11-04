@@ -28,6 +28,9 @@ import BilingualText from '@/components/BilingualText.vue'
 import MobileBottomBar, { type BottomBarItem } from '@/components/MobileBottomBar.vue'
 import { useWindowsStore } from '@/stores/windows'
 import { useQAComposer } from '@/composables/useQAComposer'
+import { useQAJump } from '@/composables/useQAJump'
+import PaperRefreshMenu from '@/components/PaperRefreshMenu.vue'
+import type { PaperKind } from '@paperland/shared'
 import QAPanelNav from '@/components/QAPanelNav.vue'
 import QAConversationPanel from '@/components/QAConversationPanel.vue'
 import { useQAConversation, clampSplitLeft, clampThree, paperInfoRequests, showRequests, type PaperLayout } from '@/composables/useQAConversation'
@@ -67,7 +70,8 @@ const s2meta = computed(() => {
   const influentialCount = m.influential_citation_count
   const tldr = m.tldr
   if (citationCount === undefined && influentialCount === undefined && !tldr) return null
-  return { citationCount, influentialCount, tldr }
+  const fetchedAt = typeof m.s2_fetched_at === 'string' ? new Date(m.s2_fetched_at).toLocaleString() : null
+  return { citationCount, influentialCount, tldr, fetchedAt }
 })
 
 function reloadPage() { window.location.reload() }
@@ -175,6 +179,7 @@ const [DefineNarrowInfo, NarrowInfo] = createReusableTemplate()
 // ---- Question box: inline above User Q&A, or docked in the conversation view ----
 const floatingWindows = useWindowsStore()
 const composer = useQAComposer()
+const qaJump = useQAJump()
 
 // "Follow up", #moonlight and PDF "Add to question" ask for the box. On desktop the mounted box
 // scrolls itself into view; on phones switch to the section holding it.
@@ -221,6 +226,11 @@ function handleAnchorFromRoute() {
   if (typeof qa === 'string' && qa) {
     const entryId = parseInt(qa, 10)
     const result = typeof route.query.result === 'string' ? parseInt(route.query.result, 10) : null
+    // `thread=1` (completion notices): open in the conversation view when shown, else reveal.
+    if (!Number.isNaN(entryId) && result != null && !Number.isNaN(result) && route.query.thread === '1') {
+      void qaJump.openResult(entryId, result)
+      return
+    }
     if (!Number.isNaN(entryId)) {
       revealQAEntry(entryId, result).then(() => {
         // `followup=1` (from the /qa feed): open the question box continuing that answer.
@@ -392,7 +402,26 @@ const qaNavEntries = computed(() => {
 
 const editing = ref(false)
 const saving = ref(false)
-const editForm = ref({ title: '', authors: '', link: '', content: '' })
+// Blog posts (kind 'article') read their Markdown body in the viewer's "Article" tab.
+const articleContent = computed(() =>
+  store.currentPaper?.kind === 'article' ? store.currentPaper.contents?.user_input || null : null)
+
+/** Calendar date of an ISO date / date-time, without time-zone shifting ("2026-10-12" stays the 12th). */
+function sourceDay(v: unknown): string | null {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(v)) return null
+  const [y, m, d] = v.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+const sourceDates = computed(() => {
+  const m = (store.currentPaper?.metadata ?? {}) as any
+  const published = sourceDay(m.published_at)
+  const updatedDay = typeof m.modified_at === 'string' ? m.modified_at.slice(0, 10) : null
+  const publishedDay = typeof m.published_at === 'string' ? m.published_at.slice(0, 10) : null
+  return { published, updated: updatedDay && updatedDay !== publishedDay ? sourceDay(m.modified_at) : null }
+})
+
+const KIND_OPTIONS = [{ value: 'paper', label: 'Paper' }, { value: 'article', label: 'Blog post' }] as const
+const editForm = ref({ title: '', authors: '', link: '', content: '', abstract: '', year: '', venue: '', kind: 'paper' as PaperKind, pdf_url: '', published_at: '', modified_at: '' })
 
 const isArxiv = computed(() => !!store.currentPaper?.arxiv_id)
 
@@ -404,6 +433,13 @@ function enterEditMode() {
     authors: Array.isArray(p.authors) ? p.authors.join(', ') : '',
     link: p.link || '',
     content: p.contents?.user_input || '',
+    abstract: p.abstract || '',
+    year: (p.metadata as any)?.year != null ? String((p.metadata as any).year) : '',
+    venue: (p.metadata as any)?.venue || '',
+    kind: p.kind || 'paper',
+    pdf_url: (p.metadata as any)?.pdf_url || '',
+    published_at: (p.metadata as any)?.published_at || '',
+    modified_at: (p.metadata as any)?.modified_at || '',
   }
   editing.value = true
 }
@@ -427,6 +463,20 @@ async function saveEdit() {
     if (editForm.value.link !== (p.link || '')) data.link = editForm.value.link
     const oldContent = p.contents?.user_input || ''
     if (editForm.value.content !== oldContent) data.content = editForm.value.content
+    const meta = (p.metadata ?? {}) as any
+    if (editForm.value.abstract !== (p.abstract || '')) data.abstract = editForm.value.abstract
+    if (editForm.value.year.trim() !== (meta.year != null ? String(meta.year) : '')) {
+      const y = editForm.value.year.trim()
+      // Non-numeric input goes through as-is so the server rejects it with a message.
+      data.year = !y ? null : /^\d+$/.test(y) ? Number(y) : y
+    }
+    if (editForm.value.venue !== (meta.venue || '')) data.venue = editForm.value.venue
+    for (const key of ['published_at', 'modified_at'] as const) {
+      const v = editForm.value[key].trim()
+      if (v !== (meta[key] || '')) data[key] = v || null
+    }
+    if (editForm.value.kind !== (p.kind || 'paper')) data.kind = editForm.value.kind
+    if (!isArxiv.value && editForm.value.pdf_url.trim() !== (meta.pdf_url || '')) data.pdf_url = editForm.value.pdf_url.trim()
 
     if (Object.keys(data).length > 0) {
       await store.updatePaper(p.id, data)
@@ -501,6 +551,43 @@ async function promote() {
                 <Input v-model="editForm.link" placeholder="https://…" />
               </div>
               <div class="space-y-1.5">
+                <Label>Type</Label>
+                <div class="flex gap-1.5">
+                  <Button v-for="k in KIND_OPTIONS" :key="k.value" type="button" size="sm"
+                    :variant="editForm.kind === k.value ? 'default' : 'outline'" @click="editForm.kind = k.value">
+                    {{ k.label }}
+                  </Button>
+                </div>
+              </div>
+              <div class="grid grid-cols-[6rem_1fr] gap-2">
+                <div class="space-y-1.5">
+                  <Label>Year</Label>
+                  <Input v-model="editForm.year" inputmode="numeric" placeholder="2026" />
+                </div>
+                <div class="space-y-1.5">
+                  <Label>Venue</Label>
+                  <Input v-model="editForm.venue" placeholder="e.g. Tech report" />
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="space-y-1.5">
+                  <Label>Published</Label>
+                  <Input v-model="editForm.published_at" placeholder="YYYY-MM-DD" />
+                </div>
+                <div class="space-y-1.5">
+                  <Label>Last updated</Label>
+                  <Input v-model="editForm.modified_at" placeholder="YYYY-MM-DD" />
+                </div>
+              </div>
+              <div v-if="!isArxiv" class="space-y-1.5">
+                <Label>PDF URL</Label>
+                <Input v-model="editForm.pdf_url" placeholder="https://…/paper.pdf" />
+              </div>
+              <div class="space-y-1.5">
+                <Label>Abstract</Label>
+                <Textarea v-model="editForm.abstract" rows="4" placeholder="Abstract…" class="resize-y" />
+              </div>
+              <div class="space-y-1.5">
                 <Label>Content (user input)</Label>
                 <Textarea v-model="editForm.content" rows="10" placeholder="Enter paper content…" class="font-mono resize-y" />
               </div>
@@ -537,6 +624,7 @@ async function promote() {
                   <BookmarkCheck v-if="store.currentPaper.in_library" />
                   <BookmarkPlus v-else />
                 </Button>
+                <PaperRefreshMenu v-if="auth.user" :paper="store.currentPaper" />
                 <Button variant="ghost" size="icon-sm" title="Edit" @click="enterEditMode">
                   <Pencil />
                 </Button>
@@ -546,11 +634,13 @@ async function promote() {
               </div>
             </div>
             <div class="flex flex-wrap gap-1.5">
-              <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
+              <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" :kind="store.currentPaper.kind" />
               <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
               <Badge variant="outline" class="gap-1">
                 <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
               </Badge>
+              <Badge v-if="sourceDates.published" variant="outline" title="First published at the source">Published {{ sourceDates.published }}</Badge>
+              <Badge v-if="sourceDates.updated" variant="outline" title="Last updated at the source">Updated {{ sourceDates.updated }}</Badge>
             </div>
             <div v-if="store.currentPaper.authors?.length" class="space-y-2">
               <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -584,7 +674,7 @@ async function promote() {
               </template>
             </div>
             <PaperFullTextCopy :paper-id="paperId" />
-            <ReferenceLinksSection :paper-id="paperId" />
+            <ReferenceLinksSection :paper-id="paperId" :source-link="store.currentPaper.kind === 'article' ? store.currentPaper.link : null" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">
               <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Abstract</div>
               <BilingualText :text="store.currentPaper.abstract || ''" />
@@ -596,6 +686,7 @@ async function promote() {
                 <Badge v-if="s2meta.influentialCount !== undefined" variant="outline">influential {{ s2meta.influentialCount }}</Badge>
               </div>
               <p v-if="s2meta.tldr" class="text-sm text-muted-foreground leading-relaxed"><span class="font-medium text-foreground">TL;DR </span>{{ s2meta.tldr }}</p>
+              <p v-if="s2meta.fetchedAt" class="text-xs text-muted-foreground">Last fetched {{ s2meta.fetchedAt }}</p>
             </div>
           </template>
         </Card>
@@ -676,6 +767,43 @@ async function promote() {
                 <Input v-model="editForm.link" placeholder="https://…" />
               </div>
               <div class="space-y-1.5">
+                <Label>Type</Label>
+                <div class="flex gap-1.5">
+                  <Button v-for="k in KIND_OPTIONS" :key="k.value" type="button" size="sm"
+                    :variant="editForm.kind === k.value ? 'default' : 'outline'" @click="editForm.kind = k.value">
+                    {{ k.label }}
+                  </Button>
+                </div>
+              </div>
+              <div class="grid grid-cols-[6rem_1fr] gap-2">
+                <div class="space-y-1.5">
+                  <Label>Year</Label>
+                  <Input v-model="editForm.year" inputmode="numeric" placeholder="2026" />
+                </div>
+                <div class="space-y-1.5">
+                  <Label>Venue</Label>
+                  <Input v-model="editForm.venue" placeholder="e.g. Tech report" />
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="space-y-1.5">
+                  <Label>Published</Label>
+                  <Input v-model="editForm.published_at" placeholder="YYYY-MM-DD" />
+                </div>
+                <div class="space-y-1.5">
+                  <Label>Last updated</Label>
+                  <Input v-model="editForm.modified_at" placeholder="YYYY-MM-DD" />
+                </div>
+              </div>
+              <div v-if="!isArxiv" class="space-y-1.5">
+                <Label>PDF URL</Label>
+                <Input v-model="editForm.pdf_url" placeholder="https://…/paper.pdf" />
+              </div>
+              <div class="space-y-1.5">
+                <Label>Abstract</Label>
+                <Textarea v-model="editForm.abstract" rows="4" placeholder="Abstract…" class="resize-y" />
+              </div>
+              <div class="space-y-1.5">
                 <Label>Content (user input)</Label>
                 <Textarea v-model="editForm.content" rows="10" placeholder="Enter paper content…" class="font-mono resize-y" />
               </div>
@@ -693,6 +821,7 @@ async function promote() {
             <div class="flex items-start justify-between gap-3">
               <h2 :class="[isEmbed ? 'text-sm' : 'text-lg', 'font-semibold leading-snug']">{{ store.currentPaper.title }}</h2>
               <div v-if="!isEmbed" class="flex items-center gap-1 shrink-0">
+                <PaperRefreshMenu v-if="auth.user" :paper="store.currentPaper" />
                 <Button variant="ghost" size="icon-sm" title="Edit" @click="enterEditMode">
                   <Pencil />
                 </Button>
@@ -702,11 +831,13 @@ async function promote() {
               </div>
             </div>
             <div class="flex flex-wrap gap-1.5">
-              <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" />
+              <SourceTag :link="store.currentPaper.link" :arxiv-id="store.currentPaper.arxiv_id" :kind="store.currentPaper.kind" />
               <S2Badge :corpus-id="store.currentPaper.corpus_id" :s2-url="(store.currentPaper.metadata as any)?.s2_url" />
               <Badge variant="outline" class="gap-1">
                 <Calendar />{{ new Date(store.currentPaper.created_at).toLocaleDateString() }}
               </Badge>
+              <Badge v-if="sourceDates.published" variant="outline" title="First published at the source">Published {{ sourceDates.published }}</Badge>
+              <Badge v-if="sourceDates.updated" variant="outline" title="Last updated at the source">Updated {{ sourceDates.updated }}</Badge>
             </div>
             <div v-if="store.currentPaper.authors?.length" class="space-y-2">
               <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -740,7 +871,7 @@ async function promote() {
               </template>
             </div>
             <PaperFullTextCopy :paper-id="paperId" />
-            <ReferenceLinksSection :paper-id="paperId" />
+            <ReferenceLinksSection :paper-id="paperId" :source-link="store.currentPaper.kind === 'article' ? store.currentPaper.link : null" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">
               <div class="text-xs font-medium text-muted-foreground uppercase tracking-wider">Abstract</div>
               <BilingualText :text="store.currentPaper.abstract || ''" />
@@ -752,6 +883,7 @@ async function promote() {
                 <Badge v-if="s2meta.influentialCount !== undefined" variant="outline">influential {{ s2meta.influentialCount }}</Badge>
               </div>
               <p v-if="s2meta.tldr" class="text-sm text-muted-foreground leading-relaxed"><span class="font-medium text-foreground">TL;DR </span>{{ s2meta.tldr }}</p>
+              <p v-if="s2meta.fetchedAt" class="text-xs text-muted-foreground">Last fetched {{ s2meta.fetchedAt }}</p>
             </div>
           </template>
         </Card>
@@ -854,6 +986,8 @@ async function promote() {
           :pdf-status="store.currentPaper?.pdf_status"
           :pdf-unavailable-reason="store.currentPaper?.pdf_unavailable_reason"
           :info-tabs="layout === 'split-conv'"
+          :article-content="articleContent"
+          :is-article="store.currentPaper?.kind === 'article'"
         >
           <template #metadata><PaperColumn part="metadata" /></template>
           <template #qa><PaperColumn part="qa" /></template>
@@ -933,6 +1067,8 @@ async function promote() {
             :paper-id="paperId"
             :pdf-status="store.currentPaper.pdf_status"
             :pdf-unavailable-reason="store.currentPaper.pdf_unavailable_reason"
+            :article-content="articleContent"
+          :is-article="store.currentPaper?.kind === 'article'"
           />
         </div>
         <div v-show="mobileSection === 'qa'" ref="mobileQAScrollRef" class="relative h-full overflow-y-auto" data-mobile-section="qa">

@@ -6,7 +6,7 @@ TBD - created by archiving change project-init. Update Purpose after archive.
 ## Requirements
 
 ### Requirement: Papers table
-The database SHALL have a `papers` table with columns: `id` (integer, primary key, autoincrement), `arxiv_id` (text, nullable, unique), `corpus_id` (text, nullable, unique), `title` (text, not null), `authors` (text, not null, JSON array), `abstract` (text, nullable), `contents` (text, nullable, JSON object), `pdf_path` (text, nullable), `metadata` (text, nullable, JSON), `link` (text, nullable), `created_at` (text, not null, ISO 8601), `updated_at` (text, not null, ISO 8601).
+The database SHALL have a `papers` table with columns: `id` (integer, primary key, autoincrement), `arxiv_id` (text, nullable, unique), `corpus_id` (text, nullable, unique), `title` (text, not null), `authors` (text, not null, JSON array), `abstract` (text, nullable), `contents` (text, nullable, JSON object), `pdf_path` (text, nullable), `metadata` (text, nullable, JSON), `link` (text, nullable), `listed` (integer, not null, default 1 — global visibility; 1 = shown in listings and fully fetched, 0 = metadata-only/hidden), `created_at` (text, not null, ISO 8601), `updated_at` (text, not null, ISO 8601).
 
 Deletion of a paper SHALL be performed via application-level cascade within a single database transaction. The application SHALL delete all related records from `qa_results` (via `qa_entries`, including soft-deleted results), `qa_entries`, `service_executions`, `paper_tags`, and `highlights` (matched by `pdf_path`) before deleting the paper record. No database-level ON DELETE CASCADE constraints are required.
 
@@ -21,6 +21,14 @@ Deletion of a paper SHALL be performed via application-level cascade within a si
 #### Scenario: Contents stored as JSON
 - **WHEN** a paper is inserted with contents `{"user_input": "some text", "pdf_parsed": null}`
 - **THEN** the contents field SHALL store the JSON string and it SHALL be parseable back to the original object
+
+#### Scenario: listed defaults to 1 for existing and new papers
+- **WHEN** the `listed` column is added to a database with existing papers, or a paper is inserted without specifying `listed`
+- **THEN** the value SHALL default to `1` (listed), preserving existing behavior
+
+#### Scenario: Metadata-only paper stored with listed 0
+- **WHEN** a paper is ingested as metadata-only
+- **THEN** it SHALL be stored with `listed=0`
 
 #### Scenario: Cascade delete paper and all associations
 - **WHEN** a paper with id 5 is deleted and it has qa_entries, qa_results, service_executions, paper_tags, and highlights
@@ -283,3 +291,10 @@ Prompt migration SHALL be preceded by a SQLite-consistent online backup and inte
 #### Scenario: Non-QA highlight
 - **WHEN** a highlight belongs to other Markdown content
 - **THEN** `qa_result_id` SHALL be null
+
+### Requirement: Papers kind column
+The `papers` table SHALL have a `kind` column (text, not null, default `'paper'`) holding `paper` or `article`. It SHALL be added by an additive migration in which every existing paper gets `paper`.
+
+#### Scenario: Existing papers after migration
+- **WHEN** the migration runs on a database with existing papers
+- **THEN** every existing paper SHALL have kind `paper` and no other column SHALL change

@@ -1,8 +1,6 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
-import { existsSync, readFileSync } from 'fs'
-import { resolve, sep } from 'path'
 import { loadConfig, getConfig } from './config.js'
 import { initDatabase } from './db/index.js'
 import { authRoutes } from './api/auth.js'
@@ -19,10 +17,11 @@ import { notesRoutes } from './api/notes.js'
 import { referenceLinksRoutes } from './api/reference_links.js'
 import { imagesRoutes } from './api/images.js'
 import { extensionRoutes } from './api/extension.js'
-import { mimeForExt } from './services/image_store.js'
+import { imageServingRoutes } from './api/image_serving.js'
 import { tagRoutes } from './api/tags.js'
 import { externalPaperRoutes } from './external-api/papers.js'
 import { externalTagRoutes } from './external-api/tags.js'
+import { externalImageRoutes } from './external-api/images.js'
 import { startBackupScheduler } from './db/backup.js'
 import { identityHook } from './auth/identity_hook.js'
 import { fileRoutes } from './api/files.js'
@@ -33,6 +32,7 @@ import { seedStarterPaper } from './services/user_library.js'
 import { recoverInterruptedQAResults } from './services/qa_runtime.js'
 import { arxivMetadataService, arxivPdfService } from './services/arxiv_service.js'
 import { s2PdfService } from './services/s2_pdf_service.js'
+import { urlPdfService } from './services/url_pdf_service.js'
 import { semanticScholarService } from './services/semantic_scholar_service.js'
 import { pdfParseService } from './services/pdf_parse_service.js'
 import { doc2xParseService } from './services/doc2x_parse_service.js'
@@ -40,6 +40,7 @@ import { doc2xTranslateService } from './services/doc2x_translate_service.js'
 import { papersCoolService } from './services/papers_cool_service.js'
 import { s2Routes } from './api/s2.js'
 import { researchRoutes } from './api/research.js'
+import { notificationRoutes } from './api/notifications.js'
 import { mcpRoutes } from './api/mcp.js'
 import { tokenRoutes } from './api/tokens.js'
 import { usageRoutes } from './api/usage.js'
@@ -83,6 +84,7 @@ async function main() {
   serviceRunner.register(arxivPdfService)
   serviceRunner.register(semanticScholarService)
   serviceRunner.register(s2PdfService)
+  serviceRunner.register(urlPdfService)
   serviceRunner.register(pdfParseService)
   serviceRunner.register(papersCoolService)
   serviceRunner.register(doc2xParseService)
@@ -113,27 +115,8 @@ async function main() {
 
   await app.register(fileRoutes)
 
-  // Public image host serving — NO auth by design (any holder of the link can view).
-  // Lives outside /api/* so the identity hook leaves it open. Content-addressed files are
-  // immutable, so they can be cached aggressively.
-  app.get<{ Params: { '*': string } }>('/image/*', async (request, reply) => {
-    const baseDir = resolve(process.cwd(), getConfig().image_host.dir)
-    const rel = decodeURIComponent(request.params['*'] || '')
-    const filePath = resolve(baseDir, rel)
-    // Path-traversal guard: the resolved path must stay inside the storage dir.
-    if (filePath !== baseDir && !filePath.startsWith(baseDir + sep)) {
-      reply.code(400).send({ error: 'Invalid path' })
-      return
-    }
-    if (!existsSync(filePath)) {
-      reply.code(404).send({ error: 'Image not found' })
-      return
-    }
-    const buffer = readFileSync(filePath)
-    reply.header('Content-Type', mimeForExt(filePath.split('.').pop() || ''))
-    reply.header('Cache-Control', 'public, max-age=31536000, immutable')
-    return reply.send(buffer)
-  })
+  // Public image host serving (no auth, Range support) — see api/image_serving.ts.
+  await app.register(imageServingRoutes)
 
   // Register routes
   await app.register(authRoutes)
@@ -157,12 +140,14 @@ async function main() {
 
   await app.register(s2Routes)
   await app.register(researchRoutes)
+  await app.register(notificationRoutes)
   // Agent tools MCP server (bearer-token auth, outside /api and the login wall)
   await app.register(mcpRoutes)
 
   // Register external API routes
   await app.register(externalPaperRoutes)
   await app.register(externalTagRoutes)
+  await app.register(externalImageRoutes)
 
   // Production frontend shares the API entry point; Vite remains the dev server.
   const frontendMounted = await registerFrontendHosting(app)

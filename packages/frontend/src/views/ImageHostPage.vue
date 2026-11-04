@@ -26,7 +26,7 @@ onUnmounted(() => {
 
 /** Upload one or more files (from the picker, drop, or paste). */
 async function uploadFiles(files: File[] | FileList) {
-  const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
+  const list = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type === 'video/mp4' || f.type === 'video/webm')
   if (list.length === 0) return
   uploading.value = true
   try {
@@ -95,7 +95,7 @@ function formatDate(iso: string): string {
 <template>
   <AppPage>
     <p class="text-muted-foreground -mt-2 mb-4 text-sm">
-      Upload images and reference them from notes. Anyone with a link can view; only logged-in users can upload.
+      Upload images and videos and reference them from notes. Anyone with a link can view; only logged-in users can upload.
     </p>
 
     <!-- Upload area: click to pick, drag-drop, or Ctrl+V paste anywhere on this page -->
@@ -107,12 +107,12 @@ function formatDate(iso: string): string {
       @dragleave.prevent="dragOver = false"
       @drop.prevent="onDrop"
     >
-      <input ref="fileInput" type="file" accept="image/*" multiple class="hidden" @change="onPickFiles" />
+      <input ref="fileInput" type="file" accept="image/*,video/mp4,video/webm" multiple class="hidden" @change="onPickFiles" />
       <Upload class="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
       <p class="text-sm">
         <span class="font-medium text-primary">Click to upload</span>, drag &amp; drop, or paste (Ctrl+V)
       </p>
-      <p class="text-xs text-muted-foreground mt-1">PNG, JPEG, GIF, WebP</p>
+      <p class="text-xs text-muted-foreground mt-1">PNG, JPEG, GIF, WebP, MP4, WebM</p>
       <p v-if="uploading" class="text-xs text-primary mt-2">Uploading…</p>
     </div>
 
@@ -124,7 +124,10 @@ function formatDate(iso: string): string {
     <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
       <div v-for="img in images" :key="img.hash" class="bg-card border rounded-lg overflow-hidden flex flex-col">
         <a :href="img.url" target="_blank" rel="noopener noreferrer" class="block aspect-square bg-muted/40">
-          <img :src="img.url" :alt="img.original_name ?? img.hash" loading="lazy" class="w-full h-full object-contain" />
+          <video v-if="img.mime.startsWith('video/')" :src="img.url" muted loop playsinline preload="metadata"
+            class="w-full h-full object-contain bg-black" @mouseenter="($event.target as HTMLVideoElement).play()"
+            @mouseleave="($event.target as HTMLVideoElement).pause()" />
+          <img v-else :src="img.url" :alt="img.original_name ?? img.hash" loading="lazy" class="w-full h-full object-contain" />
         </a>
         <div class="p-3 flex flex-col gap-1 text-xs">
           <div class="font-medium truncate" :title="img.original_name ?? ''">

@@ -6,6 +6,7 @@ import PdfViewer from '@/components/PdfViewer.vue'
 import PdfUploadPanel from '@/components/PdfUploadPanel.vue'
 import NoteWalkthrough from '@/components/notes/NoteWalkthrough.vue'
 import Doc2xTranslationTab from '@/components/Doc2xTranslationTab.vue'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useDoc2xStore } from '@/stores/doc2x'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { requestedPdfTarget } from '@/composables/usePdfNavigation'
@@ -16,7 +17,7 @@ interface ViewerMode {
   id: string
   label: string
   available: boolean
-  type: 'pdf' | 'iframe' | 'walkthrough' | 'doc2x' | 'metadata' | 'qa'
+  type: 'article' | 'pdf' | 'iframe' | 'walkthrough' | 'doc2x' | 'metadata' | 'qa'
   url?: string | null
 }
 
@@ -28,17 +29,24 @@ const props = defineProps<{
   pdfUnavailableReason?: 'closed_access' | 'download_failed' | 'not_found' | null
   /** Paper + conversation layout: add "Metadata" and "Q&A" tabs rendering the same-named slots. */
   infoTabs?: boolean
+  /** Markdown body of an article (blog post); non-empty adds the default "Article" tab. */
+  articleContent?: string | null
+  /** Blog posts (kind 'article') have no PDF to upload: the PDF tab only appears when one exists. */
+  isArticle?: boolean
 }>()
 
 const doc2x = useDoc2xStore()
 
 const modes = computed<ViewerMode[]>(() => {
   const list: ViewerMode[] = []
+  // Articles (blog posts) with Markdown content read in-app; listed first so it is the default.
+  list.push({ id: 'article', label: 'Article', available: !!props.articleContent?.trim(), type: 'article' })
   list.push({
     id: 'pdf',
     label: 'PDF',
-    // Always shown: without a PDF the tab renders PdfUploadPanel (fetching / upload required).
-    available: true,
+    // Shown for papers even without a PDF (the tab renders PdfUploadPanel: fetching / upload
+    // required); articles only get it when they actually have a PDF.
+    available: !props.isArticle || !!props.pdfPath,
     type: 'pdf',
   })
   // doc2x preserved-layout translation (bilingual / translation-only). Never the auto-default:
@@ -151,7 +159,12 @@ watch(() => route.query.view, (v) => {
         </TabsList>
       </div>
       <TabsContent v-for="mode in availableModes" :key="mode.id" :value="mode.id" class="flex-1 overflow-hidden m-0">
-        <template v-if="mode.type === 'pdf'">
+        <div v-if="mode.type === 'article'" class="h-full overflow-y-auto bg-background">
+          <article class="mx-auto max-w-3xl px-4 py-6 sm:px-8">
+            <MarkdownContent :content="articleContent || ''" :paper-id="paperId ?? undefined" disable-highlights />
+          </article>
+        </div>
+        <template v-else-if="mode.type === 'pdf'">
           <PdfViewer v-if="pdfPath" :pdf-path="pdfPath" :paper-id="paperId" />
           <PdfUploadPanel v-else :paper-id="paperId ?? null" :pdf-status="pdfStatus" :reason="pdfUnavailableReason" />
         </template>

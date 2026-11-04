@@ -14,9 +14,22 @@ S2 论文元数据缓存的解析接口 `POST /api/s2/papers/resolve` 同样属�
 
 Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回退与 SSE）同样只是 Internal API（会话认证），External API 不暴露 research 数据；新增的 `research_sessions` / `research_steps` 表与 `research` 共享类型不改变任何 External API 契约。
 
+完成通知（`GET /api/notifications/completions`，当前用户自己完成的 QA 回答 / 研究回合，前端轮询用）同样只是 Internal API（会话认证），不改变 External API。
+
 ### MCP 服务器（`/mcp`）
 
-`POST /mcp` 是 Paperland 的 MCP 服务器（除 `upload_image` 外全部只读）（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal 与 agent** 两种 token，按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token，Codex QA 回合注入提问者的 agent token（只开放 `upload_image`）。`upload_image` 用 `data`（base64 或 data URL，请求体上限随图床 `max_size_mb`）上传图片到图床并返回可嵌入的 Markdown；按服务器本地路径（`path`）上传只对 agent token 开放。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
+`POST /mcp` 是 Paperland 的 MCP 服务器（只读工具 + `upload_image` + 论文写工具）（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal 与 agent** 两种 token，按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token，Codex QA 回合注入提问者的 agent token（只开放 `upload_image`）。`upload_image` 上传图片或视频（PNG / JPEG / GIF / WebP / MP4 / WebM）到图床并返回可嵌入的 Markdown（视频同样是 `![alt](url)`，Article 视图里内联播放）：`url`（服务端下载，规则同下方 `POST /external-api/v1/images?url=`）、`data`（base64 或 data URL，只适合很小的图）、`path`（服务器本地路径，只对 agent token 开放），三选一。只读工具 `get_skill(name?)` 返回内置 agent 指南（不带 name 时列出，如 `blog-import`：如何把博客导入为文章）。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
+
+**论文写工具（只接受 personal token；agent token 调用返回工具错误，Deep Research / QA 回合也看不到它们）**：让自己的 agent 添加和维护论文，校验与副作用与站内接口相同。
+
+| 工具 | 参数 | 说明 |
+|---|---|---|
+| `add_paper` | `arxiv_id` / `corpus_id` / `s2_paper_id`，或 `title`（必填）+ `authors`、`link`、`abstract`、`year`、`venue`、`kind`（`paper` / `article`，后者即博客）、`published_at` / `modified_at`（ISO 8601 日期或时间，源站发布 / 最后更新时间）、`content`（Markdown 正文）、`pdf_url`、`pdf_data`（base64 或 `data:application/pdf;base64,…`）、`tags` | 新建或命中已有论文（id 去重；无 id 的手动论文按规范化 link 去重），加入调用者的列表；新建时打上调用者的标签。`pdf_url` 由 `url_pdf_service` 下载，`pdf_data` 直接存为 PDF。返回 `paper_id`、`created`、元数据、`app_link`、`pdf_status` |
+| `update_paper` | `paper_id` + 上述元数据字段 | 同 `PATCH /api/papers/:id`（arXiv 论文 title/authors 锁定，空字符串清空 abstract / venue / pdf_url） |
+| `upload_paper_pdf` | `paper_id` + `data` 或 `url`（二选一），`replace?` | `data` 同 `POST /api/papers/:id/pdf`；`url` 写入 `pdf_url` 并下载（arXiv 论文不接受 `url`）。已有 PDF 时须 `replace: true`，内容不同则切换文件并重新生成解析 / 翻译 |
+| `refresh_paper` | `paper_id`，`pdf?`、`s2?` | 手动重新抓取 PDF（arXiv 给最新版本）/ 刷新 S2 引用数据，后台运行，返回已排队的服务与各自的错误 |
+
+`/mcp` 的请求体上限取图床 `max_size_mb` / `max_video_size_mb` 与 `pdf_upload.max_file_size_mb` 中最大者的 base64 体积。导入博客：先 `get_skill("blog-import")`，按指南抽正文、截图 / 上传图与视频，再 `add_paper({ kind: "article", link, published_at, modified_at, content, … })`。示例：添加一个只有项目主页和 PDF 的工作——`add_paper({ title: "Code Video Model", link: "https://code-video-model.github.io", venue: "Tech report", pdf_url: "https://code-video-model.github.io/tech_report.pdf" })`。
 
 ---
 
@@ -147,12 +160,21 @@ Base URL: `/external-api/v1`
   "authors": ["Author A"],        // 可选，arXiv 论文不可修改
   "link": "https://example.com",  // 可选
   "content": "论文内容文本",        // 可选，写入 contents.user_input
+  "abstract": "…",                // 可选，空字符串清空
+  "year": 2026,                   // 可选，四位整数或 null，写入 metadata.year
+  "venue": "Tech report",         // 可选，空字符串清空，写入 metadata.venue
+  "kind": "article",              // 可选，"paper" | "article"（网页文章）
+  "pdf_url": "https://…/a.pdf",   // 可选，http(s)，空字符串清空，写入 metadata.pdf_url
+  "published_at": "2026-10-12",   // 可选，源站首次发布时间（ISO 8601 日期或时间），null / 空字符串清空
+  "modified_at": "2026-10-13",    // 可选，源站最后更新时间，同上
   "listed": true                  // 可选，加入列表(true)/降为仅元数据(false)
 }
 ```
 
+- 与站内 `PATCH /api/papers/:id` 共用同一实现（`services/paper_actions.ts#updatePaperFields`）
+- `kind` / `year` / `pdf_url` 非法时返回 `422 VALIDATION_ERROR`、日期非法时返回 `422 INVALID_DATE`，论文不变；arXiv 论文的 `published_at` / `modified_at` 由 arXiv 元数据（`<published>` / `<updated>`）维护；给没有 PDF 的已列出非 arXiv 论文设置 `pdf_url` 会调度 `url_pdf_service`
 - arXiv 论文（有 `arxiv_id`）尝试修改 `title` 或 `authors` 时返回 `400`
-- `content` 为空字符串时清除 `user_input`
+- `content` 为空字符串时清除 `user_input`；`kind` 为 `article` 时正文的标题级别会被重排为从 `#` 开始的连续级别
 - 成功更新后 `updated_at` 自动刷新
 - `listed: true` 时把论文加入列表并触发完整抓取管线；`listed: false` 始终允许（降为仅元数据）
 
@@ -216,7 +238,7 @@ Base URL: `/external-api/v1`
 
 **注意事项：**
 - `auto_create=true` 时按所提供的 arxiv_id / corpus_id / s2_paper_id 创建并触发抓取。`semantic_scholar_service` 现在是**双向**的：带 arxiv_id 的论文会查 `ARXIV:{id}` 补全 corpus_id 与引用富化，**仅凭 corpus_id 创建的论文也会查 `CORPUSID:{id}` 反查 arxiv_id 并做同样的富化**（若该论文确实存在 arXiv 版本）；解析出 arxiv_id 后，arxiv 元数据/PDF 抓取会经依赖图自动衔接。若 S2 记录**没有** arXiv 版本，但提供了开放获取 PDF（`metadata.open_access_pdf_url`），`s2_pdf_service` 会下载该 PDF 并写入 `pdf_path`，后续解析服务照常衔接；闭源论文（`metadata.open_access_pdf_status` = `CLOSED`、无 url）不会有 `pdf_path`，`services` 中 `s2_pdf_service` 显示为 `blocked`。这类论文需由用户在站内论文详情页左侧 "PDF needed" 面板手动上传（站内接口 `POST /api/papers/:id/pdf`，External API 不提供上传）；上传后 `pdf_path` 出现、解析服务自动衔接
-- `auto_template_qa=true` 时，仅执行缺少 done Result 的模板提问（只有 failed/cancelled 历史仍可重试），每次调用仍通过统一 QA ServiceRunner，并等待新 Result 终态后返回
+- `auto_template_qa=true` 时，仅执行缺少 done Result 的模板提问（只有 failed/cancelled 历史仍可重试），每次调用仍通过统一 QA ServiceRunner，并等待新 Result 终态后返回（单次回答受 `services.qa.time_limit` 限制，缺省 2h，超时记为 failed）
 - 模板提问会在调用模型前把 `config.yml` 中当时最新的问题文本持久化到 QA Entry；首次调用失败也不会丢失问题，之后重跑仍会重新读取配置中的最新文本
 - Internal UI 的 User Q&A `mine|all`、九种个人背景色（gray/brown/orange/yellow/green/blue/purple/pink/red）和 viewer-private 高亮/笔记引用计数不会改变 External API 的鉴权或查询范围。背景色仍是站内 preference，不新增 External API 字段；`qa.results[]` 可能附带内部稳定 `content_hash`，用于站内阅读标记，外部客户端无需依赖该字段
 - 多回答默认选中最新 tab 完全属于 Internal UI：不改变 `/papers/full` 的 results 数组、排序保证或任何 External API 字段
@@ -395,6 +417,31 @@ Base URL: `/external-api/v1`
   "tags": ["machine-learning", "transformer", "new-tag"]
 }
 ```
+
+---
+
+### 图床上传
+
+#### POST /external-api/v1/images
+
+给外部 agent 上传图片 / 视频用（不必把文件 base64 塞进 MCP 调用）。personal token；文件归 token 用户所有，校验、去重与站内 `POST /api/images` 相同（按文件头识别 PNG / JPEG / GIF / WebP / MP4 / WebM，图片上限 `image_host.max_size_mb`、视频上限 `image_host.max_video_size_mb`）。二选一：
+
+- **原始文件体**：`Content-Type` 为 `image/*`、`video/*` 或 `application/octet-stream`，可带 `?filename=`、`?alt=`。
+- **`?url=<http(s) URL>`**（无请求体）：服务端下载。只允许 http/https；主机解析到回环 / 私网 / 链路本地 / 未指定地址时 422 `URL_NOT_ALLOWED`；最多 5 次重定向（每跳重新检查）；超时 `image_host.download_timeout`（默认 60 s）；超过大小上限即中止。
+
+```bash
+curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: image/png" \
+  --data-binary @fig2.png "https://<站点>/external-api/v1/images?filename=fig2.png&alt=Figure%202"
+```
+
+响应（新文件 201，内容已存在 200）：
+
+```json
+{ "url": "/image/2026/10/16/a1b2c3.png", "markdown": "![Figure 2](/image/2026/10/16/a1b2c3.png)",
+  "mime": "image/png", "kind": "image", "size": 48213, "width": 1520, "height": 540, "deduped": false }
+```
+
+错误：400 `INVALID_REQUEST`（无文件也无 url，或两者都给）/ `INVALID_MEDIA`（不识别、不允许或超限）；422 `URL_NOT_ALLOWED` / `DOWNLOAD_FAILED`。
 
 ---
 

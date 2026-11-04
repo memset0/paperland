@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
@@ -10,7 +10,7 @@ import { loadConfig } from '../config.js'
 import { setDatabaseForTesting } from '../db/index.js'
 import * as schema from '../db/schema.js'
 import { BUNDLED_SYSTEM_PROMPTS_DIR } from '../config.js'
-import { buildQAInput, QANoContentError } from './qa_formatter.js'
+import { articleHeader, buildQAInput, QANoContentError } from './qa_formatter.js'
 import { assignLabels, inputPages } from './qa_inputs.js'
 
 const MIGRATIONS_DIR = resolve(dirname(new URL(import.meta.url).pathname), '..', 'db', 'migrations')
@@ -178,5 +178,22 @@ describe('input labels', () => {
   test('page ranges', () => {
     expect(inputPages({ kind: 'text_selection', label: 'Quote1', text: 't', pdf: [{ page: 4, ts: 0, te: 1 }, { page: 3, ts: 0, te: 1 }] })).toBe('pages 3–4')
     expect(inputPages({ kind: 'image', label: 'Image1', image_hash: 'abc123', url: '', pdf: null })).toBeNull()
+  })
+})
+
+describe('articleHeader', () => {
+  const article = {
+    kind: 'article', title: 'Frontier models can’t yet label robot training data accurately',
+    authors: JSON.stringify(['Concept', 'Mecka']), link: 'https://concept.dev/blog/dense-captioning',
+    metadata: JSON.stringify({ venue: 'Concept blog', published_at: '2026-10-12', modified_at: '2026-10-13T08:00:00Z' }),
+  } as any
+  it('prefixes article Markdown with title, authors, source and dates', () => {
+    expect(articleHeader(article, 'user_input')).toBe(
+      'Title: Frontier models can’t yet label robot training data accurately\nAuthors: Concept, Mecka\nPublished in: Concept blog\n' +
+      'Source: https://concept.dev/blog/dense-captioning\nPublished: 2026-10-12\nLast updated: 2026-10-13\n\n')
+  })
+  it('adds nothing for papers or for non-Markdown sources', () => {
+    expect(articleHeader({ ...article, kind: 'paper' }, 'user_input')).toBe('')
+    expect(articleHeader(article, 'pdf_parsed')).toBe('')
   })
 })

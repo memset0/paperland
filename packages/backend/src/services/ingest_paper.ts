@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { withDedup, getDedupKey } from './paper_dedup.js'
 import { serviceRunner } from './service_runner.js'
@@ -14,6 +14,10 @@ export interface IngestPaperInput {
   content?: string | null
   /** false = ingest as a metadata-only (hidden) paper; default true = listed in the library. */
   listed?: boolean
+  abstract?: string | null
+  kind?: 'paper' | 'article'
+  /** Initial metadata for manual papers (year / venue / pdf_url). */
+  metadata?: Record<string, unknown> | null
 }
 
 type DB = ReturnType<typeof getDatabase>
@@ -31,6 +35,30 @@ export function paperDedupKey(ids: PaperIds): string | null {
   if (ids.corpus_id) return getDedupKey('corpus', ids.corpus_id)
   if (ids.s2_paper_id) return getDedupKey('s2', ids.s2_paper_id)
   return null
+}
+
+/**
+ * Comparison key for a manual paper's link: scheme ignored (http ≡ https), host lower-cased
+ * without a leading `www.`, fragment and trailing slashes dropped. Null for a non-URL.
+ */
+export function normalizeLink(link: string | null | undefined): string | null {
+  if (!link) return null
+  let url: URL
+  try { url = new URL(link.trim()) } catch { return null }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+  const host = url.host.toLowerCase().replace(/^www\./, '')
+  const path = url.pathname.replace(/\/+$/, '')
+  return `${host}${path}${url.search}`
+}
+
+/** An existing paper without arxiv/corpus/s2 ids whose link normalizes to the same key. */
+export function findManualPaperByLink(db: DB, link: string | null | undefined): PaperRow | null {
+  const key = normalizeLink(link)
+  if (!key) return null
+  const rows = db.select().from(schema.papers)
+    .where(and(isNull(schema.papers.arxiv_id), isNull(schema.papers.corpus_id), isNull(schema.papers.s2_paper_id), isNotNull(schema.papers.link)))
+    .all()
+  return rows.find((r) => normalizeLink(r.link) === key) ?? null
 }
 
 /**
@@ -76,7 +104,8 @@ export interface IngestPaperResult {
  * calling user, so the API route owns that step after this helper returns.
  */
 export async function ingestPaper(input: IngestPaperInput): Promise<IngestPaperResult> {
-  const { arxiv_id, corpus_id, s2_paper_id, title, authors, link, content, listed } = input
+  const { arxiv_id, corpus_id, s2_paper_id, title, authors, link, content, listed, abstract, kind, metadata } = input
+  const hasIds = !!(arxiv_id || corpus_id || s2_paper_id)
 
   // Promote an existing metadata-only paper when a normal (listed) ingest matches it.
   const maybePromote = (existing: typeof schema.papers.$inferSelect): void => {
@@ -87,12 +116,14 @@ export async function ingestPaper(input: IngestPaperInput): Promise<IngestPaperR
     }
   }
 
-  const dedupKey = paperDedupKey({ arxiv_id, corpus_id, s2_paper_id })
+  // Manual papers (no external id) are deduplicated by their normalized link.
+  const linkKey = hasIds ? null : normalizeLink(link)
+  const dedupKey = paperDedupKey({ arxiv_id, corpus_id, s2_paper_id }) ?? (linkKey ? `link:${linkKey}` : null)
 
   const createFn = async (): Promise<IngestPaperResult> => {
     const db = getDatabase()
 
-    const existing = findExistingPaperByIds(db, { arxiv_id, corpus_id, s2_paper_id })
+    const existing = hasIds ? findExistingPaperByIds(db, { arxiv_id, corpus_id, s2_paper_id }) : findManualPaperByLink(db, link)
     if (existing) {
       maybePromote(existing)
       const refetched = db.select().from(schema.papers).where(eq(schema.papers.id, existing.id)).get()!
@@ -110,6 +141,9 @@ export async function ingestPaper(input: IngestPaperInput): Promise<IngestPaperR
       authors: JSON.stringify(authors || []),
       contents,
       link: link || null,
+      abstract: abstract || null,
+      metadata: metadata && Object.keys(metadata).length ? JSON.stringify(metadata) : null,
+      kind: kind ?? 'paper',
       listed: listed === false ? 0 : 1,
       created_at: now,
       updated_at: now,

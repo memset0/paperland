@@ -7,12 +7,17 @@ import { AGENT_TOOLS, callAgentTool, type AgentToolContext } from '../services/a
 // batch and is answered with application/json — no SSE stream, no session id. Lives outside /api so
 // the cookie login wall does not apply; every request needs `Authorization: Bearer <api token>`
 // (a user's personal token, or the agent token Paperland injects into its own Codex runs), and the
-// tools run with that user's visibility (`upload_image` by path additionally needs an agent token). Reachable from anywhere, like the External API.
+// tools run with that user's visibility (`upload_image` by path additionally needs an agent token;
+// the paper write tools need a personal token). Reachable from anywhere, like the External API.
 
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const SERVER_INFO = { name: 'paperland', version: '1.0.0' }
 const INSTRUCTIONS = 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
-  'Use s2_match / s2_search to get S2 paperIds instead of guessing them; read library papers with read_paper.'
+  'Use s2_match / s2_search to get S2 paperIds instead of guessing them; read library papers with read_paper. ' +
+  'With a personal token, add_paper / update_paper / upload_paper_pdf / refresh_paper add and maintain papers ' +
+  '(including work that is not on arXiv: a project page with a PDF, or a blog post). ' +
+  'Before importing a blog post or other web article, read the guide with get_skill("blog-import"). ' +
+  'upload_image also takes a "url" (images and videos); upload local files with POST /external-api/v1/images and the same bearer token.'
 
 interface RpcMessage {
   jsonrpc?: string
@@ -74,8 +79,10 @@ function methodNotAllowed(_request: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function mcpRoutes(app: FastifyInstance): Promise<void> {
-  // `upload_image` may carry a base64 image in `data`: allow the image host's size limit (+ base64 and JSON overhead).
-  const bodyLimit = Math.ceil(getConfig().image_host.max_size_mb * 1024 * 1024 * 4 / 3) + 1024 * 1024
+  // `upload_image` / `upload_paper_pdf` / `add_paper` may carry a base64 file: allow the larger of the
+  // image host's and the PDF upload's size limits (+ base64 and JSON overhead).
+  const maxFileMb = Math.max(getConfig().image_host.max_size_mb, getConfig().image_host.max_video_size_mb, getConfig().pdf_upload.max_file_size_mb)
+  const bodyLimit = Math.ceil(maxFileMb * 1024 * 1024 * 4 / 3) + 1024 * 1024
   app.post('/mcp', { bodyLimit }, async (request, reply) => {
     const check = checkBearerToken(bearerFromHeader(request.headers.authorization), ['personal', 'agent'])
     if (!check.ok) {

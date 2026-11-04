@@ -1,6 +1,5 @@
-import { mkdirSync, writeFileSync } from 'fs'
-import { resolve } from 'path'
 import type { PaperBoundServiceDef } from './base_service.js'
+import { downloadLimits, downloadPdf, writePdfFile } from './pdf_store.js'
 
 const ARXIV_API_URL = 'https://export.arxiv.org/api/query'
 const ARXIV_PDF_URL = 'https://arxiv.org/pdf'
@@ -23,11 +22,19 @@ async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
   throw new Error('Unreachable')
 }
 
+/** `<published>` (v1 submission) and `<updated>` (latest version) of one Atom entry. */
+export function parseArxivDates(entry: string): { published: string | null; updated: string | null } {
+  const pick = (tag: string) => entry.match(new RegExp(`<${tag}>\\s*([^<]+?)\\s*</${tag}>`))?.[1] ?? null
+  return { published: pick('published'), updated: pick('updated') }
+}
+
 async function fetchArxivMetadata(arxivId: string): Promise<{
   title: string
   authors: string[]
   abstract: string
   categories: string[]
+  published: string | null
+  updated: string | null
 }> {
   const url = `${ARXIV_API_URL}?id_list=${arxivId}`
   const response = await fetchWithRetry(url)
@@ -71,25 +78,13 @@ async function fetchArxivMetadata(arxivId: string): Promise<{
     categories.push(m[1])
   }
 
-  return { title, authors, abstract, categories }
+  return { title, authors, abstract, categories, ...parseArxivDates(entry) }
 }
 
-async function downloadPdf(arxivId: string): Promise<string> {
-  const pdfUrl = `${ARXIV_PDF_URL}/${arxivId}.pdf`
-  const response = await fetch(pdfUrl, { redirect: 'follow' })
-  if (!response.ok) {
-    throw new Error(`PDF download failed: ${response.status}`)
-  }
-
-  const buffer = await response.arrayBuffer()
-  const pdfDir = resolve(process.cwd(), 'data/pdfs')
-  mkdirSync(pdfDir, { recursive: true })
-
-  const filename = `${sanitizeId(arxivId)}.pdf`
-  const filePath = resolve(pdfDir, filename)
-  writeFileSync(filePath, Buffer.from(buffer))
-
-  return `data/pdfs/${filename}`
+/** Download the latest arXiv version of the PDF into a content-hashed file. */
+async function downloadArxivPdf(arxivId: string): Promise<string> {
+  const buf = await downloadPdf(`${ARXIV_PDF_URL}/${arxivId}.pdf`, downloadLimits('arxiv_pdf_service'), 'arXiv PDF')
+  return writePdfFile(sanitizeId(arxivId), buf)
 }
 
 /**
@@ -118,6 +113,8 @@ export const arxivMetadataService: PaperBoundServiceDef = {
     result.authors = meta.authors
     result.abstract = meta.abstract
     result.arxiv_categories = meta.categories
+    if (meta.published) result.published_at = meta.published
+    if (meta.updated) result.modified_at = meta.updated
 
     return result
   },
@@ -137,8 +134,9 @@ export const arxivPdfService: PaperBoundServiceDef = {
     const arxivId = paper.arxiv_id
     if (!arxivId) throw new Error('No arxiv_id on paper')
 
-    const pdfPath = await downloadPdf(arxivId)
-    return { pdf_path: pdfPath }
+    // Without a version suffix arXiv serves the latest version, so a manual re-fetch picks up updates.
+    const pdfPath = await downloadArxivPdf(arxivId)
+    return { pdf_path: pdfPath, pdf_fetched_at: new Date().toISOString() }
   },
 }
 

@@ -201,6 +201,10 @@ Each service has `max_concurrency` and `rate_limit_interval` config. Services ar
 - The script allows one build at a time machine-wide and queues the rest. Requests for the same output directory that queue behind a running build are merged into a single build, and every merged request exits with that build's status and log path (`data/build-queue/<key>.log`). Just run it and wait; do not kill or retry a queued build.
 - `bun run build:frontend` writes `packages/frontend/dist`, which the production backend serves, so it deploys whatever is on disk. Use `--out-dir <scratch dir>` when you only need to check that the build passes.
 
-## Testing Caution
+## Testing: recurring unit tests must be offline
 
-Some unit tests call real external services (arxiv, semantic scholar, OpenAI API) and **may incur costs**. Do not run all tests blindly. Only run specific tests you need, and ask before running tests that might hit external APIs.
+- Every unit or regression test intended for repeated execution MUST use local fixtures, mocks, fake executables, or dependency injection for external dependencies. It MUST NOT call real external services, download remote resources, invoke a real model provider, or launch a real external-service CLI.
+- This rule applies to every model and provider, including luna, and to arXiv, Semantic Scholar, OpenAI, Codex, doc2x, and similar services. Cheap or free calls are not an exception.
+- Review the selected tests and their dependency paths before running them. If a recurring test could make a live call, replace that dependency with a test double before running it. Do not solve the issue by asking permission to use a real service in a unit test.
+- A deliberately live external-service check is an integration test, not a recurring unit test. Keep it separate, explicitly opt-in, and excluded from default unit/regression and CI commands. Run it only when the user explicitly authorizes that specific live check.
+- Run proportionate local tests for the change; do not run unreviewed suites blindly.

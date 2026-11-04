@@ -4,7 +4,7 @@ import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { requireUser } from '../auth/guards.js'
 import { displayName } from '../auth/nickname.js'
-import { storeImage, ImageValidationError } from '../services/image_store.js'
+import { storeImage, ImageValidationError, maxMediaBytes } from '../services/image_store.js'
 import { parseStoredInputs } from '../services/qa_inputs.js'
 
 /** Count non-overlapping occurrences of `needle` in `haystack`. */
@@ -23,8 +23,10 @@ export async function imagesRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/images — authenticated upload. Body: { data: base64|dataURL, filename? }.
   // Dedupes on the content hash; returns 201 for a new image, 200 when an identical one
   // already existed. Response includes the canonical public URL.
+  // Body limit: the largest configured image/video size after base64 (+ JSON slack).
+  const bodyLimit = Math.ceil(maxMediaBytes() * 4 / 3) + 1024 * 1024
   app.post<{ Body: { data?: string; filename?: string | null } }>(
-    '/api/images', { preHandler: requireUser }, async (request, reply) => {
+    '/api/images', { preHandler: requireUser, bodyLimit }, async (request, reply) => {
       const { data, filename } = request.body || {}
       if (!data || typeof data !== 'string') {
         return reply.code(400).send({ error: { message: 'Missing image data' } })

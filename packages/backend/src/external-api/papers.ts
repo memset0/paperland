@@ -12,6 +12,8 @@ import { loadTemplates } from '../services/template_loader.js'
 import { getConfig } from '../config.js'
 import { findOrCreateUserTag, userTagsForPaper } from '../utils/user-tags.js'
 import { runQA } from '../api/qa.js'
+import { PaperActionError, updatePaperFields } from '../services/paper_actions.js'
+import type { UpdatePaperRequest } from '@paperland/shared'
 
 async function waitForQARuns(resultIds: number[], timeoutMs = 30 * 60 * 1000): Promise<void> {
   if (resultIds.length === 0) return
@@ -120,50 +122,21 @@ export async function externalPaperRoutes(app: FastifyInstance): Promise<void> {
     }
   )
 
-  // Update paper
-  app.patch<{ Params: { id: string }; Body: { title?: string; authors?: string[]; link?: string; content?: string; listed?: boolean } }>(
+  // Update paper — same fields and rules as PATCH /api/papers/:id.
+  app.patch<{ Params: { id: string }; Body: UpdatePaperRequest }>(
     '/external-api/v1/papers/:id',
     async (request, reply) => {
-      const db = getDatabase()
-      const id = parseInt(request.params.id, 10)
-      const paper = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
-      if (!paper) { reply.code(404).send({ error: { code: 'PAPER_NOT_FOUND', message: 'Paper not found' } }); return }
-
-      const { title, authors, link, content, listed } = request.body || {}
-      const updates: Record<string, any> = {}
-
-      if (paper.arxiv_id && (title !== undefined || authors !== undefined)) {
-        reply.code(400).send({ error: { code: 'ARXIV_LOCKED', message: 'Cannot modify title or authors for arXiv papers' } })
-        return
+      try {
+        const updated = updatePaperFields(parseInt(request.params.id, 10), request.body || {})
+        return { ...parsePaper(updated), tags: getTags(getDatabase(), updated.id, request.user?.id ?? null) }
+      } catch (e) {
+        if (e instanceof PaperActionError) {
+          // External API keeps its historical 404 message.
+          const message = e.code === 'PAPER_NOT_FOUND' ? 'Paper not found' : e.message
+          return reply.code(e.status).send({ error: { code: e.code, message } })
+        }
+        throw e
       }
-
-      if (title !== undefined) updates.title = title
-      if (authors !== undefined) updates.authors = JSON.stringify(Array.isArray(authors) ? authors : [authors])
-      if (link !== undefined) updates.link = link || null
-
-      if (content !== undefined) {
-        const existing = paper.contents ? (typeof paper.contents === 'string' ? JSON.parse(paper.contents) : paper.contents) : {}
-        existing.user_input = content === '' ? null : content
-        updates.contents = JSON.stringify(existing)
-      }
-
-      // Promote/demote visibility, mirroring the internal API.
-      if (listed !== undefined) updates.listed = listed ? 1 : 0
-
-      if (Object.keys(updates).length === 0) {
-        return { ...parsePaper(paper), tags: getTags(db, paper.id, request.user?.id ?? null) }
-      }
-
-      updates.updated_at = new Date().toISOString()
-      db.update(schema.papers).set(updates).where(eq(schema.papers.id, id)).run()
-
-      // Promotion to listed → run the previously-deferred full pipeline.
-      if (listed === true && paper.listed === 0) {
-        serviceRunner.triggerForPaper(id).catch(() => {})
-      }
-
-      const updated = db.select().from(schema.papers).where(eq(schema.papers.id, id)).get()
-      return { ...parsePaper(updated!), tags: getTags(db, id, request.user?.id ?? null) }
     }
   )
 

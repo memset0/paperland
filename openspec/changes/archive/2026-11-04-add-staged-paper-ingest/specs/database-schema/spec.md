@@ -3,7 +3,7 @@
 ### Requirement: Papers table
 The database SHALL have a `papers` table with columns: `id` (integer, primary key, autoincrement), `arxiv_id` (text, nullable, unique), `corpus_id` (text, nullable, unique), `title` (text, not null), `authors` (text, not null, JSON array), `abstract` (text, nullable), `contents` (text, nullable, JSON object), `pdf_path` (text, nullable), `metadata` (text, nullable, JSON), `link` (text, nullable), `listed` (integer, not null, default 1 — global visibility; 1 = shown in listings and fully fetched, 0 = metadata-only/hidden), `created_at` (text, not null, ISO 8601), `updated_at` (text, not null, ISO 8601).
 
-Deletion of a paper SHALL be performed via application-level cascade within a single database transaction. The application SHALL delete all related records from `qa_results` (via `qa_entries`), `qa_entries`, `service_executions`, `paper_tags`, and `highlights` (matched by `pdf_path`) before deleting the paper record. No database-level ON DELETE CASCADE constraints are required.
+Deletion of a paper SHALL be performed via application-level cascade within a single database transaction. The application SHALL delete all related records from `qa_results` (via `qa_entries`, including soft-deleted results), `qa_entries`, `service_executions`, `paper_tags`, and `highlights` (matched by `pdf_path`) before deleting the paper record. No database-level ON DELETE CASCADE constraints are required.
 
 #### Scenario: Create paper with arxiv_id
 - **WHEN** a paper is inserted with arxiv_id "2401.12345" and title "Test Paper"

@@ -15,6 +15,8 @@ const MIME_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/gif': 'gif',
   'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
 }
 
 const EXT_MIME: Record<string, string> = {
@@ -23,6 +25,12 @@ const EXT_MIME: Record<string, string> = {
   jpeg: 'image/jpeg',
   gif: 'image/gif',
   webp: 'image/webp',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+}
+
+export function isVideoMime(mime: string): boolean {
+  return mime.startsWith('video/')
 }
 
 /** Map a stored file extension back to a Content-Type for the public serving route. */
@@ -31,11 +39,16 @@ export function mimeForExt(ext: string): string {
 }
 
 /** Sniff the real MIME type from magic bytes (don't trust the client). Null if unrecognized. */
-function sniffMime(buf: Buffer): string | null {
+export function sniffMime(buf: Buffer): string | null {
   if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
   if (buf.length >= 6 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif' // "GIF"
   if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
+  // ISO BMFF: `ftyp` box at offset 4. QuickTime (`qt  `) is not served as mp4.
+  if (buf.length >= 12 && buf.toString('ascii', 4, 8) === 'ftyp' && buf.toString('ascii', 8, 12) !== 'qt  ') return 'video/mp4'
+  // EBML header with a `webm` DocType (Matroska proper is not accepted).
+  if (buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3
+    && buf.subarray(0, 4096).includes('webm')) return 'video/webm'
   return null
 }
 
@@ -92,33 +105,61 @@ export interface StoreResult {
   deduped: boolean
 }
 
+/** Upload result shared by this endpoint and MCP `upload_image`. */
+export function mediaUploadResult({ row, deduped }: StoreResult, alt = '') {
+  const url = `/image/${row.path}`
+  return {
+    url,
+    markdown: `![${alt}](${url})`,
+    mime: row.mime,
+    kind: isVideoMime(row.mime) ? 'video' : 'image',
+    size: row.size,
+    width: row.width,
+    height: row.height,
+    deduped,
+  }
+}
+
+/** Max stored size (bytes) across images and videos — for body limits and remote downloads. */
+export function maxMediaBytes(): number {
+  const cfg = getConfig().image_host
+  return Math.max(cfg.max_size_mb, cfg.max_video_size_mb) * 1024 * 1024
+}
+
 /**
- * Decode + validate + store an image, content-addressed by the SHA-256 of its bytes.
- * `input` may be a bare base64 string or a `data:` URL. Identical content dedupes to the
- * existing row/file/URL (preserving its original date path). Throws ImageValidationError
- * for bad/oversized/disallowed input.
+ * Decode a base64 string or `data:` URL and store it (see storeImageBytes).
  */
 export function storeImage(
   input: string,
   opts: { originalName?: string | null; userId?: number | null } = {},
 ): StoreResult {
-  const cfg = getConfig().image_host
-
   // Strip a data: URL prefix (e.g. "data:image/png;base64,") if present.
   const comma = input.indexOf(',')
   const base64 = input.startsWith('data:') && comma !== -1 ? input.slice(comma + 1) : input
-  const buf = Buffer.from(base64, 'base64')
+  return storeImageBytes(Buffer.from(base64, 'base64'), opts)
+}
+
+/**
+ * Validate + store an image or video, content-addressed by the SHA-256 of its bytes. Identical
+ * content dedupes to the existing row/file/URL (preserving its original date path). Throws
+ * ImageValidationError for bad/oversized/disallowed input.
+ */
+export function storeImageBytes(
+  buf: Buffer,
+  opts: { originalName?: string | null; userId?: number | null } = {},
+): StoreResult {
+  const cfg = getConfig().image_host
   if (buf.length === 0) throw new ImageValidationError('Empty or invalid image data')
 
-  const maxBytes = cfg.max_size_mb * 1024 * 1024
-  if (buf.length > maxBytes) {
-    throw new ImageValidationError(`Image exceeds the maximum size of ${cfg.max_size_mb} MB`)
-  }
-
   const mime = sniffMime(buf)
-  if (!mime) throw new ImageValidationError('Unrecognized image format')
+  if (!mime) throw new ImageValidationError('Unrecognized image or video format')
   if (!cfg.allowed_types.includes(mime)) {
-    throw new ImageValidationError(`Image type ${mime} is not allowed`)
+    throw new ImageValidationError(`File type ${mime} is not allowed`)
+  }
+  const video = isVideoMime(mime)
+  const limitMb = video ? cfg.max_video_size_mb : cfg.max_size_mb
+  if (buf.length > limitMb * 1024 * 1024) {
+    throw new ImageValidationError(`${video ? 'Video' : 'Image'} exceeds the maximum size of ${limitMb} MB`)
   }
 
   // Short content hash: first 6 hex chars of the SHA-256 (kept short for tidy URLs).

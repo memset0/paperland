@@ -13,4 +13,5 @@ context: |
 rules:
   tasks:
     - Reference docs/ architecture documents for implementation details
-    - Some unit tests call real external services (arxiv, semantic scholar, OpenAI) and may incur costs - do not run all tests blindly
+    - Recurring unit and regression tests must use local fixtures, mocks, fake executables, or dependency injection; never call real external services or models, including luna, even when cheap or free
+    - Live external-service integration checks must be separate, explicitly opt-in, excluded from default unit and CI commands, and run only with explicit user authorization

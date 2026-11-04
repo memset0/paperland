@@ -38,6 +38,7 @@ export const papers = sqliteTable('papers', {
   link: text('link'),
   tags_json: text('tags_json'), // JSON: [{ id, name }]
   listed: integer('listed').notNull().default(1), // global visibility: 1 = shown + full pipeline, 0 = metadata-only/hidden
+  kind: text('kind').notNull().default('paper'), // 'paper' | 'article' (web article such as a blog post)
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 })

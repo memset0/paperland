@@ -52,6 +52,7 @@ describe('s2PdfService declaration', () => {
 
   it('is only eligible for papers without arxiv_id and without pdf_path', () => {
     expect(s2PdfService.eligible!({ arxiv_id: null, pdf_path: null })).toBe(true)
+    expect(s2PdfService.eligible!({ arxiv_id: null, pdf_path: null, metadata: JSON.stringify({ pdf_url: 'https://x.org/a.pdf' }) })).toBe(false)
     expect(s2PdfService.eligible!({ arxiv_id: '1706.03762', pdf_path: null })).toBe(false)
     expect(s2PdfService.eligible!({ arxiv_id: null, pdf_path: 'data/pdfs/x.pdf' })).toBe(false)
   })
@@ -62,8 +63,9 @@ describe('s2PdfService.execute', () => {
     const calls = mockFetch(200, PDF_BYTES, { 'content-type': 'application/pdf' })
     const r = await s2PdfService.execute(7, corpusPaper({ open_access_pdf_url: 'https://example.org/p.pdf' }))
     expect(calls).toEqual(['https://example.org/p.pdf'])
-    expect(r).toEqual({ pdf_path: 'data/pdfs/s2_123.pdf' })
-    expect(readFileSync(join(workDir, 'data/pdfs/s2_123.pdf')).subarray(0, 4).toString()).toBe('%PDF')
+    expect(r.pdf_path).toMatch(/^data\/pdfs\/s2_123_[0-9a-f]{8}\.pdf$/)
+    expect(typeof r.pdf_fetched_at).toBe('string')
+    expect(readFileSync(join(workDir, r.pdf_path)).subarray(0, 4).toString()).toBe('%PDF')
   })
 
   it('fails on an HTML landing page and writes no file', async () => {

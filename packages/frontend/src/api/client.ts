@@ -492,3 +492,20 @@ export const researchApi = {
     return terminal
   },
 }
+
+import type { CompletionsResponse } from '@paperland/shared'
+
+export const notificationsApi = {
+  /**
+   * The caller's Q&A answers / research rounds finished after `since` (server-time cursor).
+   * Background polling: failures are silent (no error toast) and surface as `null`.
+   */
+  completions: async (since: string | null): Promise<CompletionsResponse | null> => {
+    try {
+      const response = await fetch(`/api/notifications/completions${since ? `?since=${encodeURIComponent(since)}` : ''}`, { credentials: 'same-origin' })
+      return response.ok ? await response.json() as CompletionsResponse : null
+    } catch {
+      return null
+    }
+  },
+}

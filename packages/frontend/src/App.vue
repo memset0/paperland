@@ -6,6 +6,7 @@ import { toast } from 'vue-sonner'
 import { useEmbedMode } from '@/composables/useEmbedMode'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { useAuthStore } from '@/stores/auth'
+import { useCompletionNotifications } from '@/composables/useCompletionNotifications'
 import { useThemeStore } from '@/stores/theme'
 import { onUnauthorized } from '@/lib/error-bus'
 import { configApi } from '@/api/client'
@@ -27,6 +28,9 @@ import { usePendingRegistrations } from '@/composables/usePendingRegistrations'
 
 const route = useRoute()
 const router = useRouter()
+
+// Global notices when the user's Q&A answers / Deep Research rounds finish (signed-in only).
+const completions = useCompletionNotifications(router)
 const isMobile = ref(window.innerWidth < 768)
 const drawerOpen = ref(false)
 const { isEmbed, bgColor } = useEmbedMode()
@@ -93,6 +97,7 @@ function badgeCount(item: NavItem): number {
   return 0
 }
 watch(() => auth.isAdmin, (admin) => { if (admin) refreshPending() }, { immediate: true })
+watch(() => auth.user?.id != null && !isEmbed.value, (on) => { if (on) completions.start(); else completions.stop() }, { immediate: true })
 
 function onResize() { isMobile.value = window.innerWidth < 768 }
 let unsub: (() => void) | null = null
@@ -105,6 +110,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   unsub?.()
+  completions.stop()
 })
 
 interface NavItem { path: string; label: string; icon: any; requiresAuth?: boolean; requiresAdmin?: boolean }
@@ -179,7 +185,12 @@ async function doLogout() {
     <AuthScreen v-else />
   </div>
   <div v-else-if="auth.loaded" class="flex h-screen overflow-hidden" :style="bgColor ? { backgroundColor: bgColor } : {}" :class="!bgColor ? 'bg-muted/40' : ''">
-    <Toaster position="top-center" richColors />
+    <!-- Bottom toasts (completion notices, "LaTeX copied") sit above the mobile bottom bar -->
+    <Toaster
+      position="top-center" richColors
+      :offset="{ bottom: 'calc(var(--bottom-bar-h, 0px) + 24px)' }"
+      :mobile-offset="{ bottom: 'calc(var(--bottom-bar-h, 0px) + 16px)' }"
+    />
     <LoginDialog />
 
     <!-- ========== DESKTOP: Icon sidebar ========== -->

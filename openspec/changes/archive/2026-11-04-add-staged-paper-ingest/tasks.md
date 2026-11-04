@@ -21,12 +21,12 @@
 ## 4. S2 优先元数据
 
 - [x] 4.1 `services/semantic_scholar_service.ts`：富集时把 S2 返回的 `title`/`authors`/`abstract` 在论文对应字段为空时填入（不覆盖已有）
-- [ ] 4.2（可选）支持以 `corpus_id` 为 key 取 S2 数据（应对无 arxiv 的论文）；否则文档标注此类暂留手动
+- [x] 4.2（可选）支持以 `corpus_id` 为 key 取 S2 数据（应对无 arxiv 的论文）；否则文档标注此类暂留手动 —— 已由后续实现覆盖：`semantic_scholar_service` 按 arxiv_id → corpus_id → s2_paper_id 依次查询
 
 ## 5. arxiv 退兜底
 
 - [x] 5.1 `services/arxiv_service.ts`：`arxiv_metadata_service` 仅补缺（S2 已填则不覆盖）并产出 `link`
-- [ ] 5.2（可选）`arxiv_pdf_service` 优先用 `paper.metadata` 中 S2 的 `openAccessPdf.url` 作为 PDF 来源，无则回退 arxiv 下载
+- [ ] 5.2（可选）`arxiv_pdf_service` 优先用 `paper.metadata` 中 S2 的 `openAccessPdf.url` 作为 PDF 来源，无则回退 arxiv 下载 —— 不做（归档时 2026-11-04 决定）：被 `add-paper-refresh-and-manual-sources` 的 `s2_pdf_service` 方案替代，S2 open-access PDF 只用于无 arxiv_id 的论文，arXiv 论文仍从 arXiv 下载
 
 ## 6. 列表按 listed 过滤
 

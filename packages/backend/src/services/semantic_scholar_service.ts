@@ -184,6 +184,11 @@ async function fetchS2(idExpr: string): Promise<S2Response> {
  * fields S2 omits are skipped. The produced keys (corpus_id, citation_count,
  * influential_citation_count, references) are always written on success.
  */
+function paperMetadata(paper: any): Record<string, any> {
+  if (paper?.metadata && typeof paper.metadata === 'object') return paper.metadata
+  try { return JSON.parse(paper?.metadata || '{}') || {} } catch { return {} }
+}
+
 function mapS2ToPaperFields(data: S2Response, paper: any): Record<string, any> {
   const result: Record<string, any> = {}
   const ext = data.externalIds || {}
@@ -216,6 +221,10 @@ function mapS2ToPaperFields(data: S2Response, paper: any): Record<string, any> {
   const venue = data.venue || data.publicationVenue?.name
   if (venue) result.venue = venue
   if (data.year !== undefined) result.year = data.year
+  // arXiv dates win (arxiv_metadata_service); S2 only fills a missing date on non-arXiv papers.
+  if (data.publicationDate && !paper.arxiv_id && !ext.ArXiv && !paperMetadata(paper).published_at) {
+    result.published_at = data.publicationDate
+  }
   if (ext.DOI) result.doi = ext.DOI
   if (data.fieldsOfStudy?.length) result.fields_of_study = data.fieldsOfStudy
   if (data.paperId) result.s2_url = `https://www.semanticscholar.org/paper/${data.paperId}`
@@ -327,7 +336,8 @@ export const semanticScholarService: PaperBoundServiceDef = {
     // Capture the citation graph (best-effort; does not block enrichment).
     await fetchAndSaveEdges(paperId, idExpr)
 
-    return result
+    // Shown in paper detail as "last fetched"; refreshed by a manual S2 refresh.
+    return { ...result, s2_fetched_at: new Date().toISOString() }
   },
 }
 

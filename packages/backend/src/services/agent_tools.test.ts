@@ -222,7 +222,7 @@ describe('upload_image', () => {
     }
     const personal = await upload({ path: generated }, PERSONAL)
     expect(personal.isError).toBe(true)
-    expect(personal.text).toContain('"data"')
+    expect(personal.text).toContain('"url"')
     expect(db.select().from(schema.images).all()).toHaveLength(0)
   })
 
@@ -235,8 +235,9 @@ describe('upload_image', () => {
     expect((await upload({ data: PNG, path: generated })).isError).toBe(true)
   })
 
-  it('is the only tool listed as non-read-only', () => {
+  it('is the only non-read-only tool besides the paper write tools', () => {
     const writable = AGENT_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name)
-    expect(writable).toEqual(['upload_image'])
+    expect(writable).toEqual(['upload_image', 'add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper'])
+    expect(AGENT_TOOLS.filter((t) => t.write).map((t) => t.name)).toEqual(['add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper'])
   })
 })

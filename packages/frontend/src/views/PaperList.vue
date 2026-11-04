@@ -39,7 +39,16 @@ const route = useRoute()
 const search = ref('')
 const showAdd = ref(false)
 const addTab = ref<'arxiv' | 'corpus' | 'manual'>('arxiv')
-const addForm = ref({ arxiv_id: '', s2_input: '', title: '', authors: '', content: '', link: '', tags: [] as string[] })
+const emptyAddForm = () => ({
+  arxiv_id: '', s2_input: '', title: '', authors: '', content: '', link: '', abstract: '',
+  kind: 'paper' as 'paper' | 'article', pdf_mode: 'url' as 'url' | 'file', pdf_url: '', tags: [] as string[],
+})
+const addForm = ref(emptyAddForm())
+const pdfFile = ref<File | null>(null)
+function onPdfPicked(e: Event) {
+  pdfFile.value = (e.target as HTMLInputElement).files?.[0] ?? null
+}
+const manualInvalid = computed(() => addTab.value === 'manual' && !addForm.value.title.trim())
 // Semantic Scholar tab: Corpus ID / S2 paper id / semanticscholar.org URL → routed field.
 const s2Parsed = computed(() => parseS2Input(addForm.value.s2_input))
 const s2Invalid = computed(() => addTab.value === 'corpus' && addForm.value.s2_input.trim() !== '' && !s2Parsed.value)
@@ -157,21 +166,30 @@ function formatAuthors(a: string[]) {
 
 async function addPaper() {
   if (addTab.value === 'corpus' && !s2Parsed.value) return
+  if (manualInvalid.value) return
   adding.value = true
   try {
     const data: any = {}
     if (addTab.value === 'arxiv') data.arxiv_id = addForm.value.arxiv_id
     else if (addTab.value === 'corpus') Object.assign(data, s2Parsed.value)
     else {
-      data.title = addForm.value.title
-      data.authors = addForm.value.authors.split(',').map(s => s.trim()).filter(Boolean)
-      data.content = addForm.value.content
-      if (addForm.value.link) data.link = addForm.value.link
-      if (addForm.value.tags.length > 0) data.tags = addForm.value.tags
+      const f = addForm.value
+      data.title = f.title.trim()
+      data.authors = f.authors.split(',').map(s => s.trim()).filter(Boolean)
+      data.kind = f.kind
+      if (f.content) data.content = f.content
+      if (f.abstract.trim()) data.abstract = f.abstract.trim()
+      if (f.link.trim()) data.link = f.link.trim()
+      if (f.pdf_mode === 'url' && f.pdf_url.trim()) data.pdf_url = f.pdf_url.trim()
+      if (f.tags.length > 0) data.tags = f.tags
     }
     const result = await store.createPaper(data)
+    // The paper exists now; a failed upload is reported (toast) and can be retried on its page.
+    const file = addTab.value === 'manual' && addForm.value.pdf_mode === 'file' ? pdfFile.value : null
+    if (file && result.id && !result.pdf_path) await store.uploadPdf(result.id, file).catch(() => {})
     showAdd.value = false
-    addForm.value = { arxiv_id: '', s2_input: '', title: '', authors: '', content: '', link: '', tags: [] }
+    addForm.value = emptyAddForm()
+    pdfFile.value = null
     tagsStore.refreshCache()
     store.fetchPapers()
     if (result.id) router.push(`/papers/${result.id}`)
@@ -305,7 +323,7 @@ async function addPaper() {
             <TableCell class="text-muted-foreground truncate max-w-[10rem] hidden md:table-cell">{{ formatAuthors(paper.authors) }}</TableCell>
             <TableCell>
               <div class="flex items-center gap-1 whitespace-nowrap">
-                <SourceTag :link="paper.link" :arxiv-id="paper.arxiv_id" />
+                <SourceTag :link="paper.link" :arxiv-id="paper.arxiv_id" :kind="paper.kind" />
                 <S2Badge :corpus-id="paper.corpus_id" :s2-url="(paper as any).metadata?.s2_url" />
               </div>
             </TableCell>
@@ -345,7 +363,7 @@ async function addPaper() {
     </div>
 
     <Dialog v-model:open="showAdd">
-      <DialogContent class="max-w-md">
+      <DialogContent class="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add paper</DialogTitle>
         </DialogHeader>
@@ -364,16 +382,35 @@ async function addPaper() {
             <p v-else class="text-xs text-muted-foreground">e.g. 13756489, CorpusId:13756489, 204e3073…b72e776, or a paper page URL</p>
           </TabsContent>
           <TabsContent value="manual" class="space-y-3">
-            <Input v-model="addForm.title" placeholder="Title" />
+            <p class="text-xs text-muted-foreground">For work not on arXiv or Semantic Scholar: a project page with a PDF, a tech report, or a web article.</p>
+            <div class="flex gap-1.5">
+              <Button v-for="k in [{ value: 'paper', label: 'Paper' }, { value: 'article', label: 'Blog post' }] as const" :key="k.value"
+                type="button" size="sm" :variant="addForm.kind === k.value ? 'default' : 'outline'" @click="addForm.kind = k.value">
+                {{ k.label }}
+              </Button>
+            </div>
+            <Input v-model="addForm.title" placeholder="Title (required)" />
             <Input v-model="addForm.authors" placeholder="Authors (comma-separated)" />
-            <Input v-model="addForm.link" placeholder="Source URL (optional)" />
-            <Textarea v-model="addForm.content" placeholder="Paper content…" rows="4" />
+            <Input v-model="addForm.link" :placeholder="addForm.kind === 'article' ? 'Article URL' : 'Project page or source URL (optional)'" />
+            <Textarea v-model="addForm.abstract" placeholder="Abstract (optional)" rows="3" />
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2 text-xs">
+                <span class="text-muted-foreground">PDF</span>
+                <Button type="button" size="xs" :variant="addForm.pdf_mode === 'url' ? 'secondary' : 'ghost'" @click="addForm.pdf_mode = 'url'">URL</Button>
+                <Button type="button" size="xs" :variant="addForm.pdf_mode === 'file' ? 'secondary' : 'ghost'" @click="addForm.pdf_mode = 'file'">Upload file</Button>
+              </div>
+              <Input v-if="addForm.pdf_mode === 'url'" v-model="addForm.pdf_url" placeholder="https://…/paper.pdf (optional)" />
+              <input v-else type="file" accept="application/pdf,.pdf"
+                class="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm"
+                @change="onPdfPicked" />
+            </div>
+            <Textarea v-model="addForm.content" placeholder="Full text (optional, used for Q&A when there is no PDF)…" rows="3" />
             <TagSelector v-model="addForm.tags" />
           </TabsContent>
         </Tabs>
         <DialogFooter>
           <Button variant="ghost" @click="showAdd = false">Cancel</Button>
-          <Button :disabled="adding || (addTab === 'corpus' && !s2Parsed)" @click="addPaper">
+          <Button :disabled="adding || (addTab === 'corpus' && !s2Parsed) || manualInvalid" @click="addPaper">
             {{ adding ? 'Adding…' : 'Add' }}
           </Button>
         </DialogFooter>

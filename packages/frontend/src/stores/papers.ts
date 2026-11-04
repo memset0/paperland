@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { Paper, PaginatedResponse } from '@paperland/shared'
+import type { CreatePaperRequest, Paper, PaginatedResponse, UpdatePaperRequest } from '@paperland/shared'
 import { api } from '@/api/client'
 
 export const usePapersStore = defineStore('papers', () => {
@@ -50,11 +50,11 @@ export const usePapersStore = defineStore('papers', () => {
     }
   }
 
-  async function createPaper(data: { arxiv_id?: string; corpus_id?: string; s2_paper_id?: string; title?: string; authors?: string[]; content?: string }) {
+  async function createPaper(data: CreatePaperRequest) {
     return await api.post<Paper & { created: boolean }>('/api/papers', data)
   }
 
-  async function updatePaper(id: number, data: { title?: string; authors?: string[]; link?: string; content?: string }) {
+  async function updatePaper(id: number, data: UpdatePaperRequest) {
     const updated = await api.patch<Paper>(`/api/papers/${id}`, data)
     if (currentPaper.value && currentPaper.value.id === id) {
       Object.assign(currentPaper.value, updated)
@@ -99,7 +99,7 @@ export const usePapersStore = defineStore('papers', () => {
     if (currentPaper.value?.id === id) currentPaper.value = fresh
   }
 
-  // Upload a PDF for a paper that has none (closed access / failed download).
+  // Upload a PDF for a paper that has none (closed access / failed download / manual papers).
   async function uploadPdf(id: number, file: File) {
     const updated = await api.upload<Paper & { tags: string[] }>(`/api/papers/${id}/pdf`, file, 'application/pdf')
     if (currentPaper.value?.id === id) currentPaper.value = updated

@@ -12,6 +12,7 @@ import { setDatabaseForTesting } from '../db/index.js'
 import { dispatchQueuedMessagesFor, recoverInterruptedResearchSteps, resetResearchSchedulerForTesting } from '../services/research_runtime.js'
 import type { ModelInput } from '../services/model_invoke.js'
 import { researchRoutes, setResearchRunOptionsForTesting } from './research.js'
+import { AGENT_NON_WRITE_TOOL_NAMES } from '../services/agent_tools.js'
 import { checkBearerToken } from '../services/api_tokens.js'
 import { researchStepStreamBroker } from '../services/research_runtime.js'
 
@@ -524,7 +525,10 @@ describe('agent tools', () => {
     await waitSettled(stepId)
     unsubscribe()
     const input = modelCalls[0].input
-    expect(input.mcp_servers).toEqual([{ name: 'paperland', url: 'http://127.0.0.1:3000/mcp', bearer_token: expect.any(String), approved_tools: ['upload_image'] }])
+    expect(input.mcp_servers).toEqual([{ name: 'paperland', url: 'http://127.0.0.1:3000/mcp', bearer_token: expect.any(String), enabled_tools: AGENT_NON_WRITE_TOOL_NAMES, approved_tools: ['upload_image'] }])
+    // Research rounds never get the paper write tools.
+    for (const name of ['add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper']) expect(input.mcp_servers![0].enabled_tools).not.toContain(name)
+    expect(input.mcp_servers![0].enabled_tools).toEqual(expect.arrayContaining(['search_papers', 'read_paper', 's2_search', 'upload_image']))
     expect(input.skill_roots).toEqual([getConfig().agent_tools.skills_dir])
     expect(input.system).toContain('## Figures')
     expect(input.system).toContain('upload_image')

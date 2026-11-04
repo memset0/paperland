@@ -15,6 +15,8 @@ export interface Paper {
   link: string | null
   tags_json: string | null
   listed: boolean
+  /** `paper` (default) or `article` — a web article such as a blog post. */
+  kind: PaperKind
   /** Derived per caller: the paper is in the caller's personal library (Mine list). False for anonymous. */
   in_library?: boolean
   /** Derived per caller (list only): when the caller added the paper to their library; null if not in it. */
@@ -25,6 +27,55 @@ export interface Paper {
   pdf_unavailable_reason?: 'closed_access' | 'download_failed' | 'not_found' | null
   created_at: string
   updated_at: string
+}
+
+export type PaperKind = 'paper' | 'article'
+
+/** Body of `POST /api/papers` (and the MCP `add_paper` tool, which adds `pdf_data`). */
+export interface CreatePaperRequest {
+  arxiv_id?: string
+  corpus_id?: string
+  s2_paper_id?: string
+  title?: string
+  authors?: string[]
+  link?: string
+  abstract?: string
+  /** Stored as `metadata.year`. */
+  year?: number | null
+  /** Stored as `metadata.venue`. */
+  venue?: string
+  kind?: PaperKind
+  /** http(s) URL of the PDF, stored as `metadata.pdf_url`; downloaded by `url_pdf_service`. */
+  pdf_url?: string
+  /** Source publish / last-update time (ISO 8601 date or date-time) → `metadata.published_at` / `modified_at`. */
+  published_at?: string | null
+  modified_at?: string | null
+  content?: string
+  tags?: string[]
+}
+
+/** Body of `PATCH /api/papers/:id`. Empty strings clear abstract / venue / pdf_url. */
+export interface UpdatePaperRequest {
+  title?: string
+  authors?: string[]
+  link?: string
+  abstract?: string
+  year?: number | null
+  venue?: string
+  kind?: PaperKind
+  pdf_url?: string
+  /** null or '' clears. */
+  published_at?: string | null
+  modified_at?: string | null
+  content?: string
+  listed?: boolean
+}
+
+/** 202 response of the manual refresh endpoints (`/pdf/refetch`, `/s2/refresh`). */
+export interface PaperRefreshResponse {
+  queued: true
+  /** Service whose execution performs the refresh; poll its latest execution for the outcome. */
+  service: string
 }
 
 // Tag
@@ -902,4 +953,38 @@ export interface FeatureItem {
 export interface FeatureListResponse {
   /** Newest first. */
   features: FeatureItem[]
+}
+
+// --- Completion notifications (GET /api/notifications/completions) ---
+
+/** A finished Q&A answer requested by the caller. */
+export interface QACompletionItem {
+  kind: 'qa'
+  result_id: number
+  entry_id: number
+  paper_id: number
+  paper_title: string | null
+  /** The free question, or the template name for preset questions. */
+  title: string
+  model_name: string
+  status: 'done' | 'failed'
+  finished_at: string
+}
+
+/** A finished Deep Research round of one of the caller's sessions. */
+export interface ResearchCompletionItem {
+  kind: 'research'
+  step_id: number
+  session_id: number
+  title: string
+  status: 'done' | 'failed'
+  finished_at: string
+}
+
+export type CompletionItem = QACompletionItem | ResearchCompletionItem
+
+export interface CompletionsResponse {
+  /** Server time; send it back as `since` on the next call. */
+  now: string
+  items: CompletionItem[]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE `papers` ADD `kind` text DEFAULT 'paper' NOT NULL;

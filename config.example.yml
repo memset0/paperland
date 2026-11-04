@@ -17,6 +17,15 @@ database:
 #   max_bytes: 524288             # 读取响应的最大字节数（512KB）
 #   user_agent: paperland-link-preview/1.0
 
+# Optional: image host (/image/*, Settings → Image host, MCP upload_image). Defaults shown.
+# image_host:
+#   dir: ./data/images
+#   max_size_mb: 18                # per image (decoded)
+#   max_video_size_mb: 200         # per video (mp4 / webm)
+#   allowed_types: [image/png, image/jpeg, image/gif, image/webp, video/mp4, video/webm]  # sniffed from file bytes
+#   download_timeout: 60           # seconds per server-side download (?url= / upload_image url)
+#   public_base_url: ''            # absolute base for "Copy link"; empty = window.location.origin
+
 auth:
   # true  = 会话登录：未登录只能看到登录/注册页（公开笔记链接、图床除外）；登录用户 / 仅管理员两级
   # false = 开发期免登录（所有 /api 以 admin 身份访问）
@@ -42,6 +51,13 @@ services:
     rate_limit_interval: 2
     download_timeout: 60        # seconds per download
     max_file_size_mb: 100       # larger responses fail instead of being saved
+  # PDF download from a user-supplied URL (metadata.pdf_url) for papers not on arXiv,
+  # e.g. a project page's tech report. Same validation as s2_pdf_service.
+  url_pdf_service:
+    max_concurrency: 2
+    rate_limit_interval: 2
+    download_timeout: 60        # seconds per download
+    max_file_size_mb: 100       # larger responses fail instead of being saved
   # Service name MUST match the code's registered name (semantic_scholar_service),
   # otherwise the configured concurrency/rate-limit is never bound to the service.
   semantic_scholar_service:
@@ -60,6 +76,7 @@ services:
     rate_limit_interval: 5
   qa:
     max_concurrency: 2
+    time_limit: 7200            # seconds per answer run (from start, queue time excluded); then it fails
   # Deep Research rounds (Codex models only). Each round is one long agent run with web search.
   research:
     max_concurrency: 1
@@ -101,7 +118,7 @@ models:
     #   codex_home: /absolute/path/to/the/CODEX_HOME/with-your-login
     #   model_id: gpt-5.6-sol
     #   reasoning_effort: xhigh
-    #   timeout: 1800
+    #   timeout: 7200                # seconds per call; Q&A runs are also capped by services.qa.time_limit
     #   vision: true
     #   pricing: { input: 1.25, cached_input: 0.125, output: 10 }
 

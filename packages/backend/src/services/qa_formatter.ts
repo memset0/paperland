@@ -160,6 +160,24 @@ export interface BuiltQAInput {
  *            → <question>
  * Used both for runs and for the on-demand "view model input" rebuild.
  */
+/**
+ * Articles (blog posts) answer from their stored Markdown, which carries no title (the page shows
+ * it separately): prefix the title, authors, source URL and dates so the model knows what it reads.
+ */
+export function articleHeader(paper: Pick<PaperRow, 'kind' | 'title' | 'authors' | 'link' | 'metadata'>, source: string): string {
+  if (paper.kind !== 'article' || source !== 'user_input') return ''
+  const parse = (v: unknown) => { try { return typeof v === 'string' ? JSON.parse(v) : v ?? null } catch { return null } }
+  const authors = parse(paper.authors)
+  const meta = parse(paper.metadata) ?? {}
+  const lines = [`Title: ${paper.title}`]
+  if (Array.isArray(authors) && authors.length) lines.push(`Authors: ${authors.join(', ')}`)
+  if (meta.venue) lines.push(`Published in: ${meta.venue}`)
+  if (paper.link) lines.push(`Source: ${paper.link}`)
+  if (meta.published_at) lines.push(`Published: ${String(meta.published_at).slice(0, 10)}`)
+  if (meta.modified_at) lines.push(`Last updated: ${String(meta.modified_at).slice(0, 10)}`)
+  return `${lines.join('\n')}\n\n`
+}
+
 export function buildQAInput(db: Database, entry: EntryRow, question: string): BuiltQAInput {
   const paper = db.select().from(schema.papers).where(eq(schema.papers.id, entry.paper_id)).get()
   if (!paper) throw new Error(`Paper ${entry.paper_id} not found`)
@@ -182,7 +200,7 @@ export function buildQAInput(db: Database, entry: EntryRow, question: string): B
     text = ''
   }
 
-  pushText(`<paper>\n${content.text}\n</paper>\n\n`)
+  pushText(`<paper>\n${articleHeader(paper, content.source)}${content.text}\n</paper>\n\n`)
   const references = formatReferences(db, entry.paper_id)
   if (references) pushText(`<references>\n${references}\n</references>\n\n`)
 

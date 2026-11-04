@@ -68,6 +68,28 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - **Mobile bottom bar（复杂页面专用）**：`components/MobileBottomBar.vue`，只由论文详情、研究详情这类复杂页面在**单栏布局（< 900px，`composables/useNarrowLayout.ts`）且非 embed** 时渲染，其他页面不会出现。`fixed` 贴底（`md` 以上从 52px 侧栏右侧开始），高 56px + `env(safe-area-inset-bottom)`，出现时 slide-up + fade 动画（`<Transition appear>`）。条目分 `section`（切换页面分区，当前项高亮 + 顶部指示条，`v-model`）和 `action`（触发操作，`@action`），可带 `badge` 数字或 `busy` 转圈。挂载时在 `<html>` 上设 CSS 变量 `--bottom-bar-h`，页面用它给滚动区留底部空间。
 - **QAPanelNav**：滚动定位条（scroll-spy 竖向小圆点）是桌面悬浮态交互，< 768px 直接 `display: none`，避免在窄屏右缘压住正文。
 
+### 完成通知（全局消息提示）
+
+登录用户在任意页面（嵌入模式除外）都会收到**自己的** Q&A 回答 / Deep Research 回合完成（`done` 或 `failed`；取消不提示）的提示。
+
+- **后端**：`GET /api/notifications/completions?since=<游标>`（`api/notifications.ts`，需登录）返回 `{ now, items }`。
+  - QA：`qa_results.requested_by_user_id = 我`，未删除，`finished_at > since`；附带 `paper_title`，以及 `title`（问题文本，否则模板名）。
+  - 研究：自己会话的 `agent` 步骤（不含标题编辑）；`title` 为会话当前列表标题，否则为 topic。
+  - 不带 `since` 只返回游标，不提示打开前已完成的。`now` 比服务器时间早 5 秒（游标重叠，防止边界漏掉），客户端按 id 去重。
+- **前端轮询**：`composables/useCompletionNotifications.ts`，`App.vue` 在登录且非 embed 时 `start()`、登出时 `stop()`。
+  - 只在标签页可见时轮询（每 5 秒）；隐藏时完全不发请求，切回时立即查一次。游标一直保留，所以后台期间完成的会在回来时补发提示。同一时间只有一个请求在途。
+  - 走 `notificationsApi.completions`（静默 fetch，失败不弹错误 toast）。
+  - 每次最多 5 条提示，其余合并成一条「N more finished」（链到 `/qa` 或 `/research`）。
+- **提示（`components/CompletionToast.vue`）**：`toast.custom`，位置 bottom-center（与「LaTeX copied」相同），10 秒后消失。整张卡片是一个链接，显示类别、完成/失败、标题，以及论文标题 · 模型。
+  - 普通点击：应用内跳转并关闭提示。
+  - Ctrl/⌘/Shift 点击或中键：`window.open(href, '_blank')` 新标签页打开，当前页不变。
+  - `App.vue` 的 `<Toaster>` 用 `offset` / `mobile-offset` 把底部提示抬高 `var(--bottom-bar-h)`，不压住手机底部栏。
+- **跳转**：
+  - 研究 → `/research/<id>`。
+  - QA → `/papers/<pid>?qa=<entry>&result=<id>&thread=1`；当前已在这篇论文时直接调用 `useQAJump().openResult`。
+  - `openResult`：对话视图显示时（桌面对话布局 / 手机 Ask 分区）调 `conversation.openThread`，激活以该回答结尾的 tab，没有就新建（复用空白「新对话」tab）；否则 `revealQAEntry`，在 Q&A 列表中滚到该条、展开并选中这个回答。
+  - `PaperDetail.handleAnchorFromRoute` 遇到 `thread=1` 也走 `openResult`，所以新标签页的落点一致。
+
 ### 主题切换（夜间模式）
 
 左下角一键切换的明暗主题，在**白天 / 夜间 / 跟随系统**三态间循环（点击依次 Light → Dark → System → Light）。
@@ -119,6 +141,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
   - **来源列**：使用 `SourceTag` 组件（`components/SourceTag.vue`），根据 `arxiv_id` 与 `link` 显示可点击的来源标签
     - arXiv 论文：只要 `arxiv_id` 存在就显示红色标签，格式 `arxiv:{id}`，链接由 id 派生（`arxiv.org/abs/{id}`），**不依赖** `link` 字段（经 S2 解析出 `arxiv_id` 的论文 `link` 可能为空）
     - 其他来源：若 `link` 为非 arXiv 链接则额外显示灰色标签，显示域名（如 `mem.ac`），点击跳转原始链接
+    - 博客（`kind: 'article'`，`SourceTag` 的 `kind` prop）：只显示一个灰色 "Blog post" 标签，链接到 `link`（新标签页打开；没有 link 时不可点），取代域名标签；论文列表与详情页两处 header 都通过它显示，原先单独的 "Article" 标签已去掉。新增对话框的类型选项也叫 "Blog post"
     - 无来源：显示 `-`
 - **搜索**：按 title 和 abstract（arxiv 抓取的摘要字段）进行模糊匹配
 - **标签筛选**：支持按标签过滤论文（多标签 AND 逻辑），筛选状态反映在 URL query `?tags=1,2`。筛选栏仅显示 `visible=true` 的标签，隐藏标签可通过标签管理页面切换可见性
@@ -159,14 +182,18 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
   - 不存在 → 创建新记录
 - `semantic_scholar_service` 先用 S2 反查 arxiv_id（及 corpus_id / s2_paper_id）：查到 arxiv_id 则走原 arXiv 元数据/PDF 链；没有 arXiv 版本时由 `s2_pdf_service` 尝试下载开放获取 PDF
 
-#### 方式三：手动输入创建
+#### 方式三：手动输入创建（非 preprint 论文 / 网页文章）
 
-- 用户输入：
-  - title（标题）
-  - content（文章内容文本，作为 Q&A 的文本来源）
-  - authors（作者）
-  - link（来源链接，可选）
-  - tags（标签，可选）— 使用 `TagSelector` 组件，支持搜索已有标签或创建新标签
+用于没有发在 arXiv / Semantic Scholar 上的工作（只有项目主页 + PDF 的技术报告，或博客文章）。"Manual" 标签页：
+
+- 类型：分段按钮 "Paper" / "Web article"（`kind` = `paper` / `article`，文章在列表与详情页显示 "Article" 徽标）
+- title（标题，必填；为空时 "Add" 禁用）
+- authors（作者，逗号分隔）
+- link（项目主页 / 文章 URL，可选）——无任何外部 id 的论文按规范化后的 link 去重（忽略 http/https、`www.`、末尾 `/`、`#fragment`），重复添加直接打开已有论文
+- abstract（摘要，可选）
+- PDF：二选一 "URL"（写入 `metadata.pdf_url`，由后端 `url_pdf_service` 下载）或 "Upload file"（先创建论文，再 `store.uploadPdf()` 上传；上传失败论文仍保留，错误以 toast 显示，可在详情页 "PDF needed" 面板重试）
+- content（全文，可选，没有 PDF 时作为 Q&A 文本来源，例如博客正文）
+- tags（标签，可选）— 使用 `TagSelector` 组件，支持搜索已有标签或创建新标签
 - arXiv / Corpus ID 导入不提示选择标签
 - 创建完成后询问用户是否要执行模板提问
 
@@ -207,6 +234,10 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - **Title**：文本输入框（arXiv 论文禁用）
 - **Authors**：逗号分隔的文本输入框（arXiv 论文禁用）
 - **Source URL**：文本输入框（所有论文均可编辑）
+- **Type**：分段按钮 "Paper" / "Web article"（`kind`）
+- **Year / Venue**：写入 `metadata.year` / `metadata.venue`（与 S2 写入的键相同；有 S2 id 的论文在 S2 刷新时会被覆盖）
+- **PDF URL**：仅非 arXiv 论文显示，写入 `metadata.pdf_url`；论文还没有 PDF 时保存后自动调度 `url_pdf_service` 下载
+- **Abstract**：多行文本框（清空即删除摘要）
 - **Content (user input)**：等宽字体 (`font-mono`) 的多行文本框，编辑 `contents.user_input` 字段
 
 arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景），后端也会拒绝修改。
@@ -280,12 +311,21 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 隐藏测试路由 `/translation-test` 使用 `AppPage`，提供 draft/submit 分离输入、force、start/re-run、cancel/reset 与实时状态面板，通过 scoped slot 演示外部样式。路由 `requiresAdmin:true`，匿名和普通用户由既有 router guard 阻止；它刻意不加入桌面/移动侧边栏。
 
+#### 源站日期与内联视频
+
+- 详情页两处 header 在创建日期 badge 后显示 "Published <date>"（`metadata.published_at`）与 "Updated <date>"（`metadata.modified_at`，与发布日不同时才显示）；按日期字符串的年月日构造本地日期显示，不做时区换算（`2026-10-12` 不会显示成 11 日）。编辑表单有 "Published" / "Last updated" 两个文本框（`YYYY-MM-DD` 或完整 ISO 时间，空 = 清空，服务端校验 `INVALID_DATE`）。
+- `lib/markdown-renderer.ts` 覆写 markdown-it 的 image 规则：URL 路径以 `.mp4` / `.webm` 结尾（忽略 query / hash）时输出 `<video controls preload="metadata" playsinline aria-label data-alt>`，`html: false` 不变。`MarkdownContent` 的 `w=` 宽度指令同时作用于 `img` 与 `video[data-alt]`。
+- 图床页（`ImageHostPage.vue`）接受 MP4 / WebM，视频卡片用静音 `<video>` 预览（悬停播放）。
+
+- 博客详情页：「Full text」（`PaperFullTextCopy`）对 article 显示 "Copy full text"（复制 `contents.user_input`），PDF 解析的两个按钮只在存在时出现；「Reference links」（`ReferenceLinksSection` 的 `source-link` prop）把原文链接作为第一条 "Original post" 固定显示（由 `papers.link` 派生、不入库、不可编辑删除，Mine / All 都显示）。
+
 #### 多模式查看器（PaperViewerPanel）
 
 左侧面板支持多种查看模式，通过顶部 Tab 栏切换：
 
 | 模式 | 条件 | 内容 |
 |------|------|------|
+| Article | 博客（`kind: 'article'`）且 `contents.user_input` 非空 | `MarkdownContent` 渲染正文（KaTeX、`w=` 宽度、`![](x.mp4)` 内联视频；无高亮），居中 `max-w-3xl`。排在最前，因此是这类论文的默认 Tab；`PaperDetail` 的 `articleContent` 只在 article 时传入。article 没有 `pdf_path` 时（`is-article` prop）不显示 PDF Tab，也就没有 "PDF needed" 上传面板 |
 | PDF | **始终可用** | 有 `pdf_path` 时为嵌入式 **pdf.js** 查看器（PdfViewer 组件，见下方「嵌入式 pdf.js 查看器」）；没有时渲染 `PdfUploadPanel`（见下方「PDF 缺失与用户上传」） |
 | Bilingual PDF | 论文有 `pdf_path` 且 doc2x 启用 | `Doc2xTranslationTab`：顶部显示 doc2x 精确解析状态（未开始/失败时可 "Start parse"）；未翻译显示 "Start translation"，排队（等解析）/进行中/失败（可重试）各有状态；完成后用 `PdfViewer`（`paper-id=null`，不生成锚点）显示，可在 "Side by side"（doc2x 拼页 PDF）与 "Translation only"（后端裁出的右半页 PDF，页数相同）间切换，选择记在 `localStorage['paperland.doc2x.view']` |
 | hjfy.top | 论文有 `arxiv_id` | 嵌入 `https://hjfy.top/arxiv/{arxiv_id}` iframe |
@@ -307,14 +347,24 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 | `pdf_status` | 条件 | 面板 |
 |---|---|---|
 | `available` | 有 `pdf_path` | 不显示面板，直接 PdfViewer |
-| `fetching` | `arxiv_pdf_service` / `s2_pdf_service` 最近一次执行 pending/running，或无 arxiv_id 论文的 `semantic_scholar_service` 正在跑 | "Fetching PDF…"，每 5 秒 `store.refreshCurrentPaper()` 轮询直到状态变化 |
+| `fetching` | `arxiv_pdf_service` / `s2_pdf_service` / `url_pdf_service` 最近一次执行 pending/running，或无 arxiv_id 论文的 `semantic_scholar_service` 正在跑 | "Fetching PDF…"，每 5 秒 `store.refreshCurrentPaper()` 轮询直到状态变化 |
 | `upload_required` | 其他情况 | "PDF needed" + 原因 + 选择文件按钮 / 拖放上传 |
 
 `pdf_unavailable_reason`：`download_failed`（最近一次 PDF 下载服务 failed）> `closed_access`（metadata 有 `open_access_pdf_status` 但无 `open_access_pdf_url`）> `not_found`。
 
 - 上传走 `POST /api/papers/:id/pdf`（需登录，原始 `application/pdf` body，`api.upload()`），后端校验 `%PDF` 头与 `config.yml` 的 `pdf_upload.max_file_size_mb`（默认 100，超出 413），存为 `data/pdfs/upload_<id>_<sha256 前 8 位>.pdf`（内容哈希命名，避开 `/api/files` 的 24h 缓存），条件写入 `pdf_path`（已有 PDF → 409 `PDF_EXISTS`；非 PDF → 422 `INVALID_PDF`），随后 `triggerForPaper` 让 pdf_parse / doc2x 等自动接上
 - `store.uploadPdf()` 用响应替换 `currentPaper`，`pdf_path` 出现后面板即被 PdfViewer 取代，无需刷新页面
-- 匿名用户只看到原因与 "Log in to upload a PDF"；不支持替换已有 PDF
+- 匿名用户只看到原因与 "Log in to upload a PDF"；面板本身不提供替换已有 PDF（接口支持 `?replace=1`，MCP `upload_paper_pdf` 使用）
+
+#### 手动刷新数据（PaperRefreshMenu）
+
+登录用户在详情页信息卡片右上角有刷新按钮（`RefreshCw` 图标，`components/PaperRefreshMenu.vue`，宽 / 窄两套布局各挂一个，结果 toast 按执行 id 去重）。**不做任何自动重新抓取**，只有用户点这里（或 MCP `refresh_paper`）才会触发：
+
+- **Re-fetch PDF**：论文有 PDF 来源时显示（arXiv → `metadata.pdf_url` → `metadata.open_access_pdf_url`，且论文已列出）。已有 PDF 时先 `confirm`（告知解析文本与翻译会重新生成、旧版本上的高亮会被隐藏）。调 `POST /api/papers/:id/pdf/refetch`（202 + 服务名）
+- **Refresh Semantic Scholar data**：论文有 arxiv_id / corpus_id / s2_paper_id 时显示，调 `POST /api/papers/:id/s2/refresh`
+- 每项下方显示 "Last fetched …"（`metadata.pdf_fetched_at` / `metadata.s2_fetched_at`）；Semantic Scholar 区块也显示 S2 的抓取时间
+- 进度：202 后从 `GET /api/papers/:id/services` 取该服务最新执行（同步创建，所以就是本次），每 2 秒轮询直到 done/failed；图标旋转、菜单项显示 "Re-fetching PDF…" / "Refreshing…"。结束后 `store.refreshCurrentPaper()` 并 toast："PDF updated" / "PDF unchanged — you already have the latest version"（执行 `result` = `updated` / `unchanged`）/ "Semantic Scholar data refreshed" / 失败原因。挂载时若已有 pending/running 的刷新也会接着轮询
+- PDF 更新后 `pdf_path` 指向新的内容哈希文件名，PdfViewer 随 prop 变化加载新文件（不受 `/api/files` 24h 缓存影响）；高亮按 PDF 指纹存储，旧版本的高亮不再绘制（数据保留）
 
 #### 嵌入式 pdf.js 查看器（PdfViewer）
 
@@ -507,7 +557,7 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 | 论文详情页内嵌 | 针对当前论文提问，paper_id 自动绑定，展示模板提问和自由提问 |
 | 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接。默认仅展示当前用户自己的提问；所有登录用户均可用 Mine / All 切换查看自己 + 开启 Q&A 共享的用户的提问（admin 看全部，未共享的标 Private）并看到提问者。别人的 QA 对普通用户只读，owner/admin 才有重新生成与删除操作。 |
 
-**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = card 外的论文/提问者/时间行 + 下方可折叠 shadcn `Card`。card 头部显示状态、问题、当前用户的非零 "N highlights" / "N note references"、个人淡色背景选择器以及回答数/模型；card body 复用 `QAResultView`。每次模型运行在排队前即成为独立 Result tab，状态为 `queued → awaiting_output → streaming → done|failed|cancelled`。多回答 Tabs 按成功完成时间、活动运行创建时间及 id 判定最新，新增 Result 自动选中；计时/答案/SSE/等价轮询不改变 selection signature，保留用户手动历史选择。`scope=mine|all` 默认 mine，所有登录用户可切换；all 按 Q&A 共享开关过滤（admin 不过滤），显示 asker，普通用户能实时阅读别人的 QA，但停止/重生成/删除仍由 Result/Entry owner 或 admin 控制。背景色通过 `qa_user_preferences` 跨设备同步，支持 gray/brown/orange/yellow/green/blue/purple/pink/red 九色。高亮计数来自当前用户实际 rows，笔记引用计数从当前用户该论文的 `notes.body` 锚点派生，不缓存计数。分页和轮询仍只重拉当前页，并批量聚合 creator/preferences/highlights/notes。
+**`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = card 外的论文/提问者/时间行 + 下方可折叠 shadcn `Card`。card 头部显示状态、问题、当前用户的非零 "N highlights" / "N note references"、个人淡色背景选择器以及回答数/模型；card body 复用 `QAResultView`。每次模型运行在排队前即成为独立 Result tab，状态为 `queued → awaiting_output → streaming → done|failed|cancelled`。超过 `services.qa.time_limit`（缺省 2h）的运行由后端置为 `failed`（错误 "Answer exceeded the 2h time limit"，保留已流出的局部回答），前端按普通失败显示，无单独 UI。多回答 Tabs 按成功完成时间、活动运行创建时间及 id 判定最新，新增 Result 自动选中；计时/答案/SSE/等价轮询不改变 selection signature，保留用户手动历史选择。`scope=mine|all` 默认 mine，所有登录用户可切换；all 按 Q&A 共享开关过滤（admin 不过滤），显示 asker，普通用户能实时阅读别人的 QA，但停止/重生成/删除仍由 Result/Entry owner 或 admin 控制。背景色通过 `qa_user_preferences` 跨设备同步，支持 gray/brown/orange/yellow/green/blue/purple/pink/red 九色。高亮计数来自当前用户实际 rows，笔记引用计数从当前用户该论文的 `notes.body` 锚点派生，不缓存计数。分页和轮询仍只重拉当前页，并批量聚合 creator/preferences/highlights/notes。
 
 #### QA Result 流式前端状态
 

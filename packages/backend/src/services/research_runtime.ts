@@ -9,6 +9,7 @@ import { callModel, type ModelInput, type ModelInvokeOptions, type ModelUsage } 
 import { recordModelUsage } from './model_usage.js'
 import { buildRepairInput, buildResearchInput, type HistoryStep } from './research_prompt.js'
 import { attachAgentTools } from './agent_attach.js'
+import { AGENT_NON_WRITE_TOOL_NAMES } from './agent_tools.js'
 import { mergeRepairedAnswer, parseRoundAnswer, type ParsedRoundAnswer } from './research_list.js'
 
 // Deep Research rounds run like QA Results (see api/qa.ts `runQA`): lifecycle queued →
@@ -157,7 +158,7 @@ export function buildStepInput(db: Database, step: StepRow): Promise<ModelInput>
 
 /** Attach every Paperland agent tool and the skill directory to a round (see `agent_attach.ts`). */
 export function attachResearchTools(input: ModelInput, ownerId: number): void {
-  attachAgentTools(input, ownerId, { skills: true })
+  attachAgentTools(input, ownerId, { skills: true, tools: AGENT_NON_WRITE_TOOL_NAMES })
 }
 
 // Scheduler state: one semaphore + rate limiter for all research rounds (created on first use from

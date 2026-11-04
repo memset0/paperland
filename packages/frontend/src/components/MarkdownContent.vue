@@ -100,10 +100,15 @@ function parseImageWidthDirective(alt: string): { tier?: 'sm' | 'md' | 'lg'; px?
 /** Apply note-image width directives. The directive token is always stripped from the alt;
  *  the max-width cap is only applied when `applyImageWidth` is not explicitly false. */
 function applyImageWidthDirectives(el: HTMLElement) {
-  for (const img of Array.from(el.querySelectorAll('img'))) {
-    const alt = img.getAttribute('alt') ?? ''
+  for (const img of Array.from(el.querySelectorAll<HTMLElement>('img, video[data-alt]'))) {
+    // Videos (`![alt](clip.mp4)`) carry their alt in data-alt and label themselves via aria-label.
+    const attr = img.tagName === 'VIDEO' ? 'data-alt' : 'alt'
+    const alt = img.getAttribute(attr) ?? ''
     const { tier, px, cleanedAlt } = parseImageWidthDirective(alt)
-    if (cleanedAlt !== alt) img.setAttribute('alt', cleanedAlt)
+    if (cleanedAlt !== alt) {
+      img.setAttribute(attr, cleanedAlt)
+      if (attr === 'data-alt') img.setAttribute('aria-label', cleanedAlt)
+    }
     if (!props.applyImageWidth) continue // mindmap: strip token but don't size
     if (tier) img.classList.add(`md-img-w-${tier}`)
     else if (px != null) (img as HTMLElement).style.maxWidth = `min(${px}px, 100%)`
@@ -792,9 +797,10 @@ onBeforeUnmount(() => {
 /* `w=sm|md|lg` alt-text width directive → max-width cap. Tier px come from config.yml via the
    --note-img-w-* custom properties; the designed defaults are the CSS fallbacks. min(…, 100%)
    keeps the image within its container so a tier larger than the column never overflows. */
-.markdown-content :deep(img.md-img-w-sm) { max-width: min(var(--note-img-w-sm, 240px), 100%); }
-.markdown-content :deep(img.md-img-w-md) { max-width: min(var(--note-img-w-md, 480px), 100%); }
-.markdown-content :deep(img.md-img-w-lg) { max-width: min(var(--note-img-w-lg, 720px), 100%); }
+.markdown-content :deep(video) { display: inline-block; vertical-align: top; width: 100%; max-width: 100%; height: auto; border-radius: 0.375rem; margin: 0.5em 0.25em 0.5em 0; background: #000; }
+.markdown-content :deep(:is(img, video).md-img-w-sm) { max-width: min(var(--note-img-w-sm, 240px), 100%); }
+.markdown-content :deep(:is(img, video).md-img-w-md) { max-width: min(var(--note-img-w-md, 480px), 100%); }
+.markdown-content :deep(:is(img, video).md-img-w-lg) { max-width: min(var(--note-img-w-lg, 720px), 100%); }
 .markdown-content :deep(hr) { border: none; border-top: 1px solid #e5e7eb; margin: 0.75em 0; }
 /* KaTeX display math: center, hug content for the hover hint, scroll when too wide.
    flex + `safe center` centers a formula that fits but falls back to a scrollable

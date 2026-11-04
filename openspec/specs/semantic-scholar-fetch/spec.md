@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change semantic-scholar-service. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Fetch Semantic Scholar data
 The semantic_scholar_service SHALL fetch paper data from the Semantic Scholar Graph API for any paper that has an `arxiv_id` **or** a `corpus_id`, in a single request. It SHALL query via the `ARXIV:{arxiv_id}` path identifier when an `arxiv_id` is present, otherwise via the `CORPUSID:{corpus_id}` path identifier. It SHALL be a paper-bound service that is eligible for every paper and selects its query identifier at run time (no `depends_on` gate). The service SHALL write back every external ID present in the response `externalIds` that the paper is missing — so a paper added by `arxiv_id` gains its `corpus_id`, and a paper added by `corpus_id` gains its `arxiv_id`. When only the original ID is available it SHALL keep it unchanged and SHALL NOT fail. When the paper has neither identifier the service SHALL no-op (no request, no metadata change) and complete successfully.
 
@@ -144,3 +146,20 @@ The paper detail view SHALL display `citation_count`, `influential_citation_coun
 - **WHEN** a paper's metadata has no S2 fields
 - **THEN** the paper detail view SHALL NOT render the citation/tldr section
 
+### Requirement: Semantic Scholar supplies basic fields and abstract
+When enriching a paper, `semantic_scholar_service` SHALL populate the paper's basic fields (`title`, `authors`) and `abstract` from the Semantic Scholar response when those fields are empty. This makes Semantic Scholar the primary metadata source, so a metadata-only (`listed=false`) paper has complete textual information without any arxiv fetch.
+
+#### Scenario: S2 fills empty basic fields and abstract
+- **WHEN** `semantic_scholar_service` runs for a paper whose `abstract`/`authors`/`title` are empty and Semantic Scholar returns them
+- **THEN** those fields SHALL be filled from the Semantic Scholar response
+
+#### Scenario: S2 does not overwrite existing fields
+- **WHEN** the paper already has a non-empty `abstract`
+- **THEN** Semantic Scholar SHALL NOT overwrite it
+
+### Requirement: Semantic Scholar runs for metadata-only papers
+`semantic_scholar_service` SHALL NOT be `requires_listed`; it SHALL run for `listed=false` papers, providing ids, the citation graph, basic fields, and abstract before any promotion.
+
+#### Scenario: S2 enriches a metadata-only paper
+- **WHEN** a `listed=false` paper is ingested with an `arxiv_id`/`corpus_id`
+- **THEN** `semantic_scholar_service` SHALL run and produce its enrichment (corpus_id, citation graph, basic fields, abstract)

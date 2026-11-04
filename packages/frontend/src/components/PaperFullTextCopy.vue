@@ -13,11 +13,16 @@ const props = defineProps<{ paperId: number }>()
 const doc2x = useDoc2xStore()
 const papers = usePapersStore()
 
-type Source = 'pdf_parsed' | 'doc2x_parsed'
-const sources: Array<{ key: Source; label: string }> = [
+type Source = 'user_input' | 'pdf_parsed' | 'doc2x_parsed'
+const PDF_SOURCES: Array<{ key: Source; label: string }> = [
   { key: 'pdf_parsed', label: 'Copy full text (basic parse)' },
   { key: 'doc2x_parsed', label: 'Copy full text (doc2x)' },
 ]
+// Blog posts: copy the article's Markdown; PDF copies only when the article also has a parsed PDF.
+const isArticle = computed(() => papers.currentPaper?.id === props.paperId && papers.currentPaper?.kind === 'article')
+const sources = computed(() => isArticle.value
+  ? [{ key: 'user_input' as Source, label: 'Copy full text' }, ...PDF_SOURCES.filter((s) => available.value[s.key])]
+  : PDF_SOURCES)
 
 function cachedText(key: Source): string | null {
   const paper = papers.currentPaper
@@ -27,6 +32,7 @@ function cachedText(key: Source): string | null {
 // Enabled once the version exists: either already in the loaded paper or reported by the
 // (polled) doc2x status, so a parse finishing while the page is open enables its button.
 const available = computed<Record<Source, boolean>>(() => ({
+  user_input: !!cachedText('user_input'),
   pdf_parsed: !!cachedText('pdf_parsed') || !!doc2x.status?.text_sources.pdf_parsed,
   doc2x_parsed: !!cachedText('doc2x_parsed') || !!doc2x.status?.text_sources.doc2x_parsed,
 }))
