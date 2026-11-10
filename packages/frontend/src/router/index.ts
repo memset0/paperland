@@ -47,9 +47,22 @@ const routes = [
   },
   {
     path: '/research',
+    alias: '/topics',
     name: 'research',
+    component: () => import('@/views/TopicsList.vue'),
+    meta: { requiresAuth: true, title: 'Topics', icon: Telescope },
+  },
+  {
+    path: '/research/history',
+    name: 'research-history',
     component: () => import('@/views/ResearchList.vue'),
-    meta: { requiresAuth: true, title: 'Research', icon: Telescope },
+    meta: { requiresAuth: true, title: 'Research history', icon: Telescope },
+  },
+  {
+    path: '/topics/:id/:document_path(.*)*',
+    name: 'topic-detail',
+    component: () => import('@/views/TopicDetail.vue'),
+    meta: { requiresAuth: true, title: 'Topic' },
   },
   {
     path: '/research/:id',

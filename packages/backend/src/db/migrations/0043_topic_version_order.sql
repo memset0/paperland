@@ -1,0 +1,1 @@
+ALTER TABLE `topic_versions` ADD `sequence` integer DEFAULT 0 NOT NULL;

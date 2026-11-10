@@ -12,7 +12,7 @@ import { backfillQAReadingAttribution } from './qa-reading-migration.js'
 let _db: ReturnType<typeof drizzle> | null = null
 let _sqlite: Database | null = null
 
-export function initDatabase(): ReturnType<typeof drizzle> {
+export function initDatabase(options: { maintenance?: boolean } = {}): ReturnType<typeof drizzle> {
   const config = getConfig()
   const dbPath = resolve(process.cwd(), config.database.path || './data/paperland.db')
 
@@ -42,6 +42,9 @@ export function initDatabase(): ReturnType<typeof drizzle> {
       throw err
     }
   }
+
+  // One-time maintenance scripts need schema access without account seeding/runtime backfills.
+  if (options.maintenance) return _db
 
   // Backfill completed-answer hashes and only unambiguous legacy QA-highlight relations.
   // Idempotent: subsequent starts see no null result hashes and skip attributed highlights.

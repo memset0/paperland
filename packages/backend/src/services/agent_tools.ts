@@ -2,7 +2,13 @@ import { and, desc, eq, inArray, isNull, like, or, type SQL } from 'drizzle-orm'
 import type { S2PaperMeta } from '@paperland/shared'
 import { getConfig } from '../config.js'
 import { getDatabase, schema } from '../db/index.js'
-import { ownerVisibilityFilter, type Viewer } from '../auth/visibility.js'
+import { ownerVisibilityFilter, ownerSharesCondition, type Viewer } from '../auth/visibility.js'
+import { recordMcpCall, registerMcpCounterTools } from './mcp_counts.js'
+import { TOPIC_TOOLS } from './topic_tools.js'
+import { readPdfPage } from './pdf_pages.js'
+import { AgentRichResult, type AgentContent } from './agent_result.js'
+import { TopicError } from './topic_format.js'
+import { ZodError } from 'zod'
 import { resolvePaperContent } from './qa_formatter.js'
 import { s2ApiGet } from './semantic_scholar_service.js'
 import { cacheS2Records, resolveS2Ids } from './s2_paper_cache.js'
@@ -29,6 +35,9 @@ export interface AgentToolContext {
   viewer: Viewer
   /** Kind of the bearer token; only agent tokens (Paperland's own Codex runs) may upload by path. */
   token_kind?: TokenKind
+  /** Set by authentication only, never from tool arguments. */
+  topic_id?: number
+  site_origin?: string
 }
 
 /** MCP tool annotations; tools without them are listed as read-only. */
@@ -43,10 +52,12 @@ export interface AgentToolDef {
   name: string
   description: string
   inputSchema: Record<string, unknown>
-  handler: (args: Record<string, unknown>, ctx: AgentToolContext) => Promise<unknown>
+  handler: (args: Record<string, unknown>, ctx: AgentToolContext) => unknown | Promise<unknown>
   annotations?: AgentToolAnnotations
   /** Changes papers: personal tokens only, never enabled for Paperland's own agent runs. */
   write?: boolean
+  /** A dedicated Topic action, never an unrestricted paper/user mutation. */
+  topic_scoped?: boolean
 }
 
 /** A failure reported back to the agent as a tool error (not a protocol error). */
@@ -190,7 +201,7 @@ async function getPaper(args: Record<string, unknown>, ctx: AgentToolContext) {
     link: appLink(paper.id),
     listed: paper.listed === 1,
     in_my_library: libraryPaperIds(ctx.viewer, [paper.id]).has(paper.id),
-    my_tags: tags,
+    my_tags: ctx.topic_id == null ? tags : [],
     full_text: fullTextInfo(paper),
   }
 }
@@ -242,7 +253,9 @@ async function getPaperQA(args: Record<string, unknown>, ctx: AgentToolContext) 
   const cap = getConfig().agent_tools.qa_answer_max_chars
   const maxChars = int(args, 'max_chars_per_answer', cap, 100, cap)
   const db = getDatabase()
-  const visible = ownerVisibilityFilter(ctx.viewer, 'qa', schema.qaEntries.user_id, 'all')
+  const visible = ctx.topic_id == null
+    ? ownerVisibilityFilter(ctx.viewer, 'qa', schema.qaEntries.user_id, 'all')
+    : ownerSharesCondition('qa', schema.qaEntries.user_id)
   const entries = db.select().from(schema.qaEntries)
     .where(and(eq(schema.qaEntries.paper_id, paper.id), visible ? or(eq(schema.qaEntries.type, 'template'), visible) : undefined))
     .all()
@@ -692,6 +705,13 @@ const paperFieldProps = {
 const WRITE_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
 
 export const AGENT_TOOLS: AgentToolDef[] = [
+  ...TOPIC_TOOLS,
+  {
+    name: 'read_pdf_page',
+    description: 'Read one physical PDF page (1-based) and receive a ready-to-use paperland:// Markdown citation. Set image=true only when you need to see figures, formulas or layout; returns that page as an MCP image. Optional normalized region only changes the citation target.',
+    inputSchema: { type: 'object', properties: { paper_id: paperIdSchema, page: { type: 'integer', minimum: 1 }, image: { type: 'boolean', default: false }, region: { type: 'object', properties: { x: { type: 'number', minimum: 0, maximum: 1 }, y: { type: 'number', minimum: 0, maximum: 1 }, width: { type: 'number', exclusiveMinimum: 0, maximum: 1 }, height: { type: 'number', exclusiveMinimum: 0, maximum: 1 } }, required: ['x', 'y', 'width', 'height'], additionalProperties: false }, offset: { type: 'integer', minimum: 0 }, max_chars: { type: 'integer', minimum: 1 } }, required: ['paper_id', 'page'], additionalProperties: false },
+    handler: (args) => readPdfPage(args),
+  },
   {
     name: 'search_papers',
     description: 'Search the Paperland library (listed papers) by title, authors, or abstract. Every whitespace-separated term must match. Returns Paperland ids, S2 ids, and whether full text can be read.',
@@ -858,20 +878,28 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
 ]
 
-/** Every tool except the paper write tools — what Paperland's own agent runs may use. */
-export const AGENT_NON_WRITE_TOOL_NAMES = AGENT_TOOLS.filter((t) => !t.write).map((t) => t.name)
+/** Preserve the legacy site-run Research allowlist; external clients discover new Topic/PDF tools. */
+registerMcpCounterTools(AGENT_TOOLS.map((t) => t.name))
+export const AGENT_NON_WRITE_TOOL_NAMES = AGENT_TOOLS.filter((t) => !t.write && !TOPIC_TOOLS.includes(t) && t.name !== 'read_pdf_page').map((t) => t.name)
 
 const TOOLS_BY_NAME = new Map(AGENT_TOOLS.map((t) => [t.name, t]))
 
 /** Run a tool; failures come back as `isError` results with a message for the agent. */
-export async function callAgentTool(name: string, args: unknown, ctx: AgentToolContext): Promise<{ text: string; isError: boolean }> {
+export async function callAgentTool(name: string, args: unknown, ctx: AgentToolContext): Promise<{ text: string; isError: boolean; content?: AgentContent[] }> {
   const tool = TOOLS_BY_NAME.get(name)
   if (!tool) return { text: `Unknown tool: ${name}`, isError: true }
   const input = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : {}
   try {
-    return { text: JSON.stringify(await tool.handler(input, ctx)), isError: false }
+    recordMcpCall(ctx.viewer.id, name, ctx.topic_id)
+    if (ctx.topic_id != null && tool.write && !tool.topic_scoped) throw new AgentToolError('Topic credentials cannot use unrestricted write tools; use a permitted Topic action')
+    const result = await tool.handler(input, ctx)
+    if (result instanceof AgentRichResult) {
+      const text = JSON.stringify(result.metadata)
+      return { text, content: [{ type: 'text', text }, ...result.extra_content], isError: false }
+    }
+    return { text: JSON.stringify(result), isError: false }
   } catch (error) {
-    if (error instanceof AgentToolError) return { text: error.message, isError: true }
+    if (error instanceof AgentToolError || error instanceof TopicError || error instanceof ZodError) return { text: error.message, isError: true }
     console.error(`[agent_tools] ${name} failed:`, error)
     return { text: `Tool ${name} failed: ${(error as Error)?.message ?? 'internal error'}`, isError: true }
   }

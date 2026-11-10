@@ -1,43 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { ResearchCitation, S2ResolveResult } from '@paperland/shared'
+import type { S2ResolveResult } from '@paperland/shared'
+import type { LinkRefItem, PaperRefSection, RefItem } from '@/lib/paper-ref-types'
 import { ChevronRight, ExternalLink, Library, Loader2 } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import MarkdownContent from './MarkdownContent.vue'
 import { useS2Paper, s2PaperUrl } from '@/composables/useS2Papers'
-
-/** One paper row: a normalized S2 id (see `lib/cite-links.ts`), optional fallback text and comment. */
-export interface PaperRefItem {
-  kind?: 'paper'
-  id: string
-  fallback_text?: string
-  /** Markdown; may contain `#cite:` links. */
-  comment?: string
-  /** The id did not resolve when the list was produced (Deep Research). */
-  unverified?: boolean
-  /** New compared with the previous version (Deep Research). */
-  added?: boolean
-}
-
-/** A non-paper source (blog post, docs…) with a BibTeX @misc-style citation. */
-export interface LinkRefItem {
-  kind: 'link'
-  url: string
-  citation: ResearchCitation
-  comment?: string
-  added?: boolean
-}
-
-export type RefItem = PaperRefItem | LinkRefItem
-
-export interface PaperRefSection {
-  title: string
-  /** Markdown; may contain `#cite:` links. */
-  description?: string
-  items: RefItem[]
-  /** Items dropped from this section since the previous version (shown collapsed). */
-  removed?: RefItem[]
-}
 
 const props = defineProps<{
   items?: RefItem[]

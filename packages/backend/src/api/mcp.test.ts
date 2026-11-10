@@ -14,6 +14,8 @@ import { serviceRunner } from '../services/service_runner.js'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { mcpCountsForUser } from '../services/mcp_counts.js'
+import { AGENT_NON_WRITE_TOOL_NAMES } from '../services/agent_tools.js'
 
 // No S2 calls or downloads here: site tools, the paper write tools (runner stubbed), and protocol handling.
 
@@ -47,6 +49,14 @@ beforeEach(() => {
 })
 
 describe('POST /mcp', () => {
+  it('counts known tool attempts for Q&A-style agent and ordinary credentials, including failures and batches', async () => {
+    const call = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_paper', arguments: { paper_id: 5 } } }
+    await post({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
+    expect(mcpCountsForUser(1, ['get_paper']).get_paper).toBe(0)
+    await post(call, `Bearer ${agentToken}`)
+    await post([call, { ...call, id: 2, params: { name: 'get_paper', arguments: { paper_id: 404 } } }])
+    expect(mcpCountsForUser(1, ['get_paper']).get_paper).toBe(3)
+  })
   it('rejects missing, unknown, and revoked tokens with 401', async () => {
     const msg = { jsonrpc: '2.0', id: 1, method: 'ping' }
     expect((await post(msg, null)).statusCode).toBe(401)
@@ -83,9 +93,12 @@ describe('POST /mcp', () => {
     expect(unknown.result.protocolVersion).toBe('2025-06-18')
     const list = (await post({ jsonrpc: '2.0', id: 3, method: 'tools/list' })).json()
     const names = list.result.tools.map((t: any) => t.name)
+    expect(names).toContain('read_pdf_page')
+    expect(AGENT_NON_WRITE_TOOL_NAMES).not.toContain('get_topic')
+    expect(AGENT_NON_WRITE_TOOL_NAMES).not.toContain('read_pdf_page')
     expect(names).toEqual(expect.arrayContaining(['search_papers', 'read_paper', 's2_search', 's2_match', 's2_get']))
     expect(list.result.tools.filter((t: any) => t.annotations.readOnlyHint !== true).map((t: any) => t.name))
-      .toEqual(['upload_image', 'add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper'])
+      .toEqual(['create_topic', 'set_topic_sharing', 'set_topic_member', 'create_topic_token', 'rotate_topic_token', 'revoke_topic_token', 'import_topic_paper', 'upload_image', 'add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper'])
     const ann = (name: string) => list.result.tools.find((t: any) => t.name === name).annotations
     expect(ann('add_paper')).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: true })
     expect(ann('update_paper')).toMatchObject({ readOnlyHint: false, destructiveHint: true })

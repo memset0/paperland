@@ -1,6 +1,28 @@
 # Paperland External API
 
+## Topics 与 agent 协作
+
+Topics 的仓库文件格式、用户身份、MCP/Git 凭证与接口见 [Topics 仓库与接口约定](topics.md)。Topic 凭证同时绑定专题和实际用户，Git 推送审计不依赖提交中自行声明的作者；调用次数按用户与可选 Topic 聚合，不按 token 聚合。普通 External API 继续只接受 personal token。
+
+网站新增 `PATCH /api/topics/:id`，owner/editor 提交 `{title,base_commit}` 改名，过期基准为 409；改名保留论文清单/报告与标签身份并进入 Git 历史。旧 Research 的一次性迁移脚本保留完整结果版本和 URL 引用，不执行远程抓取。迁移中的 Topic 不暴露内容/标签，完成后继承所属账号和已共享读者；正常 External API 契约不受影响。
+
+Topic 创建接受 `default_access: "none"|"viewer"|"editor"`（默认 none），owner 通过 `PUT /api/topics/:id/sharing {default_access}` 更新；个人 grant 与默认按 `none < viewer < editor` 取较高者，删除个人授权回到默认。`GET members` 区分个人 `role` 和 `effective_role`。Public 仅对 active 登录账号开放。Share/Connect 拆分属于 UI，权限仍由 web/MCP/Git 同一服务校验。
+
+`GET /api/topics/:id` 与 MCP `get_topic` 增加 `documents`（path/title/body/references/exists）、`reference_numbers`（稳定条目 ID→编号）、`next_reference_number`；原始 snapshot 保留 frontmatter 和可选 pages。`papers.json` 是全局资料表，条目可声明 `reference_number`，文档 frontmatter 只含编号子集。新编号按首次进入 Topic 的提交顺序保留，删除不复用；不按发表年份排序。无效中间文档或引用使整个 push 失败。增补 MCP `set_topic_sharing`，仍需 personal token 与 owner 权限。正常 External API 契约不变。
+
+`get_topic` 可选 `document: "pages/rq6.md"` 仅读该文档及其编号引用，或 `metadata_only: true` 省略所有页面正文，避免长 Wiki 重复返回全文；不传参数保留完整兼容结构。文档路径仍受 Topic/历史权限限制，不能读取任意仓库路径。
+
+v2 仓库必需 topic.json、references.json、pages/report.md；页面可以嵌套并有 title/fonticon/references frontmatter。其他安全文件是 Git 工作区，MCP/网页不会将其当作报告；AGENTS.md 作为指南例外读取。get_topic 现在给出 home_page、文档 slug/url、实际配置的资源 limits 和图标名清单；document 可选 pages/**/*.md 或 AGENTS.md，metadata_only 省略正文。干净文档 URL 不带 file 查询或 .md，历史仍用 version 查询。旧 v1 历史与查询链接兼容，普通 External API 契约不变。
+
+
+Topic detail 新增 paper_importable（entry ID→boolean），用于引用卡片/列表明确判断可导入条目。POST /api/topics/:id/import 继续使用原 {entry_id,commit?} 和 ACL，除 S2 外支持明确 arxiv.org abs/pdf/html 论文链接（现代/旧式 ID，去除版本号用于站内规范化去重）；保留 Git 中固定版本的 URL、编号与报告。其他项目链接不因此触发抓取/入库。返回后的原地卡片更新/引用折叠属于 UI，无新的普通 External API 端点或凭证权限。
+
+
+Topic文章树的桌面加宽与紧凑间距仅为前端布局调整；文件路径、title/fonticon、API/MCP字段、权限及引用格式不变。
+
 ## 概述
+
+`/qa` 的响应式卡片、独立 Questions/Highlights 范围控件和分页/空状态仅属站内展示；继续复用既有 `GET /api/qa/free` 分页数据、权限与流式回答，不新增或改变 External API/MCP 的端点、字段或鉴权。
 
 External API 是独立于前端 Internal API 的第三方接口，主要用于 Zotero 插件等外部服务与 Paperland 进行数据同步。
 
@@ -18,7 +40,7 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 
 ### MCP 服务器（`/mcp`）
 
-`POST /mcp` 是 Paperland 的 MCP 服务器（只读工具 + `upload_image` + 论文写工具）（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal 与 agent** 两种 token，按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token，Codex QA 回合注入提问者的 agent token（只开放 `upload_image`）。`upload_image` 上传图片或视频（PNG / JPEG / GIF / WebP / MP4 / WebM）到图床并返回可嵌入的 Markdown（视频同样是 `![alt](url)`，Article 视图里内联播放）：`url`（服务端下载，规则同下方 `POST /external-api/v1/images?url=`）、`data`（base64 或 data URL，只适合很小的图）、`path`（服务器本地路径，只对 agent token 开放），三选一。只读工具 `get_skill(name?)` 返回内置 agent 指南（不带 name 时列出，如 `blog-import`：如何把博客导入为文章）。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
+`POST /mcp` 是 Paperland 的 MCP 服务器（只读工具 + `upload_image` + 论文写工具）（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal、agent 与 topic** 三种 token（topic 另验证绑定专题及当前成员权限），按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token，Codex QA 回合注入提问者的 agent token（只开放 `upload_image`）。`upload_image` 上传图片或视频（PNG / JPEG / GIF / WebP / MP4 / WebM）到图床并返回可嵌入的 Markdown（视频同样是 `![alt](url)`，Article 视图里内联播放）：`url`（服务端下载，规则同下方 `POST /external-api/v1/images?url=`）、`data`（base64 或 data URL，只适合很小的图）、`path`（服务器本地路径，只对 agent token 开放），三选一。只读工具 `get_skill(name?)` 返回内置 agent 指南（不带 name 时列出，如 `blog-import`：如何把博客导入为文章）。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
 
 **论文写工具（只接受 personal token；agent token 调用返回工具错误，Deep Research / QA 回合也看不到它们）**：让自己的 agent 添加和维护论文，校验与副作用与站内接口相同。
 
@@ -54,9 +76,10 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 
 ### Token 类型
 
-`api_tokens.kind` 区分两种 token（格式都是 `sk-` + 64 位十六进制）：
+`api_tokens.kind` 区分 personal / agent / topic 三种 token；前两者格式是 `sk-` + 64 位十六进制，topic 使用 `plt_` + 64 位十六进制并仅存 verifier：
 
 - **personal**（默认，所有既有 token）：用户自己管理，**External API 与 MCP（`/mcp`）都可用**。
+- **topic**：成员自己的专题凭证，绑定用户和 Topic，适用于该专题的 MCP / Git，不适用于普通 External API；在 Topic 页面管理，不显示在全站 personal/agent token 表。详见 [topics.md](topics.md)。
 - **agent**（Codex agent token）：每个用户恰好一个，自动创建，供 Paperland 在 Deep Research 回合里注入自己拉起的 Codex 使用。**只有 `/mcp` 接受**，调用 External API 返回 401；任何接口都不返回它的值（管理员列表里 `token` 为 `null`、不可撤销），只能由本人重置。
 
 ### 使用 Token

@@ -14,6 +14,7 @@ import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
 import TagBadge from '@/components/TagBadge.vue'
 import TagSelector from '@/components/TagSelector.vue'
+import TopicTagBadge from '@/components/TopicTagBadge.vue'
 import { useTagsStore } from '@/stores/tags'
 import { api, notesApi } from '@/api/client'
 import { useEmbedMode } from '@/composables/useEmbedMode'
@@ -673,6 +674,7 @@ async function promote() {
                 <Button v-else variant="link" size="xs" @click="startEditTags">+ Add tag</Button>
               </template>
             </div>
+            <div v-if="store.currentPaper.topic_tags?.length" class="flex flex-wrap gap-1"><TopicTagBadge v-for="tag in store.currentPaper.topic_tags" :key="tag.topic_id" :tag="tag" /></div>
             <PaperFullTextCopy :paper-id="paperId" />
             <ReferenceLinksSection :paper-id="paperId" :source-link="store.currentPaper.kind === 'article' ? store.currentPaper.link : null" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">
@@ -870,6 +872,7 @@ async function promote() {
                 <Button v-else variant="link" size="xs" @click="startEditTags">+ Add tag</Button>
               </template>
             </div>
+            <div v-if="store.currentPaper.topic_tags?.length" class="flex flex-wrap gap-1"><TopicTagBadge v-for="tag in store.currentPaper.topic_tags" :key="tag.topic_id" :tag="tag" /></div>
             <PaperFullTextCopy :paper-id="paperId" />
             <ReferenceLinksSection :paper-id="paperId" :source-link="store.currentPaper.kind === 'article' ? store.currentPaper.link : null" />
             <div v-if="store.currentPaper.abstract" class="space-y-2">

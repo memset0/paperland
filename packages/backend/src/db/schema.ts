@@ -13,6 +13,7 @@ export const users = sqliteTable('users', {
   status: text('status').notNull().default('active'),
   // Per-user CSRF token for the arxiv quick-open link (browser extension); lazily generated.
   open_token: text('open_token'),
+  mcp_call_counts: text('mcp_call_counts').notNull().default('{}'),
   created_at: text('created_at').notNull(),
 })
 
@@ -203,6 +204,7 @@ export const apiTokens = sqliteTable('api_tokens', {
   kind: text('kind').notNull().default('personal'),
   // Last time the value was replaced in place (agent token reset); null = never.
   rotated_at: text('rotated_at'),
+  topic_id: integer('topic_id').references(() => topics.id, { onDelete: 'cascade' }),
 }, (table) => [
   uniqueIndex('api_tokens_agent_user_unq').on(table.user_id).where(sql`kind = 'agent'`),
 ])
@@ -390,3 +392,81 @@ export const featureViews = sqliteTable('feature_views', {
 }, (table) => [
   uniqueIndex('feature_views_user_feature_unq').on(table.user_id, table.feature_key),
 ])
+
+// Git files are authoritative; snapshot is the last completely indexed, readable version.
+export const topics = sqliteTable('topics', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  owner_id: integer('owner_id').notNull().references(() => users.id),
+  title: text('title').notNull(),
+  description: text('description').notNull().default(''),
+  default_access: text('default_access').notNull().default('none'),
+  references_indexed_commit: text('references_indexed_commit'),
+  published_commit: text('published_commit'),
+  legacy_research_session_id: integer('legacy_research_session_id'),
+  legacy_migration_state: text('legacy_migration_state'),
+  legacy_migration_plan: text('legacy_migration_plan'),
+  snapshot: text('snapshot'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+}, (t) => [uniqueIndex('topics_legacy_session_unq').on(t.legacy_research_session_id)])
+
+export const topicMembers = sqliteTable('topic_members', {
+  topic_id: integer('topic_id').notNull().references(() => topics.id, { onDelete: 'cascade' }),
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  active: integer('active').notNull().default(1),
+  mcp_call_counts: text('mcp_call_counts').notNull().default('{}'),
+}, (t) => [primaryKey({ columns: [t.topic_id, t.user_id] }), index('topic_members_user_idx').on(t.user_id, t.active)])
+
+// Numbers outlive removal from the current catalog; never recycle a citation identity.
+export const topicReferences = sqliteTable('topic_references', {
+  topic_id: integer('topic_id').notNull().references(() => topics.id, { onDelete: 'cascade' }),
+  entry_id: text('entry_id').notNull(),
+  reference_number: integer('reference_number').notNull(),
+  source_key: text('source_key').notNull(),
+  first_commit: text('first_commit').notNull(),
+  added_at: text('added_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.topic_id, t.entry_id] }), uniqueIndex('topic_references_number_unq').on(t.topic_id, t.reference_number)])
+
+export const topicPushes = sqliteTable('topic_pushes', {
+  id: text('id').primaryKey(),
+  topic_id: integer('topic_id').notNull().references(() => topics.id, { onDelete: 'cascade' }),
+  user_id: integer('user_id').references(() => users.id, { onDelete: 'set null' }),
+  uploader_user_id: integer('uploader_user_id').notNull().default(0), // Immutable audit identity, even after account deletion.
+  token_id: integer('token_id'), // Historical credential identifier survives token deletion.
+  uploader_name: text('uploader_name').notNull(),
+  old_commit: text('old_commit'),
+  new_commit: text('new_commit').notNull(),
+  pushed_at: text('pushed_at').notNull(),
+}, (t) => [uniqueIndex('topic_pushes_commit_unq').on(t.topic_id, t.new_commit)])
+
+export const topicVersions = sqliteTable('topic_versions', {
+  topic_id: integer('topic_id').notNull().references(() => topics.id, { onDelete: 'cascade' }),
+  sequence: integer('sequence').notNull().default(0),
+  legacy_research_step_id: integer('legacy_research_step_id'),
+  commit: text('commit').notNull(),
+  parent_commit: text('parent_commit'),
+  message: text('message').notNull(),
+  author_name: text('author_name').notNull(),
+  author_email: text('author_email').notNull(),
+  committer_name: text('committer_name').notNull(),
+  committer_email: text('committer_email').notNull(),
+  committed_at: text('committed_at').notNull(),
+  push_id: text('push_id').notNull().references(() => topicPushes.id),
+}, (t) => [primaryKey({ columns: [t.topic_id, t.commit] }), uniqueIndex('topic_versions_legacy_step_unq').on(t.legacy_research_step_id)])
+
+export const topicNodes = sqliteTable('topic_nodes', {
+  topic_id: integer('topic_id').notNull().references(() => topics.id, { onDelete: 'cascade' }),
+  node_id: text('node_id').notNull(),
+  parent_id: text('parent_id'),
+  name: text('name').notNull(),
+  position: integer('position').notNull(),
+}, (t) => [primaryKey({ columns: [t.topic_id, t.node_id] })])
+
+export const topicPapers = sqliteTable('topic_papers', {
+  topic_id: integer('topic_id').notNull().references(() => topics.id, { onDelete: 'cascade' }),
+  node_id: text('node_id').notNull(),
+  entry_id: text('entry_id').notNull(),
+  paper_id: integer('paper_id').references(() => papers.id, { onDelete: 'set null' }),
+  s2_id: text('s2_id'),
+}, (t) => [primaryKey({ columns: [t.topic_id, t.node_id, t.entry_id] }), index('topic_papers_paper_idx').on(t.paper_id)])

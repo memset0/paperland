@@ -1,5 +1,27 @@
 # Paperland 前端功能架构
 
+## Topics
+
+导航 `/research`（别名 `/topics`）为 Topics；`/topics/:id/:document_path(.*)*` 是一等文档详情。旧 `/research/history`、`/research/:id` 和 Original research 保留。默认文件是 pages/report.md，不是 README；文件夹层级来自 pages/，RQ 集中于 pages/research-questions/，原始全文可放 pages/background/。协议见 [topics.md](topics.md)。
+
+桌面左侧 `TopicFileNav`/递归 `TopicFileBranch` 生成真实目录树，正文卡片最大约680px。当前页引用移到正文下方的 Collapsible，切换文档/版本/账号时默认收起，不再常驻右栏；手机仍用 Pages 抽屉。frontmatter title/fonticon 控制标题和 Lucide 图标（静态安全调色板，未知回退 FileText）；根 AGENTS.md 是独立 Agent guide。所有 UI 文案仍为英文，用户提供的标题/正文除外。
+
+All references 是单独入口，在右侧 Sheet 打开全局 references.json 的视图，不替换中央页面，也不进入文件树。数字 #ref 链接使用引用 chip，带完整标题，定位右栏/抽屉条目；普通链接、S2/本机 PDF 原生链接继续复用 MarkdownContent。全局编号按首次加入 Topic 排序，和发表年份无关；一项工作可用于多篇报告。S2 导入为显式按钮，工作区文件不展示/执行。
+
+干净 URL 去掉 pages/ 与 .md，目录 index.md 使用目录路径；默认报告用 /topics/:id。旧 file 查询和主页链接自动 canonicalize；目录移动仅在 basename 唯一时兼容，不猜测歧义。历史仍保留 version 查询并按对应提交解析文档。title/icon 由 frontmatter 决定，URL 由路径决定。
+
+`lib/topic-reading.ts` 以完整文档 Markdown block 和稳定条目 ID 计算纯新增，同帧开始 WA 动画并尊重 reduced motion。v2缓存按账号/Topic/文档/正文或引用面隔离；隐藏页面、未开抽屉、被阅读抽屉覆盖的正文以及历史不推进最新版基准。主页/明确的旧目录迁移可读取原缓存基准，避免把未看内容吞掉。全局资料抽屉有独立缓存。请求和渲染代次防止过期响应写错基准，存储故障降级。可见最新版每15秒刷新，名称编辑期间暂停。
+
+Share/Connect 独立。创建与 owner Share 使用 TopicAccessSelect 选 Private/Public、默认 Viewer/Editor，实际权限为个人授权和默认的较高者；移除个人授权回到默认。Connect 只管理本人凭证、MCP/Git URL与调用次数。历史和权限由同一服务校验，旧全局 Research 开关不参与。owner/editor 改名经 stale-aware PATCH 只改 topic.json，保留所有页面及工作区 blob。
+
+原共享列表类型在 lib/paper-ref-types.ts；论文默认仅显示可访问 Topic 根标签，和私有手工标签分开。v1历史目录数据保持兼容，v2使用平面全局表。
+
+
+正文数字 #ref 引用是主要入口：TopicCitationCard 通过事件委托处理 hover/focus/click/tap，PopoverAnchor 指向实际数字元素，弹层可避开视口边界。延迟关闭允许指针进入卡片并点击导入，点击/触摸操作可保持卡片；Escape、外部点击、文档/版本/账号/正文替换会关闭旧卡片。PaperCitationCard 复用原 Markdown #cite 卡片的标题/作者/年份/来源展示，原 Q&A 行为不变。Topic 卡片立即使用提交中的元数据，hover 不触发批量外部解析或入库；导入调用同一 Topic API，成功后原地更新站内链接/个人 library 状态，失败可重试。折叠引用列表和全局抽屉仅在展开时推进各自缓存，hover 卡片不吞掉列表未读基准。
+
+
+文章树桌面宽度在1024/1280/1536px断点分别为240/280/300px；保留14px文字，条目行高20px、桌面上下padding6px，目录上下padding4px，条目间距2px，每级缩进13px。Pages标题和Agent guide分隔留白相应收紧；正文仍以680px为上限，手机继续使用原抽屉。
+
 ## 概述
 
 Paperland 是一个论文管理网站。核心功能包括论文管理、数据抓取服务管理、以及基于大模型的论文 Q&A。
@@ -558,6 +580,8 @@ QA 统一为「system prompt + 有序 inputs + 问题」：inputs 可以是 PDF 
 | 独立 Q&A 页面 (/qa) | 按时间倒序展示自由提问的 Feed 流（不含模板提问，后端分页 20/页），每个 QA 为可折叠面板，显示关联论文标题及跳转链接。默认仅展示当前用户自己的提问；所有登录用户均可用 Mine / All 切换查看自己 + 开启 Q&A 共享的用户的提问（admin 看全部，未共享的标 Private）并看到提问者。别人的 QA 对普通用户只读，owner/admin 才有重新生成与删除操作。 |
 
 **`/qa` Feed 卡片组成（`QAFeedPanel.vue`）**：每个条目 = card 外的论文/提问者/时间行 + 下方可折叠 shadcn `Card`。card 头部显示状态、问题、当前用户的非零 "N highlights" / "N note references"、个人淡色背景选择器以及回答数/模型；card body 复用 `QAResultView`。每次模型运行在排队前即成为独立 Result tab，状态为 `queued → awaiting_output → streaming → done|failed|cancelled`。超过 `services.qa.time_limit`（缺省 2h）的运行由后端置为 `failed`（错误 "Answer exceeded the 2h time limit"，保留已流出的局部回答），前端按普通失败显示，无单独 UI。多回答 Tabs 按成功完成时间、活动运行创建时间及 id 判定最新，新增 Result 自动选中；计时/答案/SSE/等价轮询不改变 selection signature，保留用户手动历史选择。`scope=mine|all` 默认 mine，所有登录用户可切换；all 按 Q&A 共享开关过滤（admin 不过滤），显示 asker，普通用户能实时阅读别人的 QA，但停止/重生成/删除仍由 Result/Entry owner 或 admin 控制。背景色通过 `qa_user_preferences` 跨设备同步，支持 gray/brown/orange/yellow/green/blue/purple/pink/red 九色。高亮计数来自当前用户实际 rows，笔记引用计数从当前用户该论文的 `notes.body` 锚点派生，不缓存计数。分页和轮询仍只重拉当前页，并批量聚合 creator/preferences/highlights/notes。
+
+**Feed 阅读布局**：`QAPage` 继续用 `AppPage fill` 固定页头与分页、内部滚动。页头的 `Questions` Mine / All + Refresh 与下方 `Highlights` Mine / All 分行呈现，工具栏显示当前 scope 的提问总数。卡片上方为论文链接与日期（完整时间见提示）；All scope 的提问者/Private 标记在窄屏折行。卡片主行是真实 `button` 的 `CollapsibleTrigger`，包含状态、最多三行的问题预览和展开箭头；展开后显示完整问题。模型/回答数、输入摘要、阅读计数、QA 链接和背景选择器位于独立的可折行元信息行，按钮不嵌套、不触发展开。浅色与深色均使用现有主题 token，个人背景覆盖整张卡片；结果仍复用 `QAResultView`。加载骨架与新卡片同形，空列表提供 `Browse papers`，分页按钮提供英文无障碍标签与 `Page N of M`。
 
 #### QA Result 流式前端状态
 
@@ -1499,14 +1523,16 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 
 `GET /api/papers/:id/note`（返回 `{ note }` 或 `{ note: null }`；匿名 200 空；含 `completed` + `is_public` 布尔）、`PUT /api/papers/:id/note`（upsert 整篇 body + 乐观 `updated_at`；首次创建无需 `updated_at`，stale → 409 带最新；唯一索引冲突回读胜出者；**保留 `completed`/`is_public` 不动**）、`POST /api/papers/:id/note/completed`（`{ completed }` 切换精读完成；需已存在笔记行，否则 400；匿名 401；内联鉴权）、`PUT /api/papers/:id/note/visibility`（`{ is_public }` 切换公开；需已存在非空笔记，否则 400；匿名 401；内联鉴权）、`GET /api/papers/:id/public-notes`（其他用户公开非空笔记的无 body 摘要；免登录）、`GET /api/notes/:noteId`（单篇全文 + 作者；公开/属主/管理员可读，否则 404；免登录）、`GET /api/notes`（跨论文聚合，每篇一条 + `paper_title` + `username` + `completed` + `is_public`，排除空 body；`?scope=mine|all`（默认 mine；mine 匿名 401；all = 已发布 + 共享 + 自己，admin 全部，匿名仅已发布；每条带 `shared`；`include_private` 已废弃被忽略）；**鉴权在 handler 内联判断而非 `requireUser` preHandler**）。`completed`/`is_public` 在 SQLite 为 0/1，API 边界经 `toNote()` 转布尔。已移除旧的 tree 端点（create/move/subtree-delete/`PUT /root`）与 `ensureRoot`。
 
-## Deep Research（`/research`）
+## 旧版 Deep Research（`/research/history`）
+
+主 Research 入口已由 Topics 取代；这里保留旧会话列表与 `/research/:id` 历史详情及既有操作，不创建新的自动研究会话入口。Q&A 回答上的入口创建带回答快照的 Topic，不启动模型回合。
 
 独立的迭代式文献调研：agent（仅 Codex 模型，开启联网搜索）每轮输出一份完整的 Markdown **报告** + 一个分段的**论文列表**，二者构成一个**版本**；用户用自由文本反馈，agent 产出新的完整版本。openspec `deep-research`。
 
 ### 页面
 
-- **`/research`**（`views/ResearchList.vue`，`AppPage` 收窄布局，侧边栏 Research / `Telescope`，需登录）：会话卡片（标题 = 当前版本的列表标题，未有版本时为截断的 topic；topic 摘要、步骤数、版本数、最新状态、更新时间；All 视图显示属主），右上 `ScopeToggle` + 「New research」。新建对话框：Topic + Codex 模型下拉（`/api/config/models` 中 `type: codex` 的模型，默认取 `models.default`，否则第一个）。
-- **从 QA 回答起步**：`QAResultBody` 操作栏（done 且已登录）有 `Telescope`「Deep Research from this answer」链接 → `/research?new=1&seed_result=<resultId>`；列表页读取 query，调 `GET /api/research/seed-preview` 预填（topic 默认为原问题），对话框里显示来源论文与问题，并注明 "The answer is copied into this session; later changes to the Q&A do not affect it."。创建时后端再校验可见性并保存快照（`seed`：论文 id/标题、问题、回答、模型、result id）。
+- **`/research/history`**（`views/ResearchList.vue`，`AppPage`）：旧会话卡片保留标题、topic 摘要、步骤/版本数、状态与更新时间；All 视图显示属主。右上是 ScopeToggle 和返回 Topics 的按钮，新专题从 `/research` 的 Topics 页创建。
+- **从 QA 回答起步**：`QAResultBody` 的 "Create a topic from this answer" 链接进入 `/research?new=1&seed_result=<resultId>`，Topics 页调用 `/api/topics/seed-preview`；创建时再次检查回答可见性，把问题/回答复制进初始 Git 报告，不运行模型。旧会话已有 seed 保持不变。
 - **`/research/:id`**（`views/ResearchDetail.vue`，自管布局，标题经 `usePageTitle` 设为会话标题）：
   - 桌面（≥900px）两栏：左侧自上而下为下一轮输入框（owner 可见）和**步骤时间线（最新一轮在最上，越往下越旧；起步 QA 卡片在最底）**，每个结束的回合显示用时（`started_at` → `finished_at`，如 `3m 12s`）。输入框（`DefineComposer` 复用模板）：Textarea + Codex 模型下拉，默认沿用最近一轮的模型，⌘/Ctrl+Enter 发送；有进行中回合时仍可输入，按钮变成 **Queue**：消息进入服务端队列（`POST /api/research/:id/steps` 返回 202、`queued: true`），输入框上方列出排队中的消息（虚线框，可逐条 × 移除 → `DELETE /api/research/:id/queue/:messageId`），提示「当前回合结束后合并成一条一起发送」。回合结束后服务端立即派发队列，`stores/research.ts` 在终止事件后刷新会话，若仍有排队消息而新回合还没出现，会每 400ms 再刷新一次（最多 5 次）以接上新回合的流），右侧为**版本视图**。
   - 窄屏（< 900px）：mobile bottom bar 三个分区 **Instruct**（时间线从旧到新，owner 的输入框固定在屏幕底部、底部栏上方（`data-docked-composer`，排队列表最高 8rem 可滚动，"Add to queue" 只显示图标），切换分区时重置滚动：切到 Instruct 滚到底部（最新一轮；新回合出现或底部输入框高度变化后再次贴底），切到 Report / Papers 滚到顶部；回合进行中图标转圈、排队数显示为角标）/ **Report** / **Papers**（版本选择器在上，内部的 Report/Papers 标签隐藏、由底部栏驱动）。打开会话时有版本默认 Report，否则 Instruct。
@@ -1552,4 +1578,3 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 - **数据流**：`stores/features.ts`（Pinia）持有 `GET /api/features` 的结果（新到旧、每项带本人 `seen`），`newCount` = 未看过的数量。`App.vue` 在登录用户 id 变化时强制拉取（嵌入模式不拉），侧边栏 Home 项复用 Settings 的红色计数徽标（`badgeCount(item)`），tooltip 显示 "(N new features)"。`markSeen(keys)` 先本地置 `seen`、再 fire-and-forget `POST /api/features/seen`。
 - **首页 Features**（`components/home/FeatureList.vue`，在 Recent papers 之后、Usage 之前）：**只列未看过的功能**（新到旧，`components/FeatureCard.vue`：插图、标题、日期、说明，右上角小红点，`role=button`，Enter/Space 同样生效）；标题旁红色计数 = 未看过的数量。点击卡片即 `markSeen([key])`，卡片淡出离开列表（`TransitionGroup`）、计数减一。全部看过时显示 "No new features"。仅打开首页不会标记已看。
 - **历史功能弹窗**（`components/home/FeatureHistoryDialog.vue`）：Features 标题栏右侧 "All features" 按钮（始终显示）打开，列出全部功能（新到旧、两列网格、可滚动）；未看过的仍带红点、点击同样标记已看（首页卡片随之消失）；打开弹窗本身不标记任何东西。
-

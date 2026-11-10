@@ -13,11 +13,14 @@ import { AGENT_TOOLS, callAgentTool, type AgentToolContext } from '../services/a
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const SERVER_INFO = { name: 'paperland', version: '1.0.0' }
 const INSTRUCTIONS = 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
+  'Maintain Topics with list_topics / get_topic and the returned Git repository contract; Topic tokens identify you and one Topic. ' +
+  'Use read_pdf_page for a physical PDF page and its native Markdown citation; request image=true only when a page image is needed. ' +
   'Use s2_match / s2_search to get S2 paperIds instead of guessing them; read library papers with read_paper. ' +
   'With a personal token, add_paper / update_paper / upload_paper_pdf / refresh_paper add and maintain papers ' +
   '(including work that is not on arXiv: a project page with a PDF, or a blog post). ' +
   'Before importing a blog post or other web article, read the guide with get_skill("blog-import"). ' +
-  'upload_image also takes a "url" (images and videos); upload local files with POST /external-api/v1/images and the same bearer token.'
+  'upload_image also takes a "url" (images and videos). Topic tokens can use upload_image with data or url; ' +
+  'native local-file uploads through POST /external-api/v1/images require a personal token.'
 
 interface RpcMessage {
   jsonrpc?: string
@@ -66,8 +69,8 @@ async function handleMessage(message: RpcMessage, ctx: AgentToolContext): Promis
     case 'tools/call': {
       const name = message.params?.name
       if (typeof name !== 'string') return rpcError(message.id, -32602, 'params.name is required')
-      const { text, isError } = await callAgentTool(name, message.params?.arguments, ctx)
-      return rpcResult(message.id, { content: [{ type: 'text', text }], isError })
+      const { text, isError, content } = await callAgentTool(name, message.params?.arguments, ctx)
+      return rpcResult(message.id, { content: content ?? [{ type: 'text', text }], isError })
     }
     default:
       return rpcError(message.id, -32601, `Method not found: ${message.method}`)
@@ -84,11 +87,16 @@ export async function mcpRoutes(app: FastifyInstance): Promise<void> {
   const maxFileMb = Math.max(getConfig().image_host.max_size_mb, getConfig().image_host.max_video_size_mb, getConfig().pdf_upload.max_file_size_mb)
   const bodyLimit = Math.ceil(maxFileMb * 1024 * 1024 * 4 / 3) + 1024 * 1024
   app.post('/mcp', { bodyLimit }, async (request, reply) => {
-    const check = checkBearerToken(bearerFromHeader(request.headers.authorization), ['personal', 'agent'])
+    reply.header('Cache-Control', 'no-store')
+    const check = checkBearerToken(bearerFromHeader(request.headers.authorization), ['personal', 'agent', 'topic'])
     if (!check.ok) {
       return reply.code(401).header('www-authenticate', 'Bearer').send(rpcError(null, -32001, check.message))
     }
-    const ctx: AgentToolContext = { viewer: { id: check.user.id, role: check.user.role }, token_kind: check.token.kind as TokenKind }
+    const ctx: AgentToolContext = {
+      viewer: { id: check.user.id, role: check.user.role }, token_kind: check.token.kind as TokenKind,
+      ...(check.token.kind === 'topic' ? { topic_id: check.token.topic_id! } : {}),
+      site_origin: `${request.headers['x-forwarded-proto'] === 'https' ? 'https' : request.protocol}://${request.headers.host}`,
+    }
 
     const body = request.body as RpcMessage | RpcMessage[] | undefined
     if (Array.isArray(body)) {

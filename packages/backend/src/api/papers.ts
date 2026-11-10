@@ -15,6 +15,8 @@ import {
 } from '../services/paper_actions.js'
 import type { CreatePaperRequest, UpdatePaperRequest } from '@paperland/shared'
 import { getConfig } from '../config.js'
+import { topicPaperFilter, topicTagsByPapers } from '../services/topic_index.js'
+import { topicId } from '../services/topics.js'
 
 /** `pdf_upload.max_file_size_mb`; falls back to the schema default when config isn't loaded (route-only unit tests). */
 function pdfUploadMaxMb(): number {
@@ -23,7 +25,7 @@ function pdfUploadMaxMb(): number {
 
 export async function paperRoutes(app: FastifyInstance): Promise<void> {
   // List papers with pagination and search
-  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string; tag_ids?: string; listed?: string; scope?: string } }>(
+  app.get<{ Querystring: { page?: string; page_size?: string; search?: string; sort_by?: string; sort_order?: string; tag_ids?: string; listed?: string; scope?: string; topic_id?: string; topic_node_id?: string } }>(
     '/api/papers',
     async (request) => {
       const db = getDatabase()
@@ -46,7 +48,8 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
             cnt: sql<number>`count(distinct ${schema.paperTags.tag_id})`.as('cnt'),
           })
             .from(schema.paperTags)
-            .where(inArray(schema.paperTags.tag_id, tagIds))
+            .innerJoin(schema.tags, eq(schema.tags.id, schema.paperTags.tag_id))
+            .where(and(inArray(schema.paperTags.tag_id, tagIds), eq(schema.tags.user_id, request.user?.id ?? -1)))
             .groupBy(schema.paperTags.paper_id)
             .all()
           tagFilteredPaperIds = rows.filter(r => r.cnt === tagIds.length).map(r => r.paper_id)
@@ -57,6 +60,9 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const conditions = []
+      if (request.query.topic_id != null) {
+        conditions.push(topicPaperFilter(topicId(request.query.topic_id), request.query.topic_node_id || 'root', request.user?.id ?? -1))
+      }
       if (search) {
         conditions.push(or(
           like(schema.papers.title, `%${search}%`),
@@ -104,6 +110,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
 
       // Parse JSON fields + attach the current user's tags (none for anonymous)
       const tagsByPaper = userTagsByPapers(db, data.map(p => p.id), request.user?.id ?? null)
+      const topicTags = topicTagsByPapers(data.map(p => p.id), request.user?.id ?? null)
       const addedAt = libraryAddedAt(userId, data.map(p => p.id))
       const parsed = data.map(p => ({
         ...p,
@@ -111,6 +118,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
         metadata: slimListMetadata(p.metadata),
         listed: !!p.listed,
         tags: tagsByPaper.get(p.id) ?? [],
+        topic_tags: topicTags.get(p.id) ?? [],
         in_library: addedAt.has(p.id),
         added_at: addedAt.get(p.id) ?? null,
       }))
@@ -152,6 +160,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
     return {
       ...parsePaper(paper),
       tags,
+      topic_tags: topicTagsByPapers([id], request.user?.id ?? null).get(id) ?? [],
       in_library: libraryIds(request.user?.id ?? null, [id]).has(id),
       ...derivePdfStatus(paper, executions),
     }

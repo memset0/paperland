@@ -25,7 +25,7 @@ export async function registerFrontendHosting(
     const notFound = () => reply.code(404).send({ error: 'Not found' })
 
     // Unknown server routes must never receive SPA HTML, including namespace roots.
-    if (/^\/(api|external-api|image)(\/|$)/.test(pathname)) return notFound()
+    if (/^\/(api|external-api|image|topic-git)(\/|$)/.test(pathname)) return notFound()
 
     const file = resolve(root, relative)
     if (!file.startsWith(root + sep) || relative.includes('\0')) return notFound()

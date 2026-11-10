@@ -1,5 +1,5 @@
 import type { ResearchListItem, ResearchListSection, ResearchPaperList } from '@paperland/shared'
-import type { PaperRefSection, RefItem } from '@/components/PaperRefList.vue'
+import type { PaperRefSection, RefItem } from './paper-ref-types'
 
 // Frontend boundary for the Deep Research paper-list format (mirrors backend
 // services/research_list.ts). Views only touch the list through these helpers, so the format can

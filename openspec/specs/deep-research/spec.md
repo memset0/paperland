@@ -21,11 +21,11 @@ The system SHALL let an authenticated user create a research session with a rese
 - **THEN** the server SHALL respond with 401
 
 ### Requirement: Start research from a QA answer
-Every QA Result the viewer can see SHALL offer a "Deep Research" action that opens session creation prefilled from that Result. The created session SHALL store a seed snapshot containing the source paper's id and title, the question, the answer text, and the source Result id at creation time. Later edits or deletion of the source QA SHALL NOT change the session or its seed.
+Every QA Result the viewer can see SHALL offer a "Create topic" action opening Topic creation with a seed snapshot of the source paper id/title, question, answer and Result id. Creating that Topic SHALL initialize its report from the snapshot without launching a model round. Later edits or deletion of the source QA SHALL NOT change the Topic's committed seed content. Existing legacy sessions and their seed snapshots SHALL remain readable.
 
 #### Scenario: Seed is a snapshot
-- **WHEN** a session is created from QA Result 42 and Result 42 is later deleted
-- **THEN** the session SHALL still show and use the seed's question and answer text
+- **WHEN** a Topic is created from QA Result 42 and Result 42 is later deleted
+- **THEN** the Topic's initial committed report SHALL retain the copied question and answer
 
 ### Requirement: Linear history of steps and versions
 A session's history SHALL be a strictly ordered, non-branching sequence of steps. A step SHALL be either an agent round (user text + one model + agent output) or a title edit by the owner. Every step that yields a list SHALL create a new list version; all versions SHALL be kept and viewable. The owner SHALL be able to submit a new agent round (free text plus a model); when a round is active (`queued`, `awaiting_output`, or `streaming`) the message SHALL be queued instead (see "Queued messages") rather than rejected. Only the latest step, when it is an agent round, SHALL be retryable; retrying SHALL replace that round's output (the user MAY edit its text and model). The owner SHALL be able to cancel an active round. A new round's model SHALL default to the most recent agent round's model.
@@ -177,19 +177,23 @@ While a round is streaming, the UI SHALL render the report progressively but SHA
 - **THEN** the round view SHALL show the "Generating paper list…" placeholder and no raw JSON
 
 ### Requirement: Research pages
-The sidebar SHALL include a login-required "Research" entry linking to `/research`, a management page wrapped in `AppPage` that lists sessions (title, topic excerpt, round count, latest status, updated time) with a "New research" action and a `mine`/`all` scope selector. `/research/:id` SHALL be a detail page with its own layout showing the step timeline (agent rounds with user text, status, `changes` note, and list-change summary; title edits with what changed) and the selected version (report and paper list), plus an input for the next round with a Codex model selector for the owner. In the wide layout (900px and wider) the left column SHALL show, from top to bottom, the owner's input (with any queued messages) and then the steps newest first; the selected version is in the right column. In the narrow layout the page SHALL use the mobile bottom bar sections Instruct / Report / Papers (see `mobile-bottom-bar`). Every finished agent round SHALL show how long it ran (from start to finish, e.g. `3m 12s`).
+The sidebar's existing research entry SHALL be labeled "Topics" and link to `/research`, a Topics management page using AppPage. Legacy sessions SHALL remain listed at `/research/history` with their prior title, excerpt, round count, status, update time and mine/all scope. Existing `/research/:id` detail links SHALL retain their step timeline, report/list versions and legacy session tools. Topic details SHALL use a distinct `/topics/:id` route to avoid collisions with historical session IDs. New research creation from primary navigation SHALL create Topics rather than automatic model rounds.
 
 #### Scenario: Navigate to research
-- **WHEN** a logged-in user clicks "Research" in the sidebar
-- **THEN** the `/research` page SHALL show their sessions and a "New research" action
+- **WHEN** a logged-in user clicks "Topics" at the original Research sidebar location
+- **THEN** `/research` SHALL show accessible Topics and a "New topic" action
 
 #### Scenario: Newest round first on desktop
-- **WHEN** the owner opens a session with three rounds on a wide screen
-- **THEN** the left column SHALL show the input at the top, then round 3, round 2, round 1
+- **WHEN** the owner opens a legacy session with three rounds on a wide screen
+- **THEN** its detail page SHALL continue to show the input at the top, then round 3, round 2, round 1
 
 #### Scenario: Round duration is shown
-- **WHEN** a round started at 10:00:00 and finished at 10:03:12
-- **THEN** the timeline SHALL show `3m 12s` for that round
+- **WHEN** a legacy round started at 10:00:00 and finished at 10:03:12
+- **THEN** its timeline SHALL still show `3m 12s`
+
+#### Scenario: Access existing history
+- **WHEN** a user follows an existing `/research/:id` link or opens Research history from Topics
+- **THEN** authorized legacy content SHALL remain accessible after its one-time Topic copy, without deleting or altering the source records
 
 ### Requirement: Report display
 The selected version's report SHALL be rendered as Markdown with the same citation behavior as Q&A answers: every `#cite:<id>` link SHALL be resolved through the S2 paper cache resolver and rendered as a citation chip with a hover/click card when it resolves (plain text otherwise), and a collapsed "References · N" list of the report's own citations SHALL appear below the report using the shared paper list component.

@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto'
 import { and, eq, isNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
+import { topicTokenVerifier, requireTopicAccess } from './topic_access.js'
 
 /**
  * Bearer tokens (`api_tokens`). Two kinds share the table:
@@ -11,7 +12,7 @@ import { getDatabase, schema } from '../db/index.js'
  *   returns its value, and it can only be reset in place (the old value stops working at once).
  */
 
-export type TokenKind = 'personal' | 'agent'
+export type TokenKind = 'personal' | 'agent' | 'topic'
 export type TokenRow = typeof schema.apiTokens.$inferSelect
 type UserRow = typeof schema.users.$inferSelect
 
@@ -79,15 +80,22 @@ export type TokenCheck =
 export function checkBearerToken(raw: string | null | undefined, kinds: TokenKind[]): TokenCheck {
   if (!raw) return { ok: false, message: 'Bearer token required' }
   const db = getDatabase()
-  const token = db.select().from(schema.apiTokens).where(eq(schema.apiTokens.token, raw)).get()
+  const lookup = raw.startsWith('plt_') ? topicTokenVerifier(raw) : raw
+  const token = db.select().from(schema.apiTokens).where(eq(schema.apiTokens.token, lookup)).get()
   if (!token) return { ok: false, message: 'Invalid token' }
   if (token.revoked_at !== null) return { ok: false, message: 'Token has been revoked' }
+  if (token.kind === 'topic' && !raw.startsWith('plt_')) return { ok: false, message: 'Invalid token' }
   if (!kinds.includes(token.kind as TokenKind)) {
     return { ok: false, message: token.kind === 'agent' ? 'Agent tokens are only accepted by /mcp' : 'Token kind not accepted here' }
   }
   const user = token.user_id != null ? db.select().from(schema.users).where(eq(schema.users.id, token.user_id)).get() : undefined
   if (!user) return { ok: false, message: 'Token has no owner' }
   if (user.status !== 'active') return { ok: false, message: 'Account is not active' }
+  if (token.kind === 'topic') {
+    if (token.topic_id == null) return { ok: false, message: 'Topic credential has no Topic' }
+    try { requireTopicAccess(token.topic_id, user.id) }
+    catch { return { ok: false, message: 'Topic access has been revoked' } }
+  }
   return { ok: true, token, user }
 }
 

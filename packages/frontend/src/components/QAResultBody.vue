@@ -188,7 +188,7 @@ function timeAgo(iso: string): string {
             </RouterLink>
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Deep Research from this answer</TooltipContent>
+        <TooltipContent>Create a topic from this answer</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger as-child>

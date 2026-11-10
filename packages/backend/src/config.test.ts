@@ -42,6 +42,17 @@ afterAll(() => {
 })
 
 describe('model and translation config validation', () => {
+  test('Topic and selected-page PDF configuration preserves safe nested defaults', () => {
+    const file = configFile(`    - name: model-one\n      type: openai_api`)
+    expect(loadConfig(file).topics).toMatchObject({ repos_dir: './data/topics', git_path: 'git', max_commits_per_push: 100 })
+    expect(loadConfig(file).pdf_pages).toMatchObject({ pdftoppm_path: 'pdftoppm', max_dimension: 1600, max_concurrency: 2 })
+    writeFileSync(file, require('fs').readFileSync(file, 'utf8') + '\ntopics:\n  max_commits_per_push: 20\npdf_pages:\n  max_dimension: 800\n')
+    expect(loadConfig(file).topics.git_path).toBe('git')
+    expect(loadConfig(file).topics.max_commits_per_push).toBe(20)
+    expect(loadConfig(file).pdf_pages.timeout_ms).toBe(20000)
+    writeFileSync(file, require('fs').readFileSync(file, 'utf8').replace('max_dimension: 800', 'max_dimension: 99999'))
+    expect(() => loadConfig(file)).toThrow('max_dimension')
+  })
   test('keeps OpenAI and Codex exec definitions valid with stream default false', () => {
     const openai = loadConfig(configFile(`    - name: model-one
       type: openai_api

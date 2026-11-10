@@ -295,6 +295,48 @@
       "when": 1792105143524,
       "tag": "0041_productive_cerebro",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1794176277053,
+      "tag": "0042_topics",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1794177664314,
+      "tag": "0043_topic_version_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1794179492517,
+      "tag": "0044_topic_uploader_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1794249207412,
+      "tag": "0045_legacy_research_topics",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1794265869896,
+      "tag": "0046_topic_default_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1794266652687,
+      "tag": "0047_topic_reference_numbers",
+      "breakpoints": true
     }
   ]
 }

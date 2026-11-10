@@ -1,3 +1,6 @@
+export type * from './topics'
+import type { TopicsConfig, PdfPagesConfig, TopicTag } from './topics'
+
 // Paper
 export interface Paper {
   id: number
@@ -19,6 +22,8 @@ export interface Paper {
   kind: PaperKind
   /** Derived per caller: the paper is in the caller's personal library (Mine list). False for anonymous. */
   in_library?: boolean
+  /** Generated root badges from Topics accessible to the caller; independent of manual tags. */
+  topic_tags?: TopicTag[]
   /** Derived per caller (list only): when the caller added the paper to their library; null if not in it. */
   added_at?: string | null
   /** Derived (detail only): whether a PDF is available, being fetched, or must be uploaded. */
@@ -296,7 +301,7 @@ export interface ServiceExecution {
 
 // API Token
 /** `personal`: user-managed (External API + /mcp). `agent`: one per user, injected into Codex runs (/mcp only). */
-export type ApiTokenKind = 'personal' | 'agent'
+export type ApiTokenKind = 'personal' | 'agent' | 'topic'
 
 /** Admin list row. `token` is masked for personal tokens and null for agent tokens (never shown). */
 export interface ApiToken {
@@ -489,6 +494,8 @@ export interface AppConfig {
   sharing: SharingConfig
   doc2x: Doc2xConfig
   agent_tools: AgentToolsConfig
+  topics: TopicsConfig
+  pdf_pages: PdfPagesConfig
 }
 
 /** MCP tools for agents Paperland launches (Deep Research rounds). */

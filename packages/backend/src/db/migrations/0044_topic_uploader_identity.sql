@@ -1,0 +1,1 @@
+ALTER TABLE `topic_pushes` ADD `uploader_user_id` integer DEFAULT 0 NOT NULL;

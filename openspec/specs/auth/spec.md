@@ -81,15 +81,19 @@ The Internal API SHALL provide an admin-only endpoint to revoke an existing API 
 - **THEN** the server SHALL respond with 400 and the token SHALL stay valid
 
 ### Requirement: Token listing API
-The Internal API SHALL provide an admin-only endpoint to list all API tokens with their id, kind (`personal` | `agent`), masked token value, owning user, `created_at`, `rotated_at`, and `revoked_at`. For agent tokens the token value SHALL be null (not even masked).
+The Internal API SHALL provide an admin-only endpoint to list personal and agent API tokens with their id, kind (`personal` | `agent`), masked token value, owning user, `created_at`, `rotated_at`, and `revoked_at`. For agent tokens the token value SHALL be null (not even masked). Topic credentials SHALL be managed through their member-scoped Topic endpoints and SHALL NOT appear in this general list or be revocable through the general admin endpoint.
 
 #### Scenario: List tokens
 - **WHEN** an authenticated admin calls `GET /api/settings/tokens`
-- **THEN** the server SHALL return all tokens with the token value partially masked (e.g., "sk-xxxx...xxxx") and the owning user
+- **THEN** the server SHALL return personal/agent tokens with personal token values partially masked (e.g., "sk-xxxx...xxxx") and the owning user
 
 #### Scenario: Agent token listed without value
 - **WHEN** an admin lists tokens and a user has an agent token
 - **THEN** that row SHALL have `kind: "agent"` and `token: null`
+
+#### Scenario: Topic credential remains member-scoped
+- **WHEN** a non-member admin lists or attempts to revoke a Topic credential through general token management
+- **THEN** it SHALL not be disclosed or changed through that endpoint
 
 ### Requirement: Authorization tiers for website API
 The website Internal API SHALL require an authenticated, active user for every `/api/*` request, except for this anonymous allowlist: `GET /api/health`, `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me`, and `GET /api/notes/:noteId` (which still only returns published notes to anonymous callers). Any other `/api/*` request without a session SHALL be rejected with 401 before the route runs. Within the authenticated tier, admin-only endpoints SHALL additionally require the `admin` role. `/external-api/*` SHALL remain governed solely by Bearer Token auth and SHALL NOT be subject to website session auth. `/image/*` (image host) SHALL stay public. Identity SHALL be resolved once per request.

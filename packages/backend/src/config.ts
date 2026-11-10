@@ -341,6 +341,32 @@ const agentToolsSchema = z.object({
   skills_dir: z.string().default(AGENT_TOOLS_DEFAULTS.skills_dir),
 })
 
+const TOPICS_DEFAULTS = {
+  repos_dir: './data/topics', git_path: 'git', max_file_bytes: 2097152,
+  max_push_bytes: 16777216, max_commits_per_push: 100, operation_timeout_ms: 60000,
+}
+const topicsSchema = z.object({
+  repos_dir: z.string().min(1).default(TOPICS_DEFAULTS.repos_dir),
+  git_path: z.string().min(1).default(TOPICS_DEFAULTS.git_path),
+  max_file_bytes: z.number().int().positive().max(16777216).default(TOPICS_DEFAULTS.max_file_bytes),
+  max_push_bytes: z.number().int().positive().max(134217728).default(TOPICS_DEFAULTS.max_push_bytes),
+  max_commits_per_push: z.number().int().positive().max(1000).default(TOPICS_DEFAULTS.max_commits_per_push),
+  operation_timeout_ms: z.number().int().positive().max(300000).default(TOPICS_DEFAULTS.operation_timeout_ms),
+})
+const PDF_PAGES_DEFAULTS = {
+  pdfinfo_path: 'pdfinfo', pdftotext_path: 'pdftotext', pdftoppm_path: 'pdftoppm',
+  max_dimension: 1600, max_image_bytes: 8388608, timeout_ms: 20000, max_concurrency: 2,
+}
+const pdfPagesSchema = z.object({
+  pdfinfo_path: z.string().min(1).default(PDF_PAGES_DEFAULTS.pdfinfo_path),
+  pdftotext_path: z.string().min(1).default(PDF_PAGES_DEFAULTS.pdftotext_path),
+  pdftoppm_path: z.string().min(1).default(PDF_PAGES_DEFAULTS.pdftoppm_path),
+  max_dimension: z.number().int().min(128).max(4096).default(PDF_PAGES_DEFAULTS.max_dimension),
+  max_image_bytes: z.number().int().positive().max(33554432).default(PDF_PAGES_DEFAULTS.max_image_bytes),
+  timeout_ms: z.number().int().positive().max(120000).default(PDF_PAGES_DEFAULTS.timeout_ms),
+  max_concurrency: z.number().int().min(1).max(8).default(PDF_PAGES_DEFAULTS.max_concurrency),
+})
+
 const configSchema = z.object({
   database: databaseSchema,
   auth: authSchema,
@@ -372,6 +398,8 @@ const configSchema = z.object({
   research: researchSchema.default(RESEARCH_DEFAULTS),
   // Explicit literal default (not `.default({})`) so inner defaults hold when the key is absent.
   agent_tools: agentToolsSchema.default(AGENT_TOOLS_DEFAULTS),
+  topics: topicsSchema.default(TOPICS_DEFAULTS),
+  pdf_pages: pdfPagesSchema.default(PDF_PAGES_DEFAULTS),
 }).superRefine((config, ctx) => {
   if (config.translation.model && !config.models.available.some((model) => model.name === config.translation.model)) {
     ctx.addIssue({

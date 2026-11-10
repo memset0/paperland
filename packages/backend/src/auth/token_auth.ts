@@ -33,6 +33,10 @@ export async function tokenAuth(request: FastifyRequest, reply: FastifyReply): P
     reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Agent tokens are only accepted by /mcp' } })
     return
   }
+  if (found.kind !== 'personal') {
+    reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Topic tokens are only accepted by MCP and Topic Git' } })
+    return
+  }
 
   // Attribute the request to the token's owning user so per-user data (e.g. tags)
   // created via the External API is owned by that user (Zotero sync continues to work;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePapersStore } from '@/stores/papers'
 import { useTagsStore } from '@/stores/tags'
@@ -7,6 +7,9 @@ import { useAuthStore } from '@/stores/auth'
 import { useLoginPrompt } from '@/composables/useLoginPrompt'
 import { Plus, Search, FileText, ChevronLeft, ChevronRight, ArrowUpDown, Tag, Loader2, Circle, CircleCheck, CircleDashed } from '@lucide/vue'
 import { notesApi } from '@/api/client'
+import { topicsApi } from '@/api/topics'
+import type { TopicDetail, TopicSummary } from '@paperland/shared'
+import TopicTagBadge from '@/components/TopicTagBadge.vue'
 import { parseS2Input } from '@/lib/s2-input'
 import SourceTag from '@/components/SourceTag.vue'
 import S2Badge from '@/components/S2Badge.vue'
@@ -36,6 +39,29 @@ function onAddClick() {
   else openLogin()
 }
 const route = useRoute()
+const availableTopics = ref<TopicSummary[]>([])
+const filterTopic = ref<TopicDetail | null>(null)
+const topicFilterId = computed(() => typeof route.query.topic_id === 'string' && /^[1-9]\d*$/.test(route.query.topic_id) ? Number(route.query.topic_id) : undefined)
+const topicFilterNode = computed(() => typeof route.query.topic_node_id === 'string' ? route.query.topic_node_id : 'root')
+let topicRequest = 0
+async function loadTopicFilter() {
+  const request = ++topicRequest, id = topicFilterId.value
+  filterTopic.value = null
+  if (id == null) return
+  try { const result = await topicsApi.get(id); if (request === topicRequest) filterTopic.value = result.data } catch {}
+}
+function selectTopic(value: string) {
+  const query = { ...route.query }
+  if (value) { query.topic_id = value; query.scope = 'all' } else { delete query.topic_id }
+  delete query.topic_node_id
+  void router.replace({ query })
+}
+function selectTopicNode(value: string) { void router.replace({ query: { ...route.query, topic_node_id: value } }) }
+watch([() => route.query.topic_id, () => route.query.topic_node_id, () => route.query.scope, () => route.query.tags], () => {
+  if (route.query.scope === 'all' || route.query.scope === 'mine') store.setScope(route.query.scope)
+  selectedTagIds.value = typeof route.query.tags === 'string' ? route.query.tags.split(',').map(Number).filter(Number.isFinite) : []
+  void loadTopicFilter(); fetchWithFilters(1)
+})
 const search = ref('')
 const showAdd = ref(false)
 const addTab = ref<'arxiv' | 'corpus' | 'manual'>('arxiv')
@@ -75,6 +101,9 @@ function noteState(id: number): 'none' | 'has' | 'done' {
 function openNotes(id: number, e: Event) { e.stopPropagation(); router.push(`/papers/${id}?view=note`) }
 
 onMounted(() => {
+  if (route.query.scope === 'all' || route.query.scope === 'mine') store.setScope(route.query.scope)
+  void topicsApi.list().then((r) => { availableTopics.value = r.data }).catch(() => {})
+  void loadTopicFilter()
   const tagsParam = route.query.tags as string
   if (tagsParam) {
     selectedTagIds.value = tagsParam.split(',').map(Number).filter(n => !isNaN(n))
@@ -85,7 +114,7 @@ onMounted(() => {
 })
 
 function fetchWithFilters(page = 1) {
-  store.fetchPapers(page, search.value, selectedTagIds.value.length > 0 ? selectedTagIds.value : undefined)
+  store.fetchPapers(page, search.value, selectedTagIds.value.length > 0 ? selectedTagIds.value : undefined, topicFilterId.value == null ? undefined : { topic_id: topicFilterId.value, topic_node_id: topicFilterNode.value })
 }
 
 function onSearch() { fetchWithFilters(1) }
@@ -116,9 +145,8 @@ async function promote(paper: any) {
 }
 
 function setScope(value: 'mine' | 'all') {
-  if (store.scope === value) return
-  store.setScope(value)
-  fetchWithFilters(1)
+  if (store.scope === value && route.query.scope === value) return
+  void router.replace({ query: { ...route.query, scope: value } })
 }
 const libraryBusyId = ref<number | null>(null)
 async function addToMyList(paper: any) {
@@ -140,7 +168,6 @@ function toggleTagFilter(tagId: number) {
     delete query.tags
   }
   router.replace({ query })
-  fetchWithFilters(1)
 }
 
 function clearTagFilter() {
@@ -148,7 +175,6 @@ function clearTagFilter() {
   const query = { ...route.query }
   delete query.tags
   router.replace({ query })
-  fetchWithFilters(1)
 }
 
 function setSort(field: 'created_at' | 'updated_at') {
@@ -206,6 +232,12 @@ async function addPaper() {
     </template>
     <div class="space-y-4">
     <div class="flex flex-wrap gap-2">
+      <select aria-label="Filter by topic" class="h-9 max-w-full rounded-md border bg-background px-2 text-sm" :value="topicFilterId == null ? '' : String(topicFilterId)" @change="selectTopic(($event.target as HTMLSelectElement).value)">
+        <option value="">All topics</option><option v-for="topic in availableTopics" :key="topic.id" :value="String(topic.id)">{{ topic.title }}</option>
+      </select>
+      <select v-if="filterTopic" aria-label="Filter by topic directory" class="h-9 max-w-full rounded-md border bg-background px-2 text-sm" :value="topicFilterNode" @change="selectTopicNode(($event.target as HTMLSelectElement).value)">
+        <option value="root">All directories</option><option v-for="dir in filterTopic.directories" :key="dir.id" :value="dir.id">{{ '  '.repeat(dir.depth) }}{{ dir.name }}</option>
+      </select>
       <!-- Scope: my personal paper list vs the site-wide list (logged-in users only) -->
       <ScopeToggle v-if="auth.user" class="self-center" size="sm" :model-value="store.scope" @update:model-value="setScope" />
       <div class="relative w-full md:w-auto md:flex-1">
@@ -319,6 +351,7 @@ async function addPaper() {
               <div v-if="(paper as any).tags?.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false).length" class="flex flex-wrap gap-1 mt-1">
                 <TagBadge v-for="t in (paper as any).tags.filter((t: any) => tagsStore.tags.find(st => st.id === t.id)?.visible !== false)" :key="t.id" :tag-id="t.id" :tag-name="t.name" />
               </div>
+              <div v-if="paper.topic_tags?.length" class="mt-1 flex flex-wrap gap-1"><TopicTagBadge v-for="tag in paper.topic_tags" :key="tag.topic_id" :tag="tag" /></div>
             </TableCell>
             <TableCell class="text-muted-foreground truncate max-w-[10rem] hidden md:table-cell">{{ formatAuthors(paper.authors) }}</TableCell>
             <TableCell>

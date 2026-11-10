@@ -47,7 +47,7 @@ const SHARING_ITEMS: Array<{ key: SharingDataType; label: string }> = [
   { key: 'notes', label: 'Notes' },
   { key: 'qa', label: 'Q&A' },
   { key: 'reference_links', label: 'Reference links' },
-  { key: 'research', label: 'Research' },
+  { key: 'research', label: 'Research history' },
 ]
 const sharing = ref<SharingPreferences | null>(null)
 
@@ -94,7 +94,7 @@ async function revokeToken(id: number) {
 }
 
 async function resetAgentToken() {
-  if (!confirm('Reset the Codex agent token? The old one stops working at once; tool calls in running Deep Research rounds will fail, and new rounds use the new token.')) return
+  if (!confirm('Reset the Codex agent token? The old value stops working immediately; tool calls in running Q&A and legacy research runs will fail.')) return
   tokenBusy.value = true
   try {
     const agent = (await myTokensApi.resetAgent()).data
@@ -193,7 +193,7 @@ async function submit() {
       <h3 class="text-sm font-semibold">Sharing</h3>
     </div>
     <div class="space-y-3 px-5 py-4">
-      <p class="text-xs text-muted-foreground">Data types you turn on appear (read-only) in other users' "All" lists. Admins can always see everything, and published notes are always listed. Papers and preset questions are always shared; tags and images are always private.</p>
+      <p class="text-xs text-muted-foreground">Data types you turn on appear (read-only) in other users' "All" lists. Admins can view these data types, and published notes are always listed. Papers and preset questions are shared; manual tags and image lists stay private. Topic access is managed separately on each topic.</p>
       <div v-if="sharing" class="grid grid-cols-2 gap-2">
         <label
           v-for="item in SHARING_ITEMS"
@@ -249,7 +249,7 @@ async function submit() {
       <div v-if="tokens" class="flex items-center gap-2 rounded-md border px-2 py-1.5">
         <div class="min-w-0 flex-1">
           <p class="text-xs font-medium">Codex agent token</p>
-          <p class="text-xs text-muted-foreground">Used automatically by Deep Research; cannot be viewed. {{ tokens.agent.rotated_at ? `Reset ${formatTime(tokens.agent.rotated_at)}` : `Created ${formatTime(tokens.agent.created_at)}` }}</p>
+          <p class="text-xs text-muted-foreground">Used automatically by Q&A and legacy research; cannot be viewed. {{ tokens.agent.rotated_at ? `Reset ${formatTime(tokens.agent.rotated_at)}` : `Created ${formatTime(tokens.agent.created_at)}` }}</p>
         </div>
         <Button type="button" variant="outline" size="sm" :disabled="tokenBusy" @click="resetAgentToken"><RefreshCw />Reset</Button>
       </div>

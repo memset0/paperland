@@ -23,12 +23,16 @@ export const usePapersStore = defineStore('papers', () => {
     try { localStorage.setItem('paperland_paper_scope', value) } catch {}
   }
 
-  async function fetchPapers(page = 1, search = '', tagIds?: number[]) {
+  async function fetchPapers(page = 1, search = '', tagIds?: number[], topicFilter?: { topic_id: number; topic_node_id?: string }) {
     loading.value = true
     try {
       const params = new URLSearchParams({ page: String(page), page_size: '20' })
       if (search) params.set('search', search)
       if (tagIds && tagIds.length > 0) params.set('tag_ids', tagIds.join(','))
+      if (topicFilter) {
+        params.set('topic_id', String(topicFilter.topic_id))
+        if (topicFilter.topic_node_id) params.set('topic_node_id', topicFilter.topic_node_id)
+      }
       params.set('sort_by', sortBy.value)
       params.set('sort_order', sortOrder.value)
       params.set('listed', listedMode.value)

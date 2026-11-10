@@ -16,6 +16,7 @@ import { applyHighlights, clearHighlights, getSelectionOffsets, isForeignHighlig
 import { useBlockAnchor, type AnchorRange } from '@/composables/useBlockAnchor'
 import { usePdfNavigation } from '@/composables/usePdfNavigation'
 import type { HighlightColor } from '@paperland/shared'
+import PaperCitationCard from '@/components/PaperCitationCard.vue'
 import { renderMarkdown } from '@/lib/markdown-renderer'
 
 // `disableHighlights` renders the markdown read-only: no selection toolbar, no stored
@@ -668,20 +669,12 @@ onBeforeUnmount(() => {
       :style="{ left: activeCite.x + 'px', top: activeCite.y + 'px' }"
       @mouseleave="activeCite = null"
     >
-      <div class="qa-cite-card-title">{{ activeCite.ref.title || 'Untitled' }}</div>
-      <div class="qa-cite-card-meta">
-        <span v-if="activeCite.ref.authors.length">{{ activeCite.ref.authors.slice(0, 3).join(', ') }}<template v-if="activeCite.ref.authors.length > 3"> et al.</template></span>
-        <span v-if="activeCite.ref.year"> · {{ activeCite.ref.year }}</span>
-        <span v-if="activeCite.ref.venue"> · {{ activeCite.ref.venue }}</span>
-      </div>
-      <div class="qa-cite-card-actions">
-        <button v-if="activeCite.ref.library_paper_id" type="button" @click="openLibraryPaper(activeCite.ref.library_paper_id)">
-          <BookOpen class="hl-icon" /> Open paper
-        </button>
-        <a :href="s2Url(activeCite.citeId)" target="_blank" rel="noopener noreferrer">
-          <ExternalLink class="hl-icon" /> Semantic Scholar
-        </a>
-      </div>
+      <PaperCitationCard :title="activeCite.ref.title" :authors="activeCite.ref.authors" :year="activeCite.ref.year" :venue="activeCite.ref.venue">
+        <template #actions>
+          <button v-if="activeCite.ref.library_paper_id" type="button" @click="openLibraryPaper(activeCite.ref.library_paper_id)"><BookOpen class="hl-icon" /> Open paper</button>
+          <a :href="s2Url(activeCite.citeId)" target="_blank" rel="noopener noreferrer"><ExternalLink class="hl-icon" /> Semantic Scholar</a>
+        </template>
+      </PaperCitationCard>
     </div>
 
     <!-- Selection Toolbar -->
@@ -754,12 +747,6 @@ onBeforeUnmount(() => {
   position: absolute; z-index: 40; width: min(320px, 90%); padding: 0.6rem 0.75rem;
   border-radius: 0.5rem; border: 1px solid var(--border); background: var(--popover);
   color: var(--popover-foreground); box-shadow: 0 8px 24px rgb(0 0 0 / 0.12); font-size: 0.8rem;
-}
-.qa-cite-card-title { font-weight: 600; line-height: 1.35; }
-.qa-cite-card-meta { margin-top: 0.2rem; color: var(--muted-foreground); }
-.qa-cite-card-actions { margin-top: 0.45rem; display: flex; gap: 0.75rem; }
-.qa-cite-card-actions button, .qa-cite-card-actions a {
-  display: inline-flex; align-items: center; gap: 0.25rem; color: var(--primary); text-decoration: none;
 }
 /* Inert Q&A/block anchor in public-note mode: looks like its text, not actionable. */
 .markdown-content :deep(.anchor-inert) { color: var(--muted-foreground); text-decoration: underline dotted; text-underline-offset: 2px; cursor: default; }

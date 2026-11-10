@@ -101,7 +101,7 @@ async function load(id: number) {
     await Promise.all([store.openSession(id), store.fetchModels().catch(() => {})])
     mobileSection.value = versions.value.length ? 'report' : 'instruct'
   } catch {
-    router.replace('/research')
+    router.replace('/research/history')
   }
 }
 watch(() => Number(route.params.id), (id) => { if (Number.isInteger(id)) void load(id) }, { immediate: true })
@@ -213,7 +213,7 @@ async function saveTitles() {
 async function removeSession() {
   if (!session.value || !confirm('Delete this research session and all of its versions?')) return
   await store.remove(session.value.id)
-  router.push('/research')
+  router.push('/research/history')
 }
 
 /** What the agent of an active round is doing, from its latest tool call (SSE `tool`). */
@@ -276,7 +276,7 @@ const STATUS_LABEL: Record<ResearchStepStatus, string> = {
 
     <!-- Header -->
     <div class="flex items-start gap-2">
-      <Button variant="ghost" size="icon-sm" class="mt-0.5 shrink-0" title="Back to Research" @click="router.push('/research')">
+      <Button variant="ghost" size="icon-sm" class="mt-0.5 shrink-0" title="Back to research history" @click="router.push('/research/history')">
         <ArrowLeft />
       </Button>
       <div class="min-w-0 flex-1">

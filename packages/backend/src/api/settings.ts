@@ -11,7 +11,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // List tokens (with owning user and kind). Agent tokens never expose their value, not even masked.
   app.get('/api/settings/tokens', async () => {
     const db = getDatabase()
-    const tokens = db.select().from(schema.apiTokens).all()
+    const tokens = db.select().from(schema.apiTokens).all().filter((token) => token.kind !== 'topic')
 
     return {
       data: tokens.map((t) => ({
@@ -45,7 +45,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const now = new Date().toISOString()
 
     const existing = db.select().from(schema.apiTokens).where(eq(schema.apiTokens.id, id)).get()
-    if (!existing) {
+    if (!existing || existing.kind === 'topic') {
       reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Token not found' } })
       return
     }

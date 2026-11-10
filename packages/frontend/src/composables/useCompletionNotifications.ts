@@ -61,7 +61,7 @@ export function useCompletionNotifications(router: Router) {
       for (const item of fresh.slice(0, MAX_NOTICES)) notify(item, itemUrl(item), () => openItem(item))
       const rest = fresh.slice(MAX_NOTICES)
       if (rest.length) {
-        const href = rest.every((item) => item.kind === 'research') ? '/research' : '/qa'
+        const href = rest.every((item) => item.kind === 'research') ? '/research/history' : '/qa'
         notify(null, href, () => void router.push(href), rest.length)
       }
     } finally {

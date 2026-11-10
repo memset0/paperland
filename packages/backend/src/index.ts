@@ -47,6 +47,9 @@ import { usageRoutes } from './api/usage.js'
 import { featuresRoutes } from './api/features.js'
 import { dispatchQueuedMessagesFor, recoverInterruptedResearchSteps } from './services/research_runtime.js'
 import { registerFrontendHosting } from './frontend_hosting.js'
+import { topicRoutes } from './api/topics.js'
+import { topicGitRoutes } from './api/topic_git.js'
+import { recoverTopicRepositories } from './services/topic_git.js'
 
 async function main() {
   let interruptedResearchSessions: number[] = []
@@ -59,6 +62,7 @@ async function main() {
 
   // Initialize database
   initDatabase()
+  await recoverTopicRepositories()
 
   // Clean up stale executions from previous runs
   {
@@ -140,6 +144,8 @@ async function main() {
 
   await app.register(s2Routes)
   await app.register(researchRoutes)
+  await app.register(topicRoutes)
+  await app.register(topicGitRoutes)
   await app.register(notificationRoutes)
   // Agent tools MCP server (bearer-token auth, outside /api and the login wall)
   await app.register(mcpRoutes)

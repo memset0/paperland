@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { requireAdmin, requireUser } from '../auth/guards.js'
 import { parseUtcDay, recalculateCosts, usageLeaderboard, userUsage } from '../services/model_usage.js'
+import { AGENT_TOOLS } from '../services/agent_tools.js'
+import { mcpCountsForUser, mcpCountsForTopic } from '../services/mcp_counts.js'
+import { topicId } from '../services/topics.js'
 
 // Model token usage and estimated cost from the `model_usage` ledger. `days` limits the window to
 // the last N days; without it the totals cover all time.
@@ -11,6 +14,12 @@ function parseDays(raw: unknown): number | undefined {
 }
 
 export async function usageRoutes(app: FastifyInstance): Promise<void> {
+  app.get<{ Querystring: { topic_id?: string } }>('/api/usage/mcp', { preHandler: requireUser }, async (request) => {
+    const id = request.query.topic_id === undefined ? undefined : topicId(request.query.topic_id)
+    const names = AGENT_TOOLS.map((tool) => tool.name)
+    const counts = id === undefined ? mcpCountsForUser(request.user!.id, names) : mcpCountsForTopic(id, request.user!.id, names)
+    return { data: { user_id: request.user!.id, ...(id === undefined ? {} : { topic_id: id }), counts, total: Object.values(counts).reduce((sum, n) => sum + n, 0) } }
+  })
   app.get<{ Querystring: { days?: string } }>('/api/usage/me', { preHandler: requireUser }, async (request) => {
     return { data: userUsage(request.user!.id, parseDays(request.query.days)) }
   })

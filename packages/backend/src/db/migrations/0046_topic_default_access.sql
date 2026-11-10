@@ -1,0 +1,1 @@
+ALTER TABLE `topics` ADD `default_access` text DEFAULT 'none' NOT NULL;
