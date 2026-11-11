@@ -8,7 +8,7 @@ import { toast } from 'vue-sonner'
 import QAInputSummary from './QAInputSummary.vue'
 import {
   CheckCircle2, Loader2, AlertCircle,
-  RefreshCw, ExternalLink, User, Lock
+  RefreshCw, FileText, ChevronDown, User, Lock
 } from '@lucide/vue'
 import QAResultView from './QAResultView.vue'
 import QAEntryBackgroundPicker from './QAEntryBackgroundPicker.vue'
@@ -65,7 +65,7 @@ const statusLabel = computed(() => {
 function formatDate(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)
-  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 const regenDialog = ref<{ show: boolean; selectedModels: string[] }>({ show: false, selectedModels: [] })
@@ -103,71 +103,78 @@ async function onDeleteResult(resultId: number) {
 </script>
 
 <template>
-  <div>
+  <article class="min-w-0">
     <!-- Paper title + time live ABOVE the card (outside it), keeping the card itself simple. -->
-    <div class="flex items-center gap-2 min-w-0 px-1 mb-1.5">
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 px-1 mb-2.5">
       <router-link
         :to="`/papers/${entry.paper_id}`"
-        class="min-w-0 truncate text-xs text-primary hover:underline"
+        class="group/paper flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary"
+        :title="entry.paper_title"
       >
-        <ExternalLink class="h-3 w-3 inline mr-0.5 -mt-0.5" />{{ entry.paper_title }}
+        <FileText class="h-3.5 w-3.5 shrink-0 text-primary/70" />
+        <span class="truncate group-hover/paper:underline underline-offset-4">{{ entry.paper_title }}</span>
       </router-link>
       <!-- Asker display name (nickname → username) distinguishes entries whenever the viewer chooses all scope. -->
       <span
         v-if="store.feedScope === 'all' && entry.username"
-        class="ml-auto shrink-0 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
+        class="order-last flex w-full min-w-0 flex-wrap items-center gap-1 text-[11px] text-muted-foreground sm:order-none sm:w-auto sm:max-w-[30%]"
       >
-        <User class="h-2.5 w-2.5" />{{ entry.display_name ?? entry.username }}
+        <User class="h-3 w-3 shrink-0" /><span class="min-w-0 break-words [overflow-wrap:anywhere]">{{ entry.display_name ?? entry.username }}</span>
         <!-- Owner's Q&A switch off: hidden from other non-admin users -->
-        <template v-if="!entry.shared"> · <Lock class="h-2.5 w-2.5" />Private</template>
+        <span v-if="!entry.shared" class="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px]"><Lock class="h-2.5 w-2.5" />Private</span>
       </span>
-      <span
-        class="shrink-0 text-[10px] text-muted-foreground"
-        :class="!(store.feedScope === 'all' && entry.username) && 'ml-auto'"
-      >{{ formatDate(entry.created_at) }}</span>
+      <time :datetime="entry.created_at" :title="new Date(entry.created_at).toLocaleString('en-US')" class="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">{{ formatDate(entry.created_at) }}</time>
     </div>
 
     <Collapsible v-model:open="isOpen">
-      <Card class="overflow-hidden gap-0 py-0 transition-shadow hover:shadow-sm" :class="qaEntryBackgroundClass(entry.background_color)">
-        <CollapsibleTrigger as-child>
-          <CardHeader
-            role="button"
-            tabindex="0"
-            class="flex flex-row items-center gap-3 px-5 py-3.5 cursor-pointer select-none rounded-none text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            @keydown.enter.prevent="isOpen = !isOpen"
-            @keydown.space.prevent="isOpen = !isOpen"
-          >
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <span class="shrink-0 inline-flex">
-                  <CheckCircle2 v-if="entry.status === 'done'" class="h-4 w-4 text-muted-foreground" />
-                  <Loader2 v-else-if="isActive" class="h-4 w-4 text-primary animate-spin" />
-                  <AlertCircle v-else-if="entry.status === 'failed'" class="h-4 w-4 text-destructive" />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{{ statusLabel }}</TooltipContent>
-            </Tooltip>
+      <Card class="overflow-hidden gap-0 rounded-xl py-0 ring-border shadow-xs transition-shadow hover:shadow-md" :class="[qaEntryBackgroundClass(entry.background_color), isOpen && 'ring-primary/25']">
+        <CardHeader class="block p-0">
+          <CollapsibleTrigger as-child>
+            <button
+              type="button"
+              class="group/question flex w-full items-start gap-3 rounded-t-xl px-4 pt-4 pb-3 text-left cursor-pointer transition-colors hover:bg-foreground/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 sm:pt-5"
+            >
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <span class="mt-0.5 shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md" :class="entry.status === 'failed' ? 'bg-destructive/10' : isActive ? 'bg-primary/10' : 'bg-muted/70'" :aria-label="statusLabel">
+                    <CheckCircle2 v-if="entry.status === 'done'" class="h-3.5 w-3.5 text-muted-foreground" />
+                    <Loader2 v-else-if="isActive" class="h-4 w-4 text-primary animate-spin" />
+                    <AlertCircle v-else-if="entry.status === 'failed'" class="h-4 w-4 text-destructive" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{{ statusLabel }}</TooltipContent>
+              </Tooltip>
 
-            <p class="flex-1 min-w-0 text-sm font-semibold line-clamp-1">{{ entry.prompt || 'Free question' }}</p>
+              <span class="flex-1 min-w-0 text-[15px] font-semibold leading-6 whitespace-pre-line [overflow-wrap:anywhere]" :class="!isOpen && 'line-clamp-3'">{{ entry.prompt || 'Free question' }}</span>
+              <ChevronDown class="mt-1 h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform motion-reduce:transition-none group-hover/question:text-foreground" :class="isOpen && 'rotate-180'" aria-hidden="true" />
+            </button>
+          </CollapsibleTrigger>
 
-            <div class="flex items-center gap-2 shrink-0">
-              <QAInputSummary :inputs="entry.inputs" />
-              <button
-                type="button" class="text-[10px] text-muted-foreground hover:text-foreground"
-                title="Copy QA link" @click.stop="copyEntryLink"
-              >QA-{{ entry.entry_id }}</button>
-              <QAReadingIndicators :highlight-count="entry.highlight_count" :note-anchor-count="entry.note_anchor_count" />
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-4 text-muted-foreground sm:px-5 sm:pl-14">
+            <Badge v-if="entry.results.length > 1" variant="secondary" class="h-auto min-h-5 max-w-full rounded-md px-2 py-0.5 text-[10px] font-medium whitespace-normal [overflow-wrap:anywhere]">{{ entry.results.length }} answers</Badge>
+            <Badge v-else-if="entry.results.length === 1" variant="secondary" class="h-auto min-h-5 max-w-full rounded-md px-2 py-0.5 text-[10px] font-medium whitespace-normal [overflow-wrap:anywhere]">{{ entry.results[0].model_name }}</Badge>
+            <span v-else class="text-[11px]">No answers yet</span>
+            <span v-if="isActive" class="text-[11px] text-primary">Generating…</span>
+            <QAInputSummary :inputs="entry.inputs" />
+            <QAReadingIndicators class="flex-wrap" :highlight-count="entry.highlight_count" :note-anchor-count="entry.note_anchor_count" />
+            <div class="ml-auto flex shrink-0 items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    type="button" class="min-h-7 rounded px-1 text-[10px] text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    :aria-label="`Copy link to QA-${entry.entry_id}`" @click="copyEntryLink"
+                  >QA-{{ entry.entry_id }}</button>
+                </TooltipTrigger>
+                <TooltipContent>Copy QA link</TooltipContent>
+              </Tooltip>
               <QAEntryBackgroundPicker :entry-id="entry.entry_id" :color="entry.background_color" />
-              <Badge v-if="entry.results.length > 1" variant="secondary">{{ entry.results.length }} {{ entry.results.length === 1 ? 'answer' : 'answers' }}</Badge>
-              <Badge v-else-if="entry.results.length === 1" variant="secondary">{{ entry.results[0].model_name }}</Badge>
-              <span v-if="isActive" class="text-[10px] text-primary">Generating…</span>
             </div>
-          </CardHeader>
-        </CollapsibleTrigger>
+          </div>
+        </CardHeader>
 
         <CollapsibleContent>
           <Separator />
-          <CardContent class="px-5 py-4">
+          <CardContent class="px-4 py-5 sm:px-6 sm:py-6">
             <div v-if="entry.results.length > 0">
               <QAResultView
                 :results="entry.results"
@@ -221,5 +228,5 @@ async function onDeleteResult(resultId: number) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  </div>
+  </article>
 </template>
