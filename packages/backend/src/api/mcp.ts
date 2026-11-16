@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getConfig } from '../config.js'
 import { bearerFromHeader, checkBearerToken, type TokenKind } from '../services/api_tokens.js'
-import { AGENT_TOOLS, callAgentTool, type AgentToolContext } from '../services/agent_tools.js'
+import { AGENT_TOOLS, callAgentTool, toolAllowed, type AgentToolContext } from '../services/agent_tools.js'
+import { checkServiceSecret } from '../services/mcp_services.js'
 
 // MCP server for agents (Streamable HTTP, stateless): every POST carries one JSON-RPC message or a
 // batch and is answered with application/json — no SSE stream, no session id. Lives outside /api so
@@ -15,7 +16,8 @@ const SERVER_INFO = { name: 'paperland', version: '1.0.0' }
 const INSTRUCTIONS = 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
   'Maintain Topics with list_topics / get_topic. Before editing read get_topic_schema for schema v1, reports.yml, reference rules and legacy migration; inspect get_topic.repository_schema for required upgrades. Topic tokens identify you and one Topic. ' +
   'Use read_pdf_page for a physical PDF page and its native Markdown citation; request image=true only when a page image is needed. ' +
-  'Use s2_match / s2_search to get S2 paperIds instead of guessing them; read library papers with read_paper. ' +
+  'Use s2_match / s2_search to get S2 paperIds instead of guessing them. To read a paper, use read_paper (Paperland\'s parsed full text) instead of fetching arXiv HTML or the PDF yourself; go to arXiv (or read_pdf_page with image=true) only for tables, figures or layout the text does not capture. ' +
+  'Save answers the user wants kept with add_paper_qa (give your model name). ' +
   'With a personal token, add_paper / update_paper / upload_paper_pdf / refresh_paper add and maintain papers ' +
   '(including work that is not on arXiv: a project page with a PDF, or a blog post). ' +
   'Before importing a blog post or other web article, read the guide with get_skill("blog-import"). ' +
@@ -59,7 +61,7 @@ async function handleMessage(message: RpcMessage, ctx: AgentToolContext): Promis
       return rpcResult(message.id, {})
     case 'tools/list':
       return rpcResult(message.id, {
-        tools: AGENT_TOOLS.map((t) => ({
+        tools: AGENT_TOOLS.filter((t) => toolAllowed(t, ctx)).map((t) => ({
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
@@ -86,6 +88,18 @@ export async function mcpRoutes(app: FastifyInstance): Promise<void> {
   // image host's and the PDF upload's size limits (+ base64 and JSON overhead).
   const maxFileMb = Math.max(getConfig().image_host.max_size_mb, getConfig().image_host.max_video_size_mb, getConfig().pdf_upload.max_file_size_mb)
   const bodyLimit = Math.ceil(maxFileMb * 1024 * 1024 * 4 / 3) + 1024 * 1024
+  async function serve(request: FastifyRequest, reply: FastifyReply, ctx: AgentToolContext) {
+    const body = request.body as RpcMessage | RpcMessage[] | undefined
+    if (Array.isArray(body)) {
+      const responses = (await Promise.all(body.map((m) => handleMessage(m, ctx)))).filter((r) => r !== null)
+      return responses.length ? reply.send(responses) : reply.code(202).send()
+    }
+    if (!body || typeof body !== 'object') return reply.code(400).send(rpcError(null, -32700, 'Parse error'))
+    const response = await handleMessage(body, ctx)
+    return response ? reply.send(response) : reply.code(202).send()
+  }
+  const origin = (request: FastifyRequest) => `${request.headers['x-forwarded-proto'] === 'https' ? 'https' : request.protocol}://${request.headers.host}`
+
   app.post('/mcp', { bodyLimit }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
     const check = checkBearerToken(bearerFromHeader(request.headers.authorization), ['personal', 'agent', 'topic'])
@@ -95,18 +109,25 @@ export async function mcpRoutes(app: FastifyInstance): Promise<void> {
     const ctx: AgentToolContext = {
       viewer: { id: check.user.id, role: check.user.role }, token_kind: check.token.kind as TokenKind,
       ...(check.token.kind === 'topic' ? { topic_id: check.token.topic_id! } : {}),
-      site_origin: `${request.headers['x-forwarded-proto'] === 'https' ? 'https' : request.protocol}://${request.headers.host}`,
+      site_origin: origin(request),
     }
+    return serve(request, reply, ctx)
+  })
 
-    const body = request.body as RpcMessage | RpcMessage[] | undefined
-    if (Array.isArray(body)) {
-      const responses = (await Promise.all(body.map((m) => handleMessage(m, ctx)))).filter((r) => r !== null)
-      return responses.length ? reply.send(responses) : reply.code(202).send()
+  // Per-application service URL (e.g. ChatGPT custom MCP with no authentication): the secret in the
+  // path authenticates; 404 (not 401) so clients do not start an OAuth discovery.
+  app.post<{ Params: { secret: string } }>('/mcp/s/:secret', { bodyLimit }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    const service = checkServiceSecret(request.params.secret)
+    if (!service) return reply.code(404).send({ error: 'Not found' })
+    const ctx: AgentToolContext = {
+      viewer: { id: service.user.id, role: service.user.role }, token_kind: 'service',
+      service_permissions: service.permissions, service_name: service.token.name ?? undefined, site_origin: origin(request),
     }
-    if (!body || typeof body !== 'object') return reply.code(400).send(rpcError(null, -32700, 'Parse error'))
-    const response = await handleMessage(body, ctx)
-    return response ? reply.send(response) : reply.code(202).send()
+    return serve(request, reply, ctx)
   })
   app.get('/mcp', methodNotAllowed)
   app.delete('/mcp', methodNotAllowed)
+  app.get('/mcp/s/:secret', methodNotAllowed)
+  app.delete('/mcp/s/:secret', methodNotAllowed)
 }

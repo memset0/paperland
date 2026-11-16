@@ -12,7 +12,7 @@ import { topicTokenVerifier, requireTopicAccess } from './topic_access.js'
  *   returns its value, and it can only be reset in place (the old value stops working at once).
  */
 
-export type TokenKind = 'personal' | 'agent' | 'topic'
+export type TokenKind = 'personal' | 'agent' | 'topic' | 'service'
 export type TokenRow = typeof schema.apiTokens.$inferSelect
 type UserRow = typeof schema.users.$inferSelect
 

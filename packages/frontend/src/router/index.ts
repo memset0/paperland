@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { House, FileText, MessageSquare, Activity, Settings, Tag, NotebookPen, Image as ImageIcon, Languages, Puzzle, Telescope } from '@lucide/vue'
+import { House, FileText, MessageSquare, Activity, Settings, Tag, NotebookPen, Image as ImageIcon, Languages, Puzzle, Telescope, Plug } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { formatTitle } from '@/composables/usePageTitle'
@@ -82,6 +82,12 @@ const routes = [
     name: 'extension',
     component: () => import('@/views/ExtensionPage.vue'),
     meta: { requiresAuth: true, title: 'Extension', icon: Puzzle },
+  },
+  {
+    path: '/plugins',
+    name: 'plugins',
+    component: () => import('@/views/PluginsPage.vue'),
+    meta: { requiresAuth: true, title: 'Plugins', icon: Plug },
   },
   {
     path: '/tags',

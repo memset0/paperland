@@ -1,7 +1,7 @@
 import { dispatchApiError, dispatchUnauthorized } from '@/lib/error-bus'
 import { consumeTranslationStream } from '@/lib/translation-stream'
 import { consumeQAResultStream } from '@/lib/qa-result-stream'
-import type { QAResult, QAResultStreamDelta, QAResultStreamStart } from '@paperland/shared'
+import type { QAResult, QAResultStreamDelta, QAResultStreamStart, McpService, McpServicePermissions, McpServiceWithUrl } from '@paperland/shared'
 
 const BASE_URL = ''
 
@@ -264,6 +264,14 @@ export const myTokensApi = {
   create: () => api.post<{ data: { id: number; token: string; created_at: string } }>('/api/auth/me/tokens'),
   revoke: (id: number) => api.delete<{ success: boolean }>(`/api/auth/me/tokens/${id}`),
   resetAgent: () => api.post<{ data: MyApiTokens['agent'] }>('/api/auth/me/agent-token/reset'),
+}
+
+export const mcpServicesApi = {
+  list: () => api.get<{ data: McpService[] }>('/api/auth/me/mcp-services'),
+  create: (body: { name: string; permissions: McpServicePermissions }) => api.post<{ data: McpServiceWithUrl }>('/api/auth/me/mcp-services', body),
+  update: (id: number, body: { name?: string; permissions?: Partial<McpServicePermissions> }) => api.patch<{ data: McpService }>(`/api/auth/me/mcp-services/${id}`, body),
+  rotate: (id: number) => api.post<{ data: McpServiceWithUrl }>(`/api/auth/me/mcp-services/${id}/rotate`),
+  revoke: (id: number) => api.delete<{ success: boolean }>(`/api/auth/me/mcp-services/${id}`),
 }
 
 export const usageApi = {

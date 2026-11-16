@@ -11,7 +11,7 @@ const schema = (properties: Record<string, unknown>, required: string[] = []) =>
 const write = { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
 const read = { readOnlyHint: true, openWorldHint: false }
 function personal(ctx: AgentToolContext) {
-  if (ctx.token_kind !== 'personal') throw new TopicError(403, 'This operation requires your personal token')
+  if (ctx.token_kind !== 'personal' && ctx.token_kind !== 'service') throw new TopicError(403, 'This operation requires your personal token')
 }
 function text(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new TopicError(422, `${name} must be a non-empty string`)
@@ -61,5 +61,5 @@ export const TOPIC_TOOLS: AgentToolDef[] = [
   { name: 'revoke_topic_token', description: 'Revoke one of your own Topic credentials. Personal token required.', inputSchema: schema({ ...topicProps, token_id: idProperty }, ['topic_id', 'token_id']), annotations: { ...write, destructiveHint: true }, write: true,
     handler: async (a, c) => { personal(c); return revokeTopicCredential(id(a, c), c.viewer.id, topicId(a.token_id)) } },
   { name: 'import_topic_paper', description: 'Explicitly import a site/S2 or recognized arXiv-paper URL entry from your accessible Topic into your own Paperland library. Does not rewrite Git content. A Topic credential can import only its own Topic entries.', inputSchema: schema({ ...topicProps, entry_id: { type: 'string' }, commit: { type: 'string' } }, ['entry_id']), annotations: { ...write, openWorldHint: true }, write: true, topic_scoped: true,
-    handler: async (a, c) => { if (c.token_kind !== 'personal' && c.token_kind !== 'topic') throw new TopicError(403, 'Use a personal or Topic token for explicit import'); return importTopicEntry(id(a, c), c.viewer.id, text(a.entry_id, 'entry_id'), a.commit === undefined ? undefined : text(a.commit, 'commit')) } },
+    handler: async (a, c) => { if (c.token_kind !== 'personal' && c.token_kind !== 'topic' && c.token_kind !== 'service') throw new TopicError(403, 'Use a personal or Topic token for explicit import'); return importTopicEntry(id(a, c), c.viewer.id, text(a.entry_id, 'entry_id'), a.commit === undefined ? undefined : text(a.commit, 'commit')) } },
 ]

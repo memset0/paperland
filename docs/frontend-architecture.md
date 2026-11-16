@@ -64,7 +64,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
 │ Paperland                                                                                │
 ├────────┬──────────┬──────┬─────┬───────┬────────┬───────────┬──────────┬──────────┤
-│ Papers │ Research │ Tags │ Q&A │ Notes │ Images │ Extension │ Services │ Settings │
+│ Papers │ Research │ Tags │ Q&A │ Notes │ Images │ Extension │ Plugins │ Services │ Settings │
 └────────┴──────────┴──────┴─────┴───────┴────────┴───────────┴──────────┴──────────┘
 ```
 
@@ -182,6 +182,12 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
   - 已存在 → 绑定（补充缺失 id）
   - 不存在 → 创建新记录
 - 自动触发依赖 arxiv_id 的 fetch services
+
+#### Plugins 页面（`/plugins`）
+
+- 侧边栏 **Plugins**（`Plug` 图标，位于 Extension 之后，需登录），`views/PluginsPage.vue`，使用 `AppPage`；页内首行说明 "Connect to your own apps."。
+- 管理当前用户的按应用 MCP 服务（`mcpServicesApi` → `/api/auth/me/mcp-services`）：新建（应用名 + Write / Delete papers / Delete answers 权限，删除类默认不勾选）后，完整 MCP 服务地址 `window.location.origin + url_path` **只显示一次**（复制按钮）；列表显示名称、创建/换地址时间与权限复选框（开启删除类权限前 `confirm`），"New URL" 生成新地址并让旧地址立即失效，"Disconnect" 撤销。
+- 问答结果 `source === 'mcp'`（外部应用经 `add_paper_qa` 写入，署名 `<模型> [MCP]` 存于 `model_name`）时，`QAResultBody` 不显示 Regenerate。Images 页对有 `uploaded_via` 的图片显示 "via ChatGPT [MCP]" / "via Paperland [MCP]"。
 
 #### Extension 页面（`/extension`）
 

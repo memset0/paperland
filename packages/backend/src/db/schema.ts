@@ -100,6 +100,8 @@ export const qaResults = sqliteTable('qa_results', {
   updated_at: text('updated_at').notNull().default(''),
   // Soft delete: hidden from every user-facing read, still used to build follow-up history.
   deleted_at: text('deleted_at'),
+  // 'mcp' when an external model saved this answer through add_paper_qa; null for site runs.
+  source: text('source'),
 })
 
 export const qaUserPreferences = sqliteTable('qa_user_preferences', {
@@ -205,6 +207,9 @@ export const apiTokens = sqliteTable('api_tokens', {
   // Last time the value was replaced in place (agent token reset); null = never.
   rotated_at: text('rotated_at'),
   topic_id: integer('topic_id').references(() => topics.id, { onDelete: 'cascade' }),
+  // 'service' rows (per-application MCP service URLs): display name and JSON permissions.
+  name: text('name'),
+  permissions: text('permissions'),
 }, (table) => [
   uniqueIndex('api_tokens_agent_user_unq').on(table.user_id).where(sql`kind = 'agent'`),
 ])
@@ -223,6 +228,7 @@ export const images = sqliteTable('images', {
   original_name: text('original_name'),                             // client filename, if any
   uploaded_by: integer('uploaded_by').references(() => users.id),   // uploader; nullable
   created_at: text('created_at').notNull(),
+  uploaded_via: text('uploaded_via'),                               // e.g. "ChatGPT [MCP]" for MCP uploads; null = website/API
 }, (table) => [
   index('idx_images_created').on(table.created_at),
 ])

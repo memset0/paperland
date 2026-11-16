@@ -32,6 +32,8 @@ TopicFileNav/TopicFileBranch 的紧凑树布局仅调整既有Vue/Tailwind类：
 
 schema v1：topic_format.ts 按显式 schema_version/旧 format_version 分派，canonical 元数据序列化省略旧字段；内部 normalized snapshot 仍保留 layout discriminator 供兼容调用方使用。topic_reports.ts 用既有 js-yaml JSON_SCHEMA 校验 reports.yml，限定 8 层/64 项，要求完整唯一的页面集合。topic_schema.ts 集中提供 MCP contract/版本状态/迁移指引；get_topic_schema 属于只读工具，沿用鉴权、scope 和聚合计数。当前完整规范统一叫 schema v1，旧 layout 数字不等于 schema 版本。
 
+MCP 服务（Plugins）：`services/mcp_services.ts` 把按应用的服务存为 `api_tokens` kind `service` 行（迁移 0048 新增可空列 `api_tokens.name`、`api_tokens.permissions` JSON、`qa_results.source`，0049 新增 `images.uploaded_via`，均为纯增量），密钥 `pls_<64 hex>` 只存 `service_sha256:` 校验值；`api/mcp.ts` 的 `POST /mcp/s/:secret` 与 `/mcp` 共用 JSON-RPC 处理，`AgentToolContext.service_permissions` 经 `toolPermission`/`toolAllowed`（显式 `permission`，否则 write/非只读 → `write`）过滤 `tools/list` 并拒绝越权调用；Fastify logger 的 `req` 序列化器用 `redactServiceUrl` 打码路径。`search_papers` 的 Topic 筛选复用 `topic_papers` 索引（`paper_id` 非空的条目）并经 `scopedTopicId` + `requireTopicAccess` 校验。论文级联删除与问答软删除抽到 `services/paper_delete.ts`，网页路由与 MCP 工具共用。
+
 read_paper 兜底：`pdf_pages.ts` 的 `readPdfText` 在与 `read_pdf_page` 相同的路径限制、信号量、超时和 `max_image_bytes` 输出上限下运行整本 `pdftotext -layout`，按 paper id + PDF 路径 + mtime 做 8 项 LRU 内存缓存，不写库、不改 `content_priority`。`precise_pending` 由 `doc2x.enabled`、`isDoc2xParseEligible` 和最近一次 `doc2x_parse` 执行状态（failed/done 即不再等待）推出。
 
 MCP 设计检查：`packages/backend/src/testing/mcp_inventory.ts` 复用 Drizzle 迁移建内存 SQLite、种子用户及 personal/agent/topic token，用 Fastify inject 调真实 `mcpRoutes` 的 initialize/tools/list，不读写生产库、不联网；`/mcp-review` skill（`.claude/skills/mcp-review/`）规定固定检查维度与报告模板，报告存 `docs/mcp-reviews/YYYY-MM-DD.md` 以便逐次对比。前端架构（frontend-architecture.md）不受影响。

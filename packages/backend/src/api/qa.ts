@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { once } from 'events'
 import { eq, and, desc, inArray, isNull, or, sql } from 'drizzle-orm'
+import { QADeleteError, softDeleteQAResult } from '../services/paper_delete.js'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { loadTemplates, loadTemplate } from '../services/template_loader.js'
@@ -1212,30 +1213,12 @@ export async function qaRoutes(app: FastifyInstance): Promise<void> {
 
   // Delete a specific QA result
   app.delete<{ Params: { resultId: string } }>('/api/qa/results/:resultId', { preHandler: requireUser }, async (request, reply) => {
-    const db = getDatabase()
-    const resultId = parseInt(request.params.resultId, 10)
-
-    const result = db.select().from(schema.qaResults)
-      .where(and(eq(schema.qaResults.id, resultId), resultNotDeleted)).get()
-    if (!result) { reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } }); return }
-    if (isActiveQAResultStatus(result.status)) {
-      reply.code(409).send({ error: { code: 'RESULT_ACTIVE', message: 'Cancel the active result before deleting it' } })
-      return
+    try {
+      softDeleteQAResult(parseInt(request.params.resultId, 10), request.user!)
+    } catch (error) {
+      if (!(error instanceof QADeleteError)) throw error
+      reply.code(error.status).send({ error: { code: error.code, message: error.message } }); return
     }
-
-    // For free QA, only the owner may delete a result; template QA is shared.
-    const entry = db.select().from(schema.qaEntries).where(eq(schema.qaEntries.id, result.qa_entry_id)).get()
-    if (entry && entry.type === 'free' && entry.user_id !== request.user!.id && request.user!.role !== 'admin') {
-      reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'QA result not found' } }); return
-    }
-
-    // Soft delete: the row stays so follow-ups keep their history; every user-facing read skips it.
-    const now = new Date().toISOString()
-    db.update(schema.highlights).set({ qa_result_id: null })
-      .where(eq(schema.highlights.qa_result_id, resultId)).run()
-    db.update(schema.qaResults).set({ deleted_at: now, updated_at: now })
-      .where(eq(schema.qaResults.id, resultId)).run()
-    recomputeQAEntryState(db, result.qa_entry_id)
     return { message: 'Result deleted' }
   })
 }

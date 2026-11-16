@@ -17,6 +17,7 @@ export function addContextualQATestSchema(sqlite: Database): void {
   }
   const results = columns('qa_results')
   if (results.size > 0 && !results.has('deleted_at')) sqlite.exec('ALTER TABLE qa_results ADD deleted_at TEXT')
+  if (results.size > 0 && !results.has('source')) sqlite.exec('ALTER TABLE qa_results ADD source TEXT')
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS paper_citations (
       id INTEGER PRIMARY KEY AUTOINCREMENT, paper_id INTEGER NOT NULL, direction TEXT NOT NULL,
@@ -25,7 +26,7 @@ export function addContextualQATestSchema(sqlite: Database): void {
     );
     CREATE TABLE IF NOT EXISTS images (
       hash TEXT PRIMARY KEY, ext TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, width INTEGER,
-      height INTEGER, path TEXT NOT NULL, original_name TEXT, uploaded_by INTEGER, created_at TEXT NOT NULL
+      height INTEGER, path TEXT NOT NULL, original_name TEXT, uploaded_by INTEGER, created_at TEXT NOT NULL, uploaded_via TEXT
     );
   `)
 }

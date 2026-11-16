@@ -79,6 +79,19 @@ describe('site tools', () => {
     expect(res.papers.map((p: any) => p.paper_id)).toEqual([10])
     expect(res.papers[0]).toMatchObject({ s2_paper_id: PA, year: 2017, has_full_text: true, in_my_library: true, link: 'paperland://paper/10' })
     expect((await ok('search_papers', { query: 'hidden' })).papers).toEqual([])
+    // Without a query: the whole site's listed papers, newest first, paged.
+    const all = await ok('search_papers', { limit: 1 })
+    expect(all).toMatchObject({ total_matches: 1, offset: 0, next_offset: null })
+    expect(all.papers.map((p: any) => p.paper_id)).toEqual([10])
+    // A Topic: its referenced site papers (even unlisted), with access checks.
+    db.insert(schema.topics).values({ id: 4, owner_id: 1, title: 'T', created_at: now, updated_at: now }).run()
+    db.insert(schema.topicMembers).values({ topic_id: 4, user_id: 1, role: 'owner' }).run()
+    db.insert(schema.topicPapers).values([{ topic_id: 4, node_id: 'root', entry_id: 'e11', paper_id: 11 }, { topic_id: 4, node_id: 'root', entry_id: 'ext', paper_id: null, s2_id: 'x' }]).run()
+    const topic = await ok('search_papers', { topic_id: 4 })
+    expect(topic).toMatchObject({ topic_id: 4, total_matches: 1 })
+    expect(topic.papers.map((p: any) => p.paper_id)).toEqual([11])
+    expect((await ok('search_papers', { topic_id: 4, query: 'attention vaswani' })).papers).toEqual([])
+    expect((await call('search_papers', { topic_id: 4 }, { id: 2, role: 'user' })).isError).toBe(true)
   })
 
   it('get_paper works for unlisted papers and reports full-text availability', async () => {
@@ -236,9 +249,24 @@ describe('upload_image', () => {
     expect((await upload({ data: PNG, path: generated })).isError).toBe(true)
   })
 
-  it('is the only non-read-only tool besides the paper write tools', () => {
+  it('records which app uploaded the image', async () => {
+    const via = async (ctx: any, data: string) => {
+      const res = await upload({ data }, ctx)
+      expect(res.isError).toBe(false)
+      return db.select().from(schema.images).all().at(-1)!.uploaded_via
+    }
+    const png = Buffer.from(PNG, 'base64')
+    // Distinct bytes per upload so content dedup does not return the first row.
+    const variant = (n: number) => Buffer.concat([png, Buffer.from([n])]).toString('base64')
+    expect(await via({ ...AGENT }, variant(1))).toBe('Paperland [MCP]')
+    expect(await via({ ...PERSONAL, token_kind: 'service', service_name: 'ChatGPT', service_permissions: { write: true, delete_papers: false, delete_answers: false } }, variant(2))).toBe('ChatGPT [MCP]')
+    expect(await via({ ...PERSONAL }, variant(3))).toBe('API token [MCP]')
+  })
+
+  it('is the only non-read-only tool besides the Topic actions, paper write, Q&A write and delete tools', () => {
+    const topicWrites = ['create_topic', 'set_topic_sharing', 'set_topic_member', 'create_topic_token', 'rotate_topic_token', 'revoke_topic_token', 'import_topic_paper']
     const writable = AGENT_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name)
-    expect(writable).toEqual(['upload_image', 'add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper'])
-    expect(AGENT_TOOLS.filter((t) => t.write).map((t) => t.name)).toEqual(['add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper'])
+    expect(writable).toEqual([...topicWrites, 'upload_image', 'add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper', 'add_paper_qa', 'delete_paper', 'delete_qa_answer'])
+    expect(AGENT_TOOLS.filter((t) => t.write && !t.name.includes('topic')).map((t) => t.name)).toEqual(['add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper', 'add_paper_qa', 'delete_paper', 'delete_qa_answer'])
   })
 })

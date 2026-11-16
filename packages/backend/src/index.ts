@@ -42,7 +42,9 @@ import { s2Routes } from './api/s2.js'
 import { researchRoutes } from './api/research.js'
 import { notificationRoutes } from './api/notifications.js'
 import { mcpRoutes } from './api/mcp.js'
+import { redactServiceUrl } from './services/mcp_services.js'
 import { tokenRoutes } from './api/tokens.js'
+import { mcpServiceRoutes } from './api/mcp_services.js'
 import { usageRoutes } from './api/usage.js'
 import { featuresRoutes } from './api/features.js'
 import { dispatchQueuedMessagesFor, recoverInterruptedResearchSteps } from './services/research_runtime.js'
@@ -101,7 +103,14 @@ async function main() {
     .catch((err) => console.error('Failed to seed starter paper:', err))
 
   // Create Fastify instance
-  const app = Fastify({ logger: true })
+  // MCP service URLs carry their secret in the path: redact it from request logs.
+  const app = Fastify({
+    logger: {
+      serializers: {
+        req: (req) => ({ method: req.method, url: redactServiceUrl(req.url), host: req.host, remoteAddress: req.ip, remotePort: req.socket?.remotePort }),
+      },
+    },
+  })
 
   // CORS
   await app.register(cors, { origin: true, credentials: true })
@@ -128,6 +137,7 @@ async function main() {
   await app.register(userRoutes)
   await app.register(settingsRoutes)
   await app.register(tokenRoutes)
+  await app.register(mcpServiceRoutes)
   await app.register(usageRoutes)
   await app.register(featuresRoutes)
   await app.register(paperRoutes)

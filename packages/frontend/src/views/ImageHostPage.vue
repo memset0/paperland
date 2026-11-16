@@ -136,6 +136,9 @@ function formatDate(iso: string): string {
           <div v-if="auth.isAdmin" class="text-muted-foreground truncate" :title="'Uploaded by ' + (img.uploaded_by_name ?? 'unknown')">
             by {{ img.uploaded_by_name ?? 'unknown' }}
           </div>
+          <div v-if="img.uploaded_via" class="text-muted-foreground truncate" :title="'Uploaded via ' + img.uploaded_via">
+            via {{ img.uploaded_via }}
+          </div>
           <div class="text-muted-foreground flex flex-wrap gap-x-2">
             <span>{{ formatSize(img.size) }}</span>
             <span v-if="img.width && img.height">{{ img.width }}×{{ img.height }}</span>

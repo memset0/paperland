@@ -1,12 +1,17 @@
-import { and, desc, eq, inArray, isNull, like, or, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, like, or, sql, type SQL } from 'drizzle-orm'
 import type { S2PaperMeta } from '@paperland/shared'
 import { getConfig } from '../config.js'
 import { getDatabase, schema } from '../db/index.js'
 import { ownerVisibilityFilter, ownerSharesCondition, type Viewer } from '../auth/visibility.js'
 import { recordMcpCall, registerMcpCounterTools } from './mcp_counts.js'
 import { TOPIC_TOOLS } from './topic_tools.js'
+import { scopedTopicId } from './topics.js'
+import { requireTopicAccess } from './topic_access.js'
 import { readPdfPage, readPdfText } from './pdf_pages.js'
 import { isDoc2xParseEligible } from './doc2x_parse_service.js'
+import { deletePaperCascade, softDeleteQAResult, QADeleteError } from './paper_delete.js'
+import { markdownContentHash } from './content_hash.js'
+import type { McpServicePermissions, ServicePermission } from './mcp_services.js'
 import { AgentRichResult, type AgentContent } from './agent_result.js'
 import { TopicError } from './topic_format.js'
 import { ZodError } from 'zod'
@@ -39,6 +44,10 @@ export interface AgentToolContext {
   /** Set by authentication only, never from tool arguments. */
   topic_id?: number
   site_origin?: string
+  /** Set only for MCP service URLs; tools beyond these permissions are hidden and refused. */
+  service_permissions?: McpServicePermissions
+  /** Display name of the MCP service (e.g. "ChatGPT"), for upload attribution. */
+  service_name?: string
 }
 
 /** MCP tool annotations; tools without them are listed as read-only. */
@@ -59,6 +68,19 @@ export interface AgentToolDef {
   write?: boolean
   /** A dedicated Topic action, never an unrestricted paper/user mutation. */
   topic_scoped?: boolean
+  /** Permission an MCP service needs; default `write` for write/non-read-only tools, else `read`. */
+  permission?: ServicePermission
+}
+
+export function toolPermission(tool: AgentToolDef): ServicePermission {
+  if (tool.permission) return tool.permission
+  return tool.write || tool.annotations?.readOnlyHint === false ? 'write' : 'read'
+}
+
+/** Whether a call context may use the tool (only MCP services are restricted here). */
+export function toolAllowed(tool: AgentToolDef, ctx: Pick<AgentToolContext, 'service_permissions'>): boolean {
+  const needed = toolPermission(tool)
+  return !ctx.service_permissions || needed === 'read' || ctx.service_permissions[needed]
 }
 
 /** A failure reported back to the agent as a tool error (not a protocol error). */
@@ -168,30 +190,45 @@ function arxivLinks(paper: PaperRow) {
 }
 
 async function searchPapers(args: Record<string, unknown>, ctx: AgentToolContext) {
-  const query = str(args, 'query')!
+  const query = str(args, 'query', false) ?? ''
   const cap = getConfig().agent_tools.search_max_results
   const limit = int(args, 'limit', Math.min(10, cap), 1, cap)
+  const offset = int(args, 'offset', 0, 0, Number.MAX_SAFE_INTEGER)
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 10)
   const conds: SQL[] = terms.map((t) => {
     const pattern = `%${t.replace(/[%_]/g, '')}%`
     return or(like(schema.papers.title, pattern), like(schema.papers.authors, pattern), like(schema.papers.abstract, pattern))!
   })
   const db = getDatabase()
+  let topic: number | null = null
+  if (args.topic_id !== undefined || ctx.topic_id != null) {
+    // Library papers referenced anywhere in the Topic (external works are only in get_topic's catalog).
+    topic = scopedTopicId(args.topic_id, ctx.topic_id)
+    requireTopicAccess(topic, ctx.viewer.id)
+    conds.push(inArray(schema.papers.id, db.select({ id: schema.topicPapers.paper_id }).from(schema.topicPapers)
+      .where(and(eq(schema.topicPapers.topic_id, topic), isNotNull(schema.topicPapers.paper_id)))))
+  } else {
+    conds.push(eq(schema.papers.listed, 1))
+  }
   const rows = db.select({
     id: schema.papers.id, title: schema.papers.title, authors: schema.papers.authors, abstract: schema.papers.abstract,
     metadata: schema.papers.metadata, s2_paper_id: schema.papers.s2_paper_id, corpus_id: schema.papers.corpus_id, arxiv_id: schema.papers.arxiv_id,
-  }).from(schema.papers).where(and(eq(schema.papers.listed, 1), ...conds)).limit(500).all()
-  // Rank: terms found in the title count most, then authors, then abstract.
+  }).from(schema.papers).where(and(...conds)).orderBy(desc(schema.papers.id)).limit(terms.length ? 500 : offset + limit).all()
+  const total = terms.length ? rows.length : (db.select({ n: sql<number>`count(*)` }).from(schema.papers).where(and(...conds)).get()?.n ?? 0)
+  // Rank: terms found in the title count most, then authors, then abstract; without a query, newest first.
   const score = (r: typeof rows[number]) => terms.reduce((s, t) =>
     s + (r.title.toLowerCase().includes(t) ? 3 : 0) + (r.authors.toLowerCase().includes(t) ? 2 : 0) + ((r.abstract ?? '').toLowerCase().includes(t) ? 1 : 0), 0)
-  const top = rows.map((r) => ({ r, s: score(r) })).sort((a, b) => b.s - a.s || b.r.id - a.r.id).slice(0, limit).map((x) => x.r)
+  const top = rows.map((r) => ({ r, s: score(r) })).sort((a, b) => b.s - a.s || b.r.id - a.r.id).slice(offset, offset + limit).map((x) => x.r)
   const ids = top.map((r) => r.id)
   const contents = new Map(ids.length
     ? db.select({ id: schema.papers.id, contents: schema.papers.contents }).from(schema.papers).where(inArray(schema.papers.id, ids)).all().map((r) => [r.id, r])
     : [])
   const mine = libraryPaperIds(ctx.viewer, ids)
   return {
-    total_matches: rows.length,
+    ...(topic != null ? { topic_id: topic } : {}),
+    total_matches: total,
+    offset,
+    next_offset: offset + top.length < total ? offset + top.length : null,
     papers: top.map((r) => ({
       paper_id: r.id,
       title: r.title,
@@ -329,9 +366,11 @@ async function getPaperQA(args: Record<string, unknown>, ctx: AgentToolContext) 
       const entry = byId.get(r.qa_entry_id)!
       return {
         entry_id: entry.id,
+        result_id: r.id,
         type: entry.type,
         question: entry.prompt ?? entry.template_name ?? r.prompt,
         model_name: r.model_name,
+        source: r.source ?? null,
         completed_at: r.completed_at,
         answer: truncate(r.answer, maxChars),
         answer_truncated: r.answer.length > maxChars,
@@ -563,7 +602,8 @@ async function uploadImage(args: Record<string, unknown>, ctx: AgentToolContext)
       const comma = data!.indexOf(',')
       buf = Buffer.from(data!.startsWith('data:') && comma !== -1 ? data!.slice(comma + 1) : data!, 'base64')
     }
-    return mediaUploadResult(storeImageBytes(buf, { originalName, userId: ctx.viewer.id }), alt)
+    const uploadedVia = `${ctx.service_name ?? (ctx.token_kind === 'agent' ? 'Paperland' : ctx.token_kind === 'topic' ? 'Topic token' : 'API token')} [MCP]`
+    return mediaUploadResult(storeImageBytes(buf, { originalName, userId: ctx.viewer.id, uploadedVia }), alt)
   } catch (error) {
     if (error instanceof ImageValidationError || error instanceof RemoteFetchError || error instanceof RemoteUrlNotAllowedError) {
       throw new AgentToolError(error.message)
@@ -611,8 +651,8 @@ function getSkill(args: Record<string, unknown>) {
 // ---- paper write tools (personal tokens only) ----
 
 function requirePersonal(ctx: AgentToolContext): void {
-  if (ctx.token_kind !== 'personal') {
-    throw new AgentToolError('Paper write tools need a personal API token; Paperland\'s own agent runs cannot change papers')
+  if (ctx.token_kind !== 'personal' && ctx.token_kind !== 'service') {
+    throw new AgentToolError('Paper write tools need a personal API token or an MCP service; Paperland\'s own agent runs cannot change papers')
   }
 }
 
@@ -758,6 +798,51 @@ const paperFieldProps = {
   modified_at: { type: ['string', 'null'], description: 'When the source was last updated (e.g. a blog post\'s dateModified); same format' },
   content: { type: 'string', description: 'Full text as Markdown (e.g. a blog post\'s main content, with figures uploaded via upload_image); shown as the Article view and used for Q&A' },
 }
+// ---- Q&A write and delete tools (personal tokens or MCP services with the matching permission) ----
+
+const QA_ANSWER_MAX_CHARS = 200_000
+
+async function addPaperQATool(args: Record<string, unknown>, ctx: AgentToolContext) {
+  requirePersonal(ctx)
+  const paper = loadPaper(paperIdArg(args))
+  const question = str(args, 'question')!.trim()
+  const answer = str(args, 'answer')!.trim()
+  const model = str(args, 'model')!.trim()
+  if (!question || !answer || !model) throw new AgentToolError('question, answer and model must be non-empty')
+  if (answer.length > QA_ANSWER_MAX_CHARS) throw new AgentToolError(`answer is longer than ${QA_ANSWER_MAX_CHARS} characters`)
+  if (model.length > 100) throw new AgentToolError('model must be at most 100 characters')
+  const db = getDatabase()
+  const now = new Date().toISOString()
+  const signed = `${model} [MCP]`
+  const { entry, result } = db.transaction((tx) => {
+    const entry = tx.insert(schema.qaEntries).values({ paper_id: paper.id, user_id: ctx.viewer.id, type: 'free', prompt: question, status: 'done', created_at: now }).returning().get()
+    const result = tx.insert(schema.qaResults).values({
+      qa_entry_id: entry.id, prompt: question, answer, model_name: signed, completed_at: now, content_hash: markdownContentHash(answer),
+      status: 'done', requested_by_user_id: ctx.viewer.id, created_at: now, started_at: now, finished_at: now, updated_at: now, source: 'mcp',
+    }).returning().get()
+    return { entry, result }
+  })
+  return { paper_id: paper.id, entry_id: entry.id, result_id: result.id, model_name: signed, completed_at: now, link: appLink(paper.id) }
+}
+
+async function deletePaperTool(args: Record<string, unknown>, ctx: AgentToolContext) {
+  requirePersonal(ctx)
+  const paper = loadPaper(paperIdArg(args))
+  deletePaperCascade(paper)
+  return { deleted: true, paper_id: paper.id, title: paper.title }
+}
+
+async function deleteQAAnswerTool(args: Record<string, unknown>, ctx: AgentToolContext) {
+  requirePersonal(ctx)
+  const resultId = int(args, 'result_id', 0, 1, Number.MAX_SAFE_INTEGER)
+  if (!resultId) throw new AgentToolError('result_id is required')
+  try { softDeleteQAResult(resultId, ctx.viewer) } catch (error) {
+    if (error instanceof QADeleteError) throw new AgentToolError(error.message)
+    throw error
+  }
+  return { deleted: true, result_id: resultId }
+}
+
 const WRITE_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
 
 export const AGENT_TOOLS: AgentToolDef[] = [
@@ -770,8 +855,16 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'search_papers',
-    description: 'Search the Paperland library (listed papers) by title, authors, or abstract. Every whitespace-separated term must match. Returns Paperland ids, S2 ids, and whether full text can be read.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1 } }, required: ['query'] },
+    description: 'List or search Paperland papers: the whole site (listed papers), or with topic_id the site papers referenced by that Topic. Every whitespace-separated query term must match title, authors or abstract; without a query, newest first. Page with offset/next_offset. A Topic\'s external references are in get_topic.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Optional search terms' },
+        topic_id: { type: 'integer', minimum: 1, description: 'Only papers referenced by this Topic (list_topics gives ids)' },
+        limit: { type: 'integer', minimum: 1 },
+        offset: { type: 'integer', minimum: 0 },
+      },
+    },
     handler: searchPapers,
   },
   {
@@ -782,7 +875,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'read_paper',
-    description: 'Read a Paperland paper\'s full text in pages (follow next_offset; outline=true lists headings with offsets). Check precision: "rough" text (PDF extraction, used while the precise parse is pending) may garble formulas and tables. status "not_ready" gives the abstract and arXiv links to use instead. After rough or not-ready results, call again on the user\'s next question.',
+    description: 'Read a Paperland paper\'s parsed full text in pages (follow next_offset; outline=true lists headings with offsets). Prefer this over fetching arXiv HTML; use arXiv or read_pdf_page only for tables and figures. Check precision: "rough" text (PDF extraction, used while the precise parse is pending) may garble formulas and tables. status "not_ready" gives the abstract and arXiv links to use instead. After rough or not-ready results, call again on the user\'s next question.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -797,7 +890,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'get_paper_qa',
-    description: 'Existing Q&A answers about a Paperland paper that you are allowed to see (latest answer per question, truncated).',
+    description: 'Existing Q&A answers about a Paperland paper that you are allowed to see (latest answer per question, truncated), with entry and result ids.',
     inputSchema: { type: 'object', properties: { paper_id: paperIdSchema, max_chars_per_answer: { type: 'integer', minimum: 100 } }, required: ['paper_id'] },
     handler: getPaperQA,
   },
@@ -932,6 +1025,42 @@ export const AGENT_TOOLS: AgentToolDef[] = [
     annotations: WRITE_ANNOTATIONS,
     write: true,
   },
+  {
+    name: 'add_paper_qa',
+    description: 'Save a question and your answer about a Paperland paper to the user\'s Q&A on that paper. Give your model name in "model" (e.g. "gpt-5"); the answer is signed "<model> [MCP]" and timestamped by Paperland. Use for answers the user wants kept.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paper_id: paperIdSchema,
+        question: { type: 'string', description: 'The question as the user would ask it' },
+        answer: { type: 'string', description: 'Your answer in Markdown' },
+        model: { type: 'string', description: 'Your model name, e.g. "gpt-5"' },
+      },
+      required: ['paper_id', 'question', 'answer', 'model'],
+      additionalProperties: false,
+    },
+    handler: addPaperQATool,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    write: true,
+  },
+  {
+    name: 'delete_paper',
+    description: 'Permanently delete a paper from Paperland for everyone, with its Q&A, tags, highlights and files (same as deleting it on the website). Only when the user explicitly asks.',
+    inputSchema: { type: 'object', properties: { paper_id: paperIdSchema }, required: ['paper_id'], additionalProperties: false },
+    handler: deletePaperTool,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    write: true,
+    permission: 'delete_papers',
+  },
+  {
+    name: 'delete_qa_answer',
+    description: 'Delete one Q&A answer by its result id (from get_paper_qa or add_paper_qa). Free-question answers can only be deleted by their owner. Only when the user explicitly asks.',
+    inputSchema: { type: 'object', properties: { result_id: { type: 'integer', minimum: 1 } }, required: ['result_id'], additionalProperties: false },
+    handler: deleteQAAnswerTool,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    write: true,
+    permission: 'delete_answers',
+  },
 ]
 
 /** Preserve the legacy site-run Research allowlist; external clients discover new Topic/PDF tools. */
@@ -948,6 +1077,7 @@ export async function callAgentTool(name: string, args: unknown, ctx: AgentToolC
   try {
     recordMcpCall(ctx.viewer.id, name, ctx.topic_id)
     if (ctx.topic_id != null && tool.write && !tool.topic_scoped) throw new AgentToolError('Topic credentials cannot use unrestricted write tools; use a permitted Topic action')
+    if (!toolAllowed(tool, ctx)) throw new AgentToolError(`This MCP service is not permitted to use ${name} (needs the ${toolPermission(tool)} permission)`)
     const result = await tool.handler(input, ctx)
     if (result instanceof AgentRichResult) {
       const text = JSON.stringify(result.metadata)

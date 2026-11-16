@@ -214,7 +214,8 @@ function timeAgo(iso: string): string {
         </TooltipTrigger>
         <TooltipContent>Stop this run</TooltipContent>
       </Tooltip>
-      <Tooltip v-if="canManage && ['done', 'failed', 'cancelled'].includes(result.status)">
+      <!-- Answers saved by an external app over MCP have no site model to regenerate with. -->
+      <Tooltip v-if="canManage && result.source !== 'mcp' && ['done', 'failed', 'cancelled'].includes(result.status)">
         <TooltipTrigger as-child>
           <Button variant="ghost" size="icon-xs" @click="emit('regenerate', result.model_name)">
             <RefreshCw />

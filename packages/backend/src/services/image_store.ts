@@ -131,7 +131,7 @@ export function maxMediaBytes(): number {
  */
 export function storeImage(
   input: string,
-  opts: { originalName?: string | null; userId?: number | null } = {},
+  opts: { originalName?: string | null; userId?: number | null; uploadedVia?: string | null } = {},
 ): StoreResult {
   // Strip a data: URL prefix (e.g. "data:image/png;base64,") if present.
   const comma = input.indexOf(',')
@@ -146,7 +146,7 @@ export function storeImage(
  */
 export function storeImageBytes(
   buf: Buffer,
-  opts: { originalName?: string | null; userId?: number | null } = {},
+  opts: { originalName?: string | null; userId?: number | null; uploadedVia?: string | null } = {},
 ): StoreResult {
   const cfg = getConfig().image_host
   if (buf.length === 0) throw new ImageValidationError('Empty or invalid image data')
@@ -190,7 +190,7 @@ export function storeImageBytes(
     const row = db.insert(schema.images).values({
       hash, ext, mime, size: buf.length, width, height,
       path: relPath, original_name: opts.originalName ?? null,
-      uploaded_by: opts.userId ?? null, created_at: now.toISOString(),
+      uploaded_by: opts.userId ?? null, created_at: now.toISOString(), uploaded_via: opts.uploadedVia ?? null,
     }).returning().get()
     return { row, deduped: false }
   } catch {

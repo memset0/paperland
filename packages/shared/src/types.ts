@@ -263,6 +263,8 @@ export interface QAResult {
   updated_at: string
   thinking_duration_ms: number | null
   can_cancel: boolean
+  /** 'mcp' when an external model saved the answer through add_paper_qa (no regenerate); null otherwise. */
+  source?: 'mcp' | null
 }
 
 export interface QAResultStreamStart {
@@ -321,6 +323,22 @@ export interface MyApiTokens {
   /** The Codex agent token: metadata only, its value is never returned. */
   agent: { created_at: string; rotated_at: string | null }
 }
+
+/** Permissions of an MCP service (Plugins page). Reading is always allowed. */
+export interface McpServicePermissions { write: boolean; delete_papers: boolean; delete_answers: boolean }
+
+/** A per-application MCP service (`GET /api/auth/me/mcp-services`); the secret URL is never listed. */
+export interface McpService {
+  id: number
+  name: string
+  permissions: McpServicePermissions
+  created_at: string
+  rotated_at: string | null
+  revoked_at: string | null
+}
+
+/** Returned once on create/rotate: the service plus its secret URL path (`/mcp/s/<secret>`). */
+export interface McpServiceWithUrl extends McpService { url_path: string }
 
 // User accounts (stored in the DB; not in config.yml)
 export type UserRole = 'admin' | 'user'
@@ -605,6 +623,8 @@ export interface Image {
   original_name: string | null
   uploaded_by: number | null
   created_at: string
+  /** How it was uploaded when not on the website, e.g. "ChatGPT [MCP]". */
+  uploaded_via?: string | null
 }
 
 /** An image row enriched by the API with its public URL and (on list) its reference count. */

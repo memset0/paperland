@@ -4,7 +4,7 @@ import { matchLibraryPapers } from '../services/qa_formatter.js'
 import { getDatabase, getSqliteDatabase, schema } from '../db/index.js'
 import { ingestPaper } from '../services/ingest_paper.js'
 import { addToLibrary, removeFromLibrary, libraryIds, libraryAddedAt } from '../services/user_library.js'
-import { removeDoc2xArtifacts } from '../services/doc2x_cli.js'
+import { deletePaperCascade } from '../services/paper_delete.js'
 import { requireUser } from '../auth/guards.js'
 import { verifyOpenToken } from '../auth/open_token.js'
 import { normalizeArxivId } from '../utils/arxiv_id.js'
@@ -274,41 +274,7 @@ export async function paperRoutes(app: FastifyInstance): Promise<void> {
       return
     }
 
-    // Cascade delete in a transaction using raw sqlite
-    const sqlite = getSqliteDatabase()
-    const tx = sqlite.transaction(() => {
-      // 1. Delete qa_results via qa_entries
-      const entryIds = db.select({ id: schema.qaEntries.id }).from(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).all().map(e => e.id)
-      if (entryIds.length > 0) {
-        const resultIds = db.select({ id: schema.qaResults.id }).from(schema.qaResults)
-          .where(inArray(schema.qaResults.qa_entry_id, entryIds)).all().map((result) => result.id)
-        if (resultIds.length > 0) {
-          db.update(schema.highlights).set({ qa_result_id: null })
-            .where(inArray(schema.highlights.qa_result_id, resultIds)).run()
-        }
-        db.delete(schema.qaResults).where(inArray(schema.qaResults.qa_entry_id, entryIds)).run()
-      }
-      // 2. Delete qa_entries
-      db.delete(schema.qaEntries).where(eq(schema.qaEntries.paper_id, id)).run()
-      // 3. Delete service_executions
-      db.delete(schema.serviceExecutions).where(eq(schema.serviceExecutions.paper_id, id)).run()
-      // 3b. Delete S2 citation graph
-      db.delete(schema.paperCitations).where(eq(schema.paperCitations.paper_id, id)).run()
-      // 4. Delete paper_tags
-      db.delete(schema.paperTags).where(eq(schema.paperTags.paper_id, id)).run()
-      // 4a. Delete per-user library rows
-      db.delete(schema.userPapers).where(eq(schema.userPapers.paper_id, id)).run()
-      // 4b. Delete per-user reference links
-      db.delete(schema.paperReferenceLinks).where(eq(schema.paperReferenceLinks.paper_id, id)).run()
-      // 5. Delete highlights by pdf_path pattern
-      if (paper.pdf_path) {
-        db.delete(schema.highlights).where(like(schema.highlights.pathname, `%${paper.pdf_path}%`)).run()
-      }
-      // 6. Delete the paper
-      db.delete(schema.papers).where(eq(schema.papers.id, id)).run()
-    })
-    tx()
-    removeDoc2xArtifacts(id)
+    deletePaperCascade(paper)
 
     return { success: true, deleted_id: id }
   })
