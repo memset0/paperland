@@ -42,6 +42,8 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 
 ### MCP 服务器（`/mcp`）
 
+> 设计检查：`bun run packages/backend/src/testing/mcp_inventory.ts [--json]` 在内存数据库上调用真实 `/mcp` 路由，离线输出 `initialize` 指南与 `tools/list`（含每个工具及总体字符数，分 personal/agent/topic 三种 token 核对）。按需执行的检查流程见 `.claude/skills/mcp-review/SKILL.md`（`/mcp-review`），报告按日期存于 `docs/mcp-reviews/`。该检查不改变任何 MCP 行为。
+
 `POST /mcp` 是 Paperland 的 MCP 服务器（只读工具 + `upload_image` + 论文写工具）（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal、agent 与 topic** 三种 token（topic 另验证绑定专题及当前成员权限），按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token，Codex QA 回合注入提问者的 agent token（只开放 `upload_image`）。`upload_image` 上传图片或视频（PNG / JPEG / GIF / WebP / MP4 / WebM）到图床并返回可嵌入的 Markdown（视频同样是 `![alt](url)`，Article 视图里内联播放）：`url`（服务端下载，规则同下方 `POST /external-api/v1/images?url=`）、`data`（base64 或 data URL，只适合很小的图）、`path`（服务器本地路径，只对 agent token 开放），三选一。只读工具 `get_skill(name?)` 返回内置 agent 指南（不带 name 时列出，如 `blog-import`：如何把博客导入为文章）。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
 
 **论文写工具（只接受 personal token；agent token 调用返回工具错误，Deep Research / QA 回合也看不到它们）**：让自己的 agent 添加和维护论文，校验与副作用与站内接口相同。
@@ -52,6 +54,8 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 | `update_paper` | `paper_id` + 上述元数据字段 | 同 `PATCH /api/papers/:id`（arXiv 论文 title/authors 锁定，空字符串清空 abstract / venue / pdf_url） |
 | `upload_paper_pdf` | `paper_id` + `data` 或 `url`（二选一），`replace?` | `data` 同 `POST /api/papers/:id/pdf`；`url` 写入 `pdf_url` 并下载（arXiv 论文不接受 `url`）。已有 PDF 时须 `replace: true`，内容不同则切换文件并重新生成解析 / 翻译 |
 | `refresh_paper` | `paper_id`，`pdf?`、`s2?` | 手动重新抓取 PDF（arXiv 给最新版本）/ 刷新 S2 引用数据，后台运行，返回已排队的服务与各自的错误 |
+
+`read_paper` 的全文就绪兜底：结果带 `precision`（`precise`＝user_input / doc2x Markdown，`rough`＝其他 PDF 文本）与 `precise_pending`（doc2x 精确解析已排队/进行中且未失败）。尚无存储文本但本地 PDF 可读时，用本地 Poppler 即时抽取全文（`source: "pdf_text"`，与 `read_pdf_page` 共用限额、并发、超时，内存缓存最近 8 份）；rough 结果附 `note`，提示公式/表格可能错乱并让模型在用户下一个问题时再调用一次。既无文本也无 PDF 时返回**非错误**结果 `status: "not_ready"`、`text: null`，附 `pdf_status`、摘要、arXiv 论文的 `arxiv_html` / `arxiv_abs` 链接和同样的复查提示。`get_paper` 额外返回 `pdf_status`、`pdf_unavailable_reason`、`precise_pending`，`full_text` 增加 `precision`。
 
 `/mcp` 的请求体上限取图床 `max_size_mb` / `max_video_size_mb` 与 `pdf_upload.max_file_size_mb` 中最大者的 base64 体积。导入博客：先 `get_skill("blog-import")`，按指南抽正文、截图 / 上传图与视频，再 `add_paper({ kind: "article", link, published_at, modified_at, content, … })`。示例：添加一个只有项目主页和 PDF 的工作——`add_paper({ title: "Code Video Model", link: "https://code-video-model.github.io", venue: "Tech report", pdf_url: "https://code-video-model.github.io/tech_report.pdf" })`。
 

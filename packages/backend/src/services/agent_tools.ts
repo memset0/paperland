@@ -5,7 +5,8 @@ import { getDatabase, schema } from '../db/index.js'
 import { ownerVisibilityFilter, ownerSharesCondition, type Viewer } from '../auth/visibility.js'
 import { recordMcpCall, registerMcpCounterTools } from './mcp_counts.js'
 import { TOPIC_TOOLS } from './topic_tools.js'
-import { readPdfPage } from './pdf_pages.js'
+import { readPdfPage, readPdfText } from './pdf_pages.js'
+import { isDoc2xParseEligible } from './doc2x_parse_service.js'
 import { AgentRichResult, type AgentContent } from './agent_result.js'
 import { TopicError } from './topic_format.js'
 import { ZodError } from 'zod'
@@ -133,9 +134,37 @@ function libraryPaperIds(viewer: Viewer, paperIds: number[]): Set<number> {
     .all().map((r) => r.id))
 }
 
-function fullTextInfo(paper: Pick<PaperRow, 'contents'>): { source: string; chars: number } | null {
+function fullTextInfo(paper: Pick<PaperRow, 'contents'>): { source: string; chars: number; precision: TextPrecision } | null {
   const content = resolvePaperContent(paper)
-  return content ? { source: content.source, chars: content.text.length } : null
+  return content ? { source: content.source, chars: content.text.length, precision: textPrecision(content.source) } : null
+}
+
+// ---- Text readiness (read_paper fallback) ----
+
+type TextPrecision = 'precise' | 'rough'
+const PRECISE_SOURCES = new Set(['user_input', 'doc2x_parsed'])
+const textPrecision = (source: string): TextPrecision => PRECISE_SOURCES.has(source) ? 'precise' : 'rough'
+const RECHECK = 'Call read_paper again when the user asks the next question to pick up better text.'
+
+/** A precise (doc2x) parse is expected: eligible (or eligible once its PDF arrives), not produced, not failed. */
+function precisePending(paper: PaperRow, source: string | null): boolean {
+  if (source && textPrecision(source) === 'precise') return false
+  if (!getConfig().doc2x.enabled) return false
+  const latest = getDatabase().select({ status: schema.serviceExecutions.status }).from(schema.serviceExecutions)
+    .where(and(eq(schema.serviceExecutions.paper_id, paper.id), eq(schema.serviceExecutions.service_name, 'doc2x_parse')))
+    .orderBy(desc(schema.serviceExecutions.created_at), desc(schema.serviceExecutions.id)).get()
+  if (latest?.status === 'failed' || latest?.status === 'done') return false
+  if (paper.pdf_path) return isDoc2xParseEligible(paper)
+  return pdfStatusOf(paper.id).pdf_status === 'fetching' && isDoc2xParseEligible({ ...paper, pdf_path: 'pending' })
+}
+
+function roughNote(pending: boolean, onTheFly: boolean): string {
+  return `${onTheFly ? 'Rough text extracted directly from the PDF while parsing is queued' : 'Rough text parsed from the PDF'}; layout, formulas and tables may be garbled. ` +
+    `${pending ? 'A precise version is being parsed now. ' : ''}${RECHECK}`
+}
+
+function arxivLinks(paper: PaperRow) {
+  return paper.arxiv_id ? { arxiv_html: `https://arxiv.org/html/${paper.arxiv_id}`, arxiv_abs: `https://arxiv.org/abs/${paper.arxiv_id}` } : {}
 }
 
 async function searchPapers(args: Record<string, unknown>, ctx: AgentToolContext) {
@@ -203,6 +232,8 @@ async function getPaper(args: Record<string, unknown>, ctx: AgentToolContext) {
     in_my_library: libraryPaperIds(ctx.viewer, [paper.id]).has(paper.id),
     my_tags: ctx.topic_id == null ? tags : [],
     full_text: fullTextInfo(paper),
+    precise_pending: precisePending(paper, resolvePaperContent(paper)?.source ?? null),
+    ...pdfStatusOf(paper.id),
   }
 }
 
@@ -228,11 +259,36 @@ export function markdownOutline(text: string): Array<{ level: number; title: str
 
 async function readPaper(args: Record<string, unknown>) {
   const paper = loadPaper(paperIdArg(args))
-  const content = resolvePaperContent(paper)
-  if (!content) throw new AgentToolError(`Paper ${paper.id} has no full text (not parsed yet)`)
+  let content = resolvePaperContent(paper)
+  let onTheFly = false
+  let pdfError: string | null = null
+  if (!content && paper.pdf_path) {
+    try { content = { source: 'pdf_text', text: await readPdfText(paper.id) }; onTheFly = true }
+    catch (error) { if (!(error instanceof TopicError)) throw error; pdfError = error.message }
+  }
+  const pending = precisePending(paper, content?.source ?? null)
+  if (!content) {
+    const status = pdfStatusOf(paper.id)
+    const links = arxivLinks(paper)
+    return {
+      paper_id: paper.id,
+      status: 'not_ready',
+      text: null,
+      ...status,
+      precise_pending: pending,
+      title: paper.title,
+      abstract: paper.abstract,
+      ...links,
+      note: `Full text is not available yet (PDF: ${status.pdf_status}${pdfError ? `; ${pdfError}` : ''}). ` +
+        (links.arxiv_html ? 'Read the paper now from arxiv_html (or arxiv_abs) yourself, or work from the abstract. ' : 'Work from the abstract for now. ') +
+        (paper.pdf_path ? 'Individual pages may still be readable with read_pdf_page. ' : '') + RECHECK,
+    }
+  }
+  const precision = textPrecision(content.source)
+  const labels = { source: content.source, precision, precise_pending: pending, ...(precision === 'rough' ? { note: roughNote(pending, onTheFly) } : {}) }
   const total = content.text.length
   if (args.outline === true) {
-    return { paper_id: paper.id, source: content.source, total_chars: total, outline: markdownOutline(content.text) }
+    return { paper_id: paper.id, ...labels, total_chars: total, outline: markdownOutline(content.text) }
   }
   const cap = getConfig().agent_tools.read_max_chars
   const offset = int(args, 'offset', 0, 0, total)
@@ -240,7 +296,7 @@ async function readPaper(args: Record<string, unknown>) {
   const end = Math.min(offset + maxChars, total)
   return {
     paper_id: paper.id,
-    source: content.source,
+    ...labels,
     total_chars: total,
     offset,
     next_offset: end < total ? end : null,
@@ -726,7 +782,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'read_paper',
-    description: 'Read the parsed full text (Markdown) of a Paperland paper in pages. Use outline=true first to get section headings with character offsets, then read from an offset. Follow next_offset to continue.',
+    description: 'Read a Paperland paper\'s full text in pages (follow next_offset; outline=true lists headings with offsets). Check precision: "rough" text (PDF extraction, used while the precise parse is pending) may garble formulas and tables. status "not_ready" gives the abstract and arXiv links to use instead. After rough or not-ready results, call again on the user\'s next question.',
     inputSchema: {
       type: 'object',
       properties: {

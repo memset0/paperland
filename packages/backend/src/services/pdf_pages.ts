@@ -1,4 +1,4 @@
-import { realpathSync, existsSync } from 'node:fs'
+import { realpathSync, existsSync, statSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
@@ -12,20 +12,59 @@ import { TopicError } from './topic_format.js'
 const region = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), width: z.number().positive().max(1), height: z.number().positive().max(1) }).strict().refine((r) => r.x + r.width <= 1.000001 && r.y + r.height <= 1.000001, 'Rectangle must fit inside the page')
 const inputSchema = z.object({ paper_id: z.number().int().positive(), page: z.number().int().positive(), image: z.boolean().default(false), region: region.optional(), offset: z.number().int().nonnegative().default(0), max_chars: z.number().int().positive().optional() }).strict()
 let limiter: Semaphore | undefined, limiterSize = 0, testDataRoot: string | undefined
-export function setPdfPageDataRootForTesting(root?: string): void { testDataRoot = root; limiter = undefined }
+export function setPdfPageDataRootForTesting(root?: string): void { testDataRoot = root; limiter = undefined; textCache.clear() }
+
+/** Confined real path of a paper's local PDF, or a 404 TopicError. */
+function localPdfPath(paperId: number): string {
+  const paper = getDatabase().select({ pdf_path: schema.papers.pdf_path }).from(schema.papers).where(eq(schema.papers.id, paperId)).get()
+  if (!paper?.pdf_path) throw new TopicError(404, `Paper ${paperId} has no local PDF`)
+  try {
+    const root = realpathSync(testDataRoot ?? resolve(process.cwd(), 'data'))
+    const path = realpathSync(resolve(process.cwd(), paper.pdf_path))
+    if (!path.startsWith(root + sep) || !path.toLowerCase().endsWith('.pdf') || !existsSync(path)) throw new Error('outside PDF storage')
+    return path
+  } catch { throw new TopicError(404, 'The local PDF is unavailable') }
+}
+
+function pdfLimiter(): Semaphore {
+  const config = getConfig().pdf_pages
+  if (!limiter || limiterSize !== config.max_concurrency) { limiter = new Semaphore(config.max_concurrency); limiterSize = config.max_concurrency }
+  return limiter
+}
+
+// Whole-document rough text for read_paper's fallback; keyed by PDF path + mtime so a replaced PDF re-extracts.
+const TEXT_CACHE_SIZE = 8
+const textCache = new Map<string, string>()
+
+/**
+ * Rough text of a paper's whole local PDF (pdftotext -layout), under the same confinement, concurrency,
+ * timeout and output cap as `readPdfPage`. Throws TopicError when the PDF is missing or extraction fails.
+ */
+export async function readPdfText(paperId: number): Promise<string> {
+  const path = localPdfPath(paperId), config = getConfig().pdf_pages
+  const key = `${paperId}:${path}:${statSync(path).mtimeMs}`
+  const cached = textCache.get(key)
+  if (cached !== undefined) { textCache.delete(key); textCache.set(key, cached); return cached }
+  const semaphore = pdfLimiter()
+  await semaphore.acquire(AbortSignal.timeout(config.timeout_ms))
+  let text: string
+  try {
+    text = (await localProcess(config.pdftotext_path, ['-layout', '-enc', 'UTF-8', path, '-'], { timeout_ms: config.timeout_ms, max_bytes: config.max_image_bytes }))
+      .output.toString('utf8').replace(/\f/g, '\n\n').replace(/\n{4,}/g, '\n\n\n').trim()
+  } catch {
+    throw new TopicError(422, 'Local PDF text extraction failed or exceeded its limits')
+  } finally { semaphore.release() }
+  if (!text) throw new TopicError(422, 'The PDF has no extractable text')
+  for (const k of textCache.keys()) if (k.startsWith(`${paperId}:`)) textCache.delete(k)
+  textCache.set(key, text)
+  while (textCache.size > TEXT_CACHE_SIZE) textCache.delete(textCache.keys().next().value!)
+  return text
+}
 
 export async function readPdfPage(raw: Record<string, unknown>): Promise<unknown> {
   const input = inputSchema.parse(raw), config = getConfig().pdf_pages
-  const paper = getDatabase().select().from(schema.papers).where(eq(schema.papers.id, input.paper_id)).get()
-  if (!paper?.pdf_path) throw new TopicError(404, `Paper ${input.paper_id} has no local PDF`)
-  let path: string
-  try {
-    const root = realpathSync(testDataRoot ?? resolve(process.cwd(), 'data'))
-    path = realpathSync(resolve(process.cwd(), paper.pdf_path))
-    if (!path.startsWith(root + sep) || !path.toLowerCase().endsWith('.pdf') || !existsSync(path)) throw new Error('outside PDF storage')
-  } catch { throw new TopicError(404, 'The local PDF is unavailable') }
-  if (!limiter || limiterSize !== config.max_concurrency) { limiter = new Semaphore(config.max_concurrency); limiterSize = config.max_concurrency }
-  const semaphore = limiter
+  const path = localPdfPath(input.paper_id)
+  const semaphore = pdfLimiter()
   await semaphore.acquire(AbortSignal.timeout(config.timeout_ms))
   try {
     const run = (command: string, args: string[], maxBytes = config.max_image_bytes) => localProcess(command, args, { timeout_ms: config.timeout_ms, max_bytes: maxBytes })

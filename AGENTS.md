@@ -139,6 +139,10 @@ bun run --filter '@paperland/backend' test
 # Generate Drizzle migration after schema changes
 cd packages/backend && bunx drizzle-kit generate
 
+# MCP design review (on demand): offline inventory of the /mcp tool surface;
+# full procedure in .claude/skills/mcp-review/SKILL.md (`/mcp-review`), reports in docs/mcp-reviews/
+bun run packages/backend/src/testing/mcp_inventory.ts [--json]
+
 # Check openspec status
 npx openspec list --json
 npx openspec status --change "<name>" --json

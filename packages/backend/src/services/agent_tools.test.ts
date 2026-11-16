@@ -96,7 +96,8 @@ describe('site tools', () => {
     expect(last.next_offset).toBeNull()
     const outline = await ok('read_paper', { paper_id: 10, outline: true })
     expect(outline.outline.map((h: any) => h.title)).toEqual(['Intro', 'Method'])
-    expect((await call('read_paper', { paper_id: 11 })).text).toContain('no full text')
+    expect(outline).toMatchObject({ source: 'pdf_parsed', precision: 'rough' })
+    expect(await ok('read_paper', { paper_id: 11 })).toMatchObject({ status: 'not_ready', text: null })
   })
 
   it('get_paper_qa shows template and own answers but not private answers of others', async () => {
