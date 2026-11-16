@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import type { TopicDocument } from '@paperland/shared'
-import { documentSlug, documentUrl, resolveTopicDocument, topicDocumentTree } from './topic-navigation'
+import { documentSlug, documentUrl, resolveTopicDocument, topicDocumentTree, selectedTopicAncestors } from './topic-navigation'
 import { topicIcon } from './topic-icons'
 
 const doc = (path: string, title = path): TopicDocument => ({ path, title, body: '', references: [], exists: true })
@@ -30,4 +30,17 @@ describe('First-class Topic document navigation (offline)', () => {
     expect(topicIcon('BookOpen')).toBe(topicIcon('book-open'))
     expect(topicIcon('unknown-icon')).toBe(topicIcon('FileText'))
   })
+})
+
+test('curated order and page groups are independent of filename order, without duplicate overview entries', () => {
+  const docs = [doc('pages/report.md', 'Report'), doc('pages/research/index.md', 'Questions'), doc('pages/research/rq1.md', 'First question'), doc('pages/z.md', 'Background')]
+  const tree = topicDocumentTree(docs, 'pages/report.md', { schema_version: 1, default_page: 'pages/report.md', reports: [{ path: 'pages/report.md' }, { title: 'Resources', fonticon: 'Archive', children: [{ path: 'pages/z.md' }] }, { path: 'pages/research/index.md', children: [{ path: 'pages/research/rq1.md' }] }] })
+  expect(tree.map((n) => n.name)).toEqual(['Report', 'Resources', 'Questions'])
+  expect(tree[2].children).toHaveLength(1)
+  expect(tree[2].document?.path).toBe('pages/research/index.md')
+  expect(selectedTopicAncestors(tree, 'pages/research/rq1.md')).toEqual(['pages/research/index.md'])
+  expect(selectedTopicAncestors(tree, 'pages/z.md')).toEqual(['reports/group-1'])
+  const legacy = topicDocumentTree(docs, 'pages/report.md')
+  expect(legacy.find((n) => n.key === 'pages/research')?.document?.title).toBe('Questions')
+  expect(legacy.find((n) => n.key === 'pages/research')?.children).toHaveLength(1)
 })

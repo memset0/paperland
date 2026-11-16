@@ -5,6 +5,7 @@ import { schema } from '../db/index'
 import { topicFixture } from '../testing/topic_fixture'
 import { createTopic, getTopic, renameTopic } from './topics'
 import { backfillTopicReferences, commitTopicFiles, readTopicCommit } from './topic_git'
+import { defaultTopicReports } from './topic_reports'
 import { parseTopicFiles, topicFiles } from './topic_format'
 import { parseTopicDocument, topicDocuments } from './topic_documents'
 import { planTopicReferences, referenceRegistry } from './topic_references'
@@ -33,6 +34,7 @@ describe('Topic documents and stable global references (offline)', () => {
     const snapshot = structuredClone(topic.snapshot)
     snapshot.list.papers = [reference('a', 2025, 1), reference('b', 2010, 2)]
     snapshot.pages!['pages/rq6.md'] = '---\nreferences: [2]\n---\n# RSI\n\nFirst report.'
+    snapshot.navigation = defaultTopicReports(['pages/report.md', ...Object.keys(snapshot.pages!)])
     const first = await commitTopicFiles(topic.id, topic.commit, topicFiles(snapshot), actor)
     let detail = await getTopic(topic.id, 1)
     expect(detail.reference_numbers).toEqual({ a: 1, b: 2 })

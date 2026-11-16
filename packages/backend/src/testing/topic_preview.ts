@@ -48,7 +48,7 @@ f.db.update(schema.papers).set({ title: 'Attention Is All You Need', pdf_path: p
 setPdfPageDataRootForTesting(dataRoot)
 addToLibrary(1, 10)
 const snapshot: TopicSnapshot = {
-  topic: { format_version: 2, title: 'Efficient long-context attention', description: 'A maintained guide to sparse attention, retrieval, and efficient long-context models.' },
+  topic: { schema_version: 1, format_version: 2, title: 'Efficient long-context attention', description: 'A maintained guide to sparse attention, retrieval, and efficient long-context models.' },
   report: '# Research overview\n\nLong-context models balance memory, computation, and access to evidence. This topic collects the important methods and questions.\n\n## What we know\n\nSparse attention reduces the number of token interactions. Retrieval selects the evidence a model needs for a particular question.\n\nThe strongest evaluation combines long inputs with questions that require reasoning across several distant passages.\n\n## Reading the evidence\n\n[Open the foundation paper](paperland://paper/10). Inspect [PDF page 2](paperland://paper/10?pdf=2) or the [figure region](paperland://paper/10?pdf=2&rx=0.1&ry=0.2&rw=0.3&rh=0.15).\n\n## Open questions\n\nHow should we compare quality and compute across different context lengths?\n',
   agent_instructions: TOPIC_AGENT_GUIDE,
   pages: {

@@ -2,9 +2,9 @@
 
 ## Topics
 
-导航 `/research`（别名 `/topics`）为 Topics；`/topics/:id/:document_path(.*)*` 是一等文档详情。旧 `/research/history`、`/research/:id` 和 Original research 保留。默认文件是 pages/report.md，不是 README；文件夹层级来自 pages/，RQ 集中于 pages/research-questions/，原始全文可放 pages/background/。协议见 [topics.md](topics.md)。
+导航 `/research`（别名 `/topics`）为 Topics；`/topics/:id/:document_path(.*)*` 是一等文档详情。旧 `/research/history`、`/research/:id` 和 Original research 保留。默认文件是 pages/report.md，不是 README；页面顺序和分组来自 reports.yml，旧提交由 pages/ 文件夹回退生成，RQ 集中于 pages/research-questions/，原始全文可放 pages/background/。协议见 [topics.md](topics.md)。
 
-桌面左侧 `TopicFileNav`/递归 `TopicFileBranch` 生成真实目录树，正文卡片最大约680px。当前页引用移到正文下方的 Collapsible，切换文档/版本/账号时默认收起，不再常驻右栏；手机仍用 Pages 抽屉。frontmatter title/fonticon 控制标题和 Lucide 图标（静态安全调色板，未知回退 FileText）；根 AGENTS.md 是独立 Agent guide。所有 UI 文案仍为英文，用户提供的标题/正文除外。
+桌面左侧 `TopicFileNav`/递归 `TopicFileBranch` 生成有序清单树（旧提交由真实目录回退），正文卡片最大约680px。当前页引用移到正文下方的 Collapsible，切换文档/版本/账号时默认收起，不再常驻右栏；手机仍用 Pages 抽屉。frontmatter title/fonticon 控制标题和 Lucide 图标（静态安全调色板，未知回退 FileText）；根 AGENTS.md 是独立 Agent guide。所有 UI 文案仍为英文，用户提供的标题/正文除外。
 
 All references 是单独入口，在右侧 Sheet 打开全局 references.json 的视图，不替换中央页面，也不进入文件树。数字 #ref 链接使用引用 chip，带完整标题，定位右栏/抽屉条目；普通链接、S2/本机 PDF 原生链接继续复用 MarkdownContent。全局编号按首次加入 Topic 排序，和发表年份无关；一项工作可用于多篇报告。S2 导入为显式按钮，工作区文件不展示/执行。
 
@@ -14,13 +14,15 @@ All references 是单独入口，在右侧 Sheet 打开全局 references.json �
 
 Share/Connect 独立。创建与 owner Share 使用 TopicAccessSelect 选 Private/Public、默认 Viewer/Editor，实际权限为个人授权和默认的较高者；移除个人授权回到默认。Connect 只管理本人凭证、MCP/Git URL与调用次数。历史和权限由同一服务校验，旧全局 Research 开关不参与。owner/editor 改名经 stale-aware PATCH 只改 topic.json，保留所有页面及工作区 blob。
 
-原共享列表类型在 lib/paper-ref-types.ts；论文默认仅显示可访问 Topic 根标签，和私有手工标签分开。v1历史目录数据保持兼容，v2使用平面全局表。
+原共享列表类型在 lib/paper-ref-types.ts；论文默认仅显示可访问 Topic 根标签，和私有手工标签分开。legacy layout 1 历史目录保持兼容，schema v1 使用平面全局表。
 
 
 正文数字 #ref 引用是主要入口：TopicCitationCard 通过事件委托处理 hover/focus/click/tap，PopoverAnchor 指向实际数字元素，弹层可避开视口边界。延迟关闭允许指针进入卡片并点击导入，点击/触摸操作可保持卡片；Escape、外部点击、文档/版本/账号/正文替换会关闭旧卡片。PaperCitationCard 复用原 Markdown #cite 卡片的标题/作者/年份/来源展示，原 Q&A 行为不变。Topic 卡片立即使用提交中的元数据，hover 不触发批量外部解析或入库；导入调用同一 Topic API，成功后原地更新站内链接/个人 library 状态，失败可重试。折叠引用列表和全局抽屉仅在展开时推进各自缓存，hover 卡片不吞掉列表未读基准。
 
 
 文章树桌面宽度在1024/1280/1536px断点分别为240/280/300px；保留14px文字，条目行高20px、桌面上下padding6px，目录上下padding4px，条目间距2px，每级缩进13px。Pages标题和Agent guide分隔留白相应收紧；正文仍以680px为上限，手机继续使用原抽屉。
+
+schema v1 的 snapshot.navigation 来自严格校验的 reports.yml。前端保留清单顺序；组标题与页面 frontmatter 分别提供元数据，带概览页的组只有一行，独立 chevron 与页面按钮支持键盘。选择深层页面会展开实际清单祖先；旧提交的文件夹 index.md 合并为组本身，避免重复概览。默认页仍 pages/report.md，页面路由和引用缓存键不因清单重排而变。格式由 MCP get_topic_schema 提供，兼容/迁移状态见 repository_schema。
 
 ## 概述
 

@@ -9,6 +9,7 @@ import { topicGitRoutes } from '../api/topic_git'
 import { initializeTopicRepo, readTopicCommit, recoverTopicRepositories, setTopicPublicationFaultForTesting, topicRepoPath } from './topic_git'
 import { issueTopicCredential, setTopicDefaultAccess, setTopicMember } from './topic_access'
 import { localProcess } from './local_process'
+import { upgradeTopicSchema } from './topic_layout'
 import { topicFiles } from './topic_format'
 import type { TopicSnapshot } from '@paperland/shared'
 import { getTopic, renameTopic } from './topics'
@@ -186,4 +187,25 @@ describe('Topic smart HTTP Git clients and publication (offline)', () => {
     await client(['fetch', 'origin'], work)
     expect(f.db.select().from(schema.topicPushes).all()).toHaveLength(2)
   })
+})
+
+test('canonical smart HTTP pushes validate the complete navigation and reject intermediate schema downgrades', async () => {
+  await upgradeTopicSchema(id)
+  const base = await getTopic(id, 2)
+  const work = join(f.root, 'canonical-client'); await client(['clone', url, work])
+  const manifest = readFileSync(join(work, 'reports.yml'), 'utf8')
+  writeFileSync(join(work, 'reports.yml'), manifest.replace('pages/report.md', 'pages/absent.md'))
+  await client(['add', '--', 'reports.yml'], work); await client(['commit', '-m', 'Invalid manifest'], work)
+  writeFileSync(join(work, 'reports.yml'), manifest)
+  await client(['add', '--', 'reports.yml'], work); await client(['commit', '-m', 'Valid manifest tip'], work)
+  expect((await client(['push', 'origin', 'main'], work, [0, 1, 128])).code).not.toBe(0)
+  expect((await getTopic(id, 2)).commit).toBe(base.commit)
+  const second = join(f.root, 'canonical-second'); await client(['clone', url, second])
+  const metadata = readFileSync(join(second, 'topic.json'), 'utf8')
+  writeFileSync(join(second, 'topic.json'), metadata.replace('"schema_version": 1', '"format_version": 2'))
+  await client(['add', '--', 'topic.json'], second); await client(['commit', '-m', 'Downgrade intermediate'], second)
+  writeFileSync(join(second, 'topic.json'), metadata)
+  await client(['add', '--', 'topic.json'], second); await client(['commit', '-m', 'Canonical tip'], second)
+  expect((await client(['push', 'origin', 'main'], second, [0, 1, 128])).code).not.toBe(0)
+  expect((await getTopic(id, 2)).commit).toBe(base.commit)
 })

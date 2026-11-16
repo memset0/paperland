@@ -2,10 +2,11 @@
 
 Topic 是长期维护的研究成果。用户在本机使用自己的 agent，通过 MCP 查资料并用 Git 同步。每个 Topic 有主报告、可选调研页面和一份全局编号资料表。页面通过 frontmatter 指定资料表子集；旧分层清单保留格式兼容及历史，但不再作为新页面的组织结构。
 
-## 仓库格式 v2
+## 仓库 schema v1
 
 ```text
 topic.json
+reports.yml                     # 页面顺序和嵌套分组
 references.json                 # 唯一全局资料表
 AGENTS.md                       # agent 操作约定；可作为指南读取
 README.md                       # 仓库说明，不是默认报告
@@ -20,7 +21,7 @@ pages/
 workspace/                      # 可选 agent 工作文件，不展示/不执行
 ```
 
-`topic.json` 使用 `{ "format_version": 2, "title": "Attention", "description": "A maintained survey" }`。所有研究页面必须在 `pages/` 下，可嵌套目录；文件/目录段使用字母数字（含 Unicode）、点、下划线或连字符，不以点开头。根目录 `AGENTS.md` 是操作指南例外，README 不进入页面列表。其他安全普通文件可作为 Git 工作区，允许小型二进制文件和辅助脚本；服务器不执行它们，网站不当作页面。它们与整个 Topic 一起共享，不能充当私有凭证区。
+`topic.json` 使用 `{ "schema_version": 1, "title": "Attention", "description": "A maintained survey" }`。所有研究页面必须在 `pages/` 下，可嵌套目录；文件/目录段使用字母数字（含 Unicode）、点、下划线或连字符，不以点开头。根目录 `AGENTS.md` 是操作指南例外，README 不进入页面列表。其他安全普通文件可作为 Git 工作区，允许小型二进制文件和辅助脚本；服务器不执行它们，网站不当作页面。它们与整个 Topic 一起共享，不能充当私有凭证区。
 
 每页可有 YAML frontmatter：
 
@@ -36,7 +37,7 @@ See [3](#ref:3), [another question](rq7-future-prediction.md), or
 [PDF page 5](paperland://paper/123?pdf=5).
 ```
 
-`title` 为 1–200 字符纯文本，覆盖侧栏标签；`fonticon` 用站内 Lucide 图标名，支持 PascalCase 或 kebab-case，未知名字安全退回 FileText。可用名称由 MCP `repository_contract.fonticons` 给出。目录树由真实文件夹生成，当前文件的父目录会展开。文件夹 `index.md` 使用文件夹地址；如 `pages/research-questions/index.md` 对应 `/topics/3/research-questions`，`pages/discussions.md` 对应 `/topics/3/discussions`。默认 `/topics/3` 对应 `pages/report.md`。旧 `?file=...`、旧主页和唯一同名文件的迁移链接仍兼容；历史版本用 `?version=<commit>`。
+`title` 为 1–200 字符纯文本，覆盖侧栏标签；`fonticon` 用站内 Lucide 图标名，支持 PascalCase 或 kebab-case，未知名字安全退回 FileText。可用名称由 MCP `repository_contract.fonticons` 给出。目录树由 reports.yml 指定顺序/分组，当前文件的祖先会展开；旧提交回退到文件夹树。文件夹 `index.md` 使用文件夹地址；如 `pages/research-questions/index.md` 对应 `/topics/3/research-questions`，`pages/discussions.md` 对应 `/topics/3/discussions`。默认 `/topics/3` 对应 `pages/report.md`。旧 `?file=...`、旧主页和唯一同名文件的迁移链接仍兼容；历史版本用 `?version=<commit>`。
 
 ## 全局资料表
 
@@ -53,11 +54,11 @@ See [3](#ref:3), [another question](rq7-future-prediction.md), or
 }
 ```
 
-条目必须有稳定 `id`、正整数 `reference_number` 和 `title`，且只能有一个 `paper_id`、`s2_id` 或 HTTP(S) `url`；URL 必须有 `citation`。可选字段为 `comment`、`authors`、`year`、`verification` 与 citation 的 `author` 数组、`year`、`month`、`howpublished`、`note`。v2 不使用目录归属字段。ID 与编号不得重复；同 ID 不可换资料来源，已分配编号不可改名/复用，新条目从 MCP `next_reference_number` 顺序追加。推荐按编号排序，顺序依据首次进入 Topic，而非发表年份、Git 声明时间或后续数组重排。
+条目必须有稳定 `id`、正整数 `reference_number` 和 `title`，且只能有一个 `paper_id`、`s2_id` 或 HTTP(S) `url`；URL 必须有 `citation`。可选字段为 `comment`、`authors`、`year`、`verification` 与 citation 的 `author` 数组、`year`、`month`、`howpublished`、`note`。schema v1 不使用目录归属字段。ID 与编号不得重复；同 ID 不可换资料来源，已分配编号不可改名/复用，新条目从 MCP `next_reference_number` 顺序追加。推荐按编号排序，顺序依据首次进入 Topic，而非发表年份、Git 声明时间或后续数组重排。
 
 资料不归属某一报告：任意多篇报告可在 `references` frontmatter 中复用相同编号，不复制资料元数据。引用编号必须是该版本全局表的子集。不同方法版本可视为不同工作，例如 HexaShell Preview/TaskTools 与 Universal/v3 使用独立条目和固定版本来源，不能只按 base arXiv ID 自动合并。
 
-push 不联系 S2、不自动入库。显式一键导入 S2 条目时沿用站内去重/个人 library 流程；普通项目 URL 仅作为链接，不自动抓取或导入；明确 arXiv 论文 URL 可通过显式按钮按规范 ID 入库并保留固定版本来源。媒体继续用现有存储。历史 v1 的 `report.md` / `papers.json` 仍可读，其目录数据保存在历史与迁移工作区存档中；v2 当前生成标签只用平面全局表的根关联。
+push 不联系 S2、不自动入库。显式一键导入 S2 条目时沿用站内去重/个人 library 流程；普通项目 URL 仅作为链接，不自动抓取或导入；明确 arXiv 论文 URL 可通过显式按钮按规范 ID 入库并保留固定版本来源。媒体继续用现有存储。历史 legacy format_version:1 的 `report.md` / `papers.json` 仍可读，其目录数据保存在历史与迁移工作区存档中；schema v1 当前生成标签只用平面全局表的根关联。
 
 
 阅读页的数字引用可 hover/聚焦或点击/触摸打开论文卡片，显示该版本资料元数据、来源和站内/导入操作；不是只有 title tooltip。S2 与可识别 arXiv 论文 URL 可显式一键加入操作者自己的 library，已存在时去重，普通项目 URL 保持来源链接。固定版本来源仍保留，站内 arXiv 记录按已有规范 ID（不含 vN）处理；原引用身份/编号不合并。当前页引用默认折叠，All references 独立右侧抽屉；展开前不更新引用列表阅读基准。
@@ -178,3 +179,31 @@ bun run scripts/migrate-research-to-topics.ts --verify
 ## 现有仓库布局迁移
 
 从项目根目录运行 `bun run scripts/migrate-topic-pages.ts --dry-run`。停下活动工作并暂停服务后，以 `--apply --backup-dir <private-path>` 备份并迁移，最后 `--verify`。该命令把 v1 当前主报告原 blob 移到 pages/report.md、用原编号生成 references.json、将旧 papers.json 存入 workspace/legacy，并用新 Git 提交记录系统迁移；不改历史/成员权限/编号，不运行 provider。重复 apply 跳过已完成仓库。旧备份/原 Research 导入后的 v1 仓库可用同一命令升级；已升级仓库拒绝降级。
+
+## Schema 版本、显式目录与升级
+
+截至当前的完整规范统一称 **schema v1**，`topic.json` 写 `schema_version: 1`，不同时声明旧 `format_version`。MCP `get_topic_schema(schema_version?)` 返回当前或指定受支持版本的完整范例、字段、资源限制和迁移步骤。当前支持 schema 1；保留 legacy `format_version:1/2` 两种历史读取路径，不把旧 layout 2 称为 schema v2。未知未来版本会明确拒绝，不猜测解析。
+
+根目录 **reports.yml** 是页面总目录，控制顺序与分组。默认固定 `pages/report.md`。示例：
+
+```yaml
+schema_version: 1
+default_page: pages/report.md
+reports:
+  - path: pages/report.md
+  - path: pages/research-questions/index.md
+    children:
+      - path: pages/research-questions/rq6-robo-use-rsi.md
+  - title: Background
+    fonticon: Archive
+    children:
+      - path: pages/background/original-report.md
+```
+
+每个实际 `pages/**/*.md` 必须恰好出现一次。页面项用 `path` 和可选 `children`，标题/图标只取文档 frontmatter；纯分组用 `title`、可选 `fonticon` 和非空 `children`。上例需要与真实文件集合一致，新增/移动页面必须同步清单；遗漏、重复、未知/越界路径、错误默认页、超过 8 层或 64 项都会拒绝整个 push。`AGENTS.md`、README、辅助文件不列在 reports 中。带概览页的分组只占一行，箭头展开与点击打开概览互不干扰；历史无清单时由文件夹生成兼容树。
+
+`get_topic.repository_schema` 含所选提交的 `schema_version`、`encoding`、`current_schema_version`、`supported_schema_versions`、`supported_legacy_formats` 和 `migration_required`。metadata_only 同样返回状态、导航与完整 contract；单页读取仍受同一 ACL。MCP initialize 明确引导 agent 在编辑前读取 `get_topic_schema` 并检查是否需升级。这个只读工具的成功/失败调用沿用用户及可选 Topic 计数。
+
+旧 layout 2 升级：pull 最新 main，将 topic.json 的 format_version 改为 schema_version:1；添加完整 reports.yml；其余页面、references.json、workspace 和自定义 AGENTS.md 保留；一起提交/push 后再用 get_topic 校验。旧 layout 1 先将 report.md 原样移动到 pages/report.md，用权威 reference_numbers 将 papers.json 的条目转成 references.json（去 directory_ids），将旧表存档到 workspace/legacy/，再完成上述步骤。若旧仓库已有 reports.yml 工作文件，先移入 workspace/，迁移会报冲突而不会覆盖。不改写历史、不复用编号、不伪造用户推送；已升级仓库拒绝降级。
+
+维护命令从根目录运行（apply 前停止后端，结束后再启动，避免另一个进程并发推送；可用 `--topics 1,2` 选择专题）：`bun run scripts/migrate-topic-schema.ts --dry-run`、`--apply --backup-dir <dir>`、`--verify`。apply 先一致备份数据库，再用 journal/CAS 生成系统审计的新提交，支持中断恢复和重复运行跳过。部署兼容读者后再升级仓库；回滚须使用支持 schema v1 的代码与完整备份，不能把 Git 强推回旧格式。

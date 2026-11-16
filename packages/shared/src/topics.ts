@@ -3,7 +3,9 @@ export type TopicDefaultAccess = 'none' | 'editor' | 'viewer'
 export type McpCallCounts = Record<string, number>
 
 export interface TopicManifest {
+  /** Legacy layout discriminator retained in normalized API snapshots. */
   format_version: 1 | 2
+  schema_version?: 1
   title: string
   description: string
 }
@@ -40,7 +42,27 @@ export interface TopicPaperList {
   directories: TopicDirectory[]
   papers: TopicPaper[]
 }
+export interface TopicReportEntry {
+  path?: string
+  title?: string
+  fonticon?: string
+  children?: TopicReportEntry[]
+}
+export interface TopicReports {
+  schema_version: 1
+  default_page: 'pages/report.md'
+  reports: TopicReportEntry[]
+}
+export interface TopicSchemaStatus {
+  schema_version: 1 | null
+  encoding: 'schema_v1' | 'legacy_format_1' | 'legacy_format_2'
+  current_schema_version: 1
+  supported_schema_versions: number[]
+  supported_legacy_formats: number[]
+  migration_required: boolean
+}
 export interface TopicSnapshot {
+  navigation?: TopicReports
   topic: TopicManifest
   report: string
   pages?: Record<string, string>
@@ -90,6 +112,7 @@ export interface TopicVersion {
   pushed_by_display_name: string
 }
 export interface TopicDetail extends TopicSummary {
+  repository_schema: TopicSchemaStatus
   home_page: string
   commit: string
   snapshot: TopicSnapshot

@@ -18,7 +18,7 @@ export function topicDocumentSlug(path: string, home: string): string {
   return slug.endsWith('/index') ? slug.slice(0, -6) : slug
 }
 export function isTopicText(path: string): boolean {
-  return ['topic.json', 'papers.json', 'references.json', 'report.md', 'AGENTS.md'].includes(path) || isTopicPage(path)
+  return ['topic.json', 'reports.yml', 'papers.json', 'references.json', 'report.md', 'AGENTS.md'].includes(path) || isTopicPage(path)
 }
 export function requireSafeTopicPath(path: string): void {
   if (!safeTopicPath(path)) throw new TopicError(422, `Unsafe repository path: ${path}`)

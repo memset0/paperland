@@ -1,4 +1,4 @@
-import type { TopicDocument } from '@paperland/shared'
+import type { TopicDocument, TopicReports, TopicReportEntry } from '@paperland/shared'
 
 export function documentSlug(path: string, home: string): string {
   if (path === home) return ''
@@ -23,8 +23,17 @@ export function documentUrl(topicId: number, doc: TopicDocument, home: string): 
   const slug = doc.slug ?? documentSlug(doc.path, home)
   return `/topics/${topicId}${slug ? '/' + slug.split('/').map(encodeURIComponent).join('/') : ''}`
 }
-export interface TopicTreeNode { key: string; name: string; document?: TopicDocument; children: TopicTreeNode[] }
-export function topicDocumentTree(documents: TopicDocument[], home: string): TopicTreeNode[] {
+export interface TopicTreeNode { key: string; name: string; fonticon?: string; document?: TopicDocument; children: TopicTreeNode[] }
+export function topicDocumentTree(documents: TopicDocument[], home: string, navigation?: TopicReports): TopicTreeNode[] {
+  if (navigation) {
+    const byPath = new Map(documents.map((doc) => [doc.path, doc]))
+    const convert = (entries: TopicReportEntry[], prefix: string): TopicTreeNode[] => entries.map((entry, i) => {
+      const document = entry.path ? byPath.get(entry.path) : undefined
+      const key = entry.path ?? `${prefix}/group-${i}`
+      return { key, name: document?.title ?? entry.title ?? 'Untitled', fonticon: document?.fonticon ?? entry.fonticon, document, children: convert(entry.children ?? [], key) }
+    })
+    return convert(navigation.reports, 'reports')
+  }
   const roots: TopicTreeNode[] = []
   for (const doc of documents.filter((d) => d.path !== 'AGENTS.md')) {
     const segments = doc.path.replace(/^pages\//, '').split('/')
@@ -32,6 +41,12 @@ export function topicDocumentTree(documents: TopicDocument[], home: string): Top
     for (const [index, name] of segments.entries()) {
       prefix += '/' + name
       const leaf = index === segments.length - 1
+      if (leaf && name === 'index.md' && index > 0) {
+        const parentKey = prefix.slice(0, -'/index.md'.length)
+        const find = (items: TopicTreeNode[]): TopicTreeNode | undefined => { for (const item of items) { if (item.key === parentKey) return item; const nested = find(item.children); if (nested) return nested } }
+        const parent = find(roots)
+        if (parent) { parent.document = doc; parent.name = doc.title; parent.fonticon = doc.fonticon; break }
+      }
       let node = nodes.find((n) => n.key === prefix)
       if (!node) { node = { key: prefix, name: leaf ? doc.title : name.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()), ...(leaf ? { document: doc } : {}), children: [] }; nodes.push(node) }
       nodes = node.children
@@ -42,4 +57,14 @@ export function topicDocumentTree(documents: TopicDocument[], home: string): Top
     nodes.forEach((n) => sort(n.children))
   }
   sort(roots); return roots
+}
+
+export function selectedTopicAncestors(nodes: TopicTreeNode[], path: string): string[] {
+  for (const node of nodes) {
+    if (node.document?.path === path) return node.children.length ? [node.key] : []
+    const nested = selectedTopicAncestors(node.children, path)
+    const hasChild = (items: TopicTreeNode[]): boolean => items.some((item) => item.document?.path === path || hasChild(item.children))
+    if (hasChild(node.children)) return [node.key, ...nested]
+  }
+  return []
 }

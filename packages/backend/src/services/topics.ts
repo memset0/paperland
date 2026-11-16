@@ -5,7 +5,7 @@ import { getConfig } from '../config.js'
 import { canViewOwnedRow, type Viewer } from '../auth/visibility.js'
 import { requireTopicAccess, topicAccessRole } from './topic_access.js'
 import { completeCallCounts } from './mcp_counts.js'
-import { parseTopicFiles, topicAncestors, topicFiles, TopicError } from './topic_format.js'
+import { parseTopicFiles, topicAncestors, topicFiles, topicMetadataFile, TopicError } from './topic_format.js'
 import { commitTopicFiles, hasTopicPublicationJournal, initializeTopicRepo, readTopicCommit, reconcileTopic } from './topic_git.js'
 import { withTopicLock } from './topic_lock.js'
 import { refreshTopicPaperBindings, resolveTopicPaper } from './topic_index.js'
@@ -17,6 +17,7 @@ import { topicReferenceInfo } from './topic_references.js'
 import { topicHomePath } from './topic_paths.js'
 import { QUESTIONS_PATH } from './topic_documents.js'
 import { TOPIC_AGENT_GUIDE } from './topic_layout.js'
+import { topicSchemaStatus } from './topic_schema.js'
 import { topicArxivId } from './topic_paper_source.js'
 
 export function topicId(value: unknown): number {
@@ -58,7 +59,7 @@ export function topicSeedPreview(resultId: number, viewer: Viewer): ResearchSeed
 export async function createTopic(userId: number, input: { title: string; description?: string; seed_result_id?: number; default_access?: TopicDefaultAccess }, origin = ''): Promise<TopicDetail> {
   const user = activeUser(userId)
   if (input.default_access !== undefined && !['none', 'viewer', 'editor'].includes(input.default_access)) throw new TopicError(422, 'Default access must be none, viewer or editor')
-  let snapshot: TopicSnapshot = { topic: { format_version: 2, title: input.title, description: input.description ?? '' }, report: '', agent_instructions: TOPIC_AGENT_GUIDE, list: { format_version: 1, directories: [], papers: [] } }
+  let snapshot: TopicSnapshot = { topic: { schema_version: 1, format_version: 2, title: input.title, description: input.description ?? '' }, report: '', agent_instructions: TOPIC_AGENT_GUIDE, list: { format_version: 1, directories: [], papers: [] } }
   snapshot.pages = { [QUESTIONS_PATH]: '---\ntitle: Research questions\nfonticon: CircleHelp\nreferences: []\n---\n# Research questions\n' }
   if (input.seed_result_id != null) {
     const seed = topicSeedPreview(input.seed_result_id, user)
@@ -96,7 +97,7 @@ export async function getTopic(id: number, userId: number, commit?: string, orig
   referenceInfo.documents = referenceInfo.documents.map((doc) => ({ ...doc, url: `${origin}/topics/${id}${doc.slug ? '/' + doc.slug.split('/').map(encodeURIComponent).join('/') : ''}${commit ? '?version=' + selected : ''}` }))
   return {
     ...summary(access.topic, access.member.role), commit: selected, snapshot,
-    home_page: topicHomePath(snapshot.topic.format_version),
+    repository_schema: topicSchemaStatus(snapshot), home_page: topicHomePath(snapshot.topic.format_version),
     ...referenceInfo,
     paper_bindings: bindings,
     paper_in_library: Object.fromEntries(Object.entries(bindings).map(([entry, paperId]) => [entry, paperId != null && inLibrary.has(paperId)])),
@@ -115,7 +116,7 @@ export async function renameTopic(id: number, userId: number, title: string, bas
     if (baseCommit !== topic.published_commit) throw new TopicError(409, 'This Topic changed while you were editing. Refresh before saving the name again.')
     if (topic.title === title.trim()) return
     const snapshot: TopicSnapshot = JSON.parse(topic.snapshot!)
-    await commitTopicFiles(id, baseCommit, { 'topic.json': JSON.stringify({ ...snapshot.topic, title: title.trim() }, null, 2) + '\n' }, { user_id: userId, token_id: null, display_name: user.nickname || user.username }, { message: 'Rename topic' })
+    await commitTopicFiles(id, baseCommit, { 'topic.json': topicMetadataFile({ ...snapshot.topic, title: title.trim() }) }, { user_id: userId, token_id: null, display_name: user.nickname || user.username }, { message: 'Rename topic' })
   })
   return getTopic(id, userId)
 }

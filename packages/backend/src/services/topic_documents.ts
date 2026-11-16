@@ -37,7 +37,7 @@ export function topicDocuments(snapshot: TopicSnapshot, numbers: Record<string, 
     const heading = doc.body.match(/^#\s+(.+?)\s*#*\s*$/m)?.[1]
     return { path, title: doc.title || (path === questions ? heading || 'Research questions' : path === home ? 'Report' : heading || path.split('/').at(-1)!.slice(0, -3).replace(/[-_]/g, ' ')), body: doc.body, references, exists: true, fonticon: doc.fonticon || (path === home ? 'BookOpen' : path === questions ? 'CircleHelp' : 'FileText'), kind: 'page' as const }
   })
-  if (!Object.hasOwn(sources, questions)) output.push({ path: questions, title: 'Research questions', body: '', references: [], exists: false, fonticon: 'CircleHelp' })
+  if (snapshot.topic.schema_version !== 1 && !Object.hasOwn(sources, questions)) output.push({ path: questions, title: 'Research questions', body: '', references: [], exists: false, fonticon: 'CircleHelp' })
   if (snapshot.agent_instructions !== undefined) output.push({ path: 'AGENTS.md', title: 'Agent guide', body: snapshot.agent_instructions, references: [], exists: true, fonticon: 'Bot', kind: 'agent_instructions' })
   const slugs = new Set<string>()
   for (const doc of output) {

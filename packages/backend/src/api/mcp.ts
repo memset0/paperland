@@ -13,7 +13,7 @@ import { AGENT_TOOLS, callAgentTool, type AgentToolContext } from '../services/a
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const SERVER_INFO = { name: 'paperland', version: '1.0.0' }
 const INSTRUCTIONS = 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
-  'Maintain Topics with list_topics / get_topic and the returned Git repository contract; Topic tokens identify you and one Topic. ' +
+  'Maintain Topics with list_topics / get_topic. Before editing read get_topic_schema for schema v1, reports.yml, reference rules and legacy migration; inspect get_topic.repository_schema for required upgrades. Topic tokens identify you and one Topic. ' +
   'Use read_pdf_page for a physical PDF page and its native Markdown citation; request image=true only when a page image is needed. ' +
   'Use s2_match / s2_search to get S2 paperIds instead of guessing them; read library papers with read_paper. ' +
   'With a personal token, add_paper / update_paper / upload_paper_pdf / refresh_paper add and maintain papers ' +

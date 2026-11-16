@@ -8,17 +8,19 @@ Topics 的仓库文件格式、用户身份、MCP/Git 凭证与接口见 [Topics
 
 Topic 创建接受 `default_access: "none"|"viewer"|"editor"`（默认 none），owner 通过 `PUT /api/topics/:id/sharing {default_access}` 更新；个人 grant 与默认按 `none < viewer < editor` 取较高者，删除个人授权回到默认。`GET members` 区分个人 `role` 和 `effective_role`。Public 仅对 active 登录账号开放。Share/Connect 拆分属于 UI，权限仍由 web/MCP/Git 同一服务校验。
 
-`GET /api/topics/:id` 与 MCP `get_topic` 增加 `documents`（path/title/body/references/exists）、`reference_numbers`（稳定条目 ID→编号）、`next_reference_number`；原始 snapshot 保留 frontmatter 和可选 pages。`papers.json` 是全局资料表，条目可声明 `reference_number`，文档 frontmatter 只含编号子集。新编号按首次进入 Topic 的提交顺序保留，删除不复用；不按发表年份排序。无效中间文档或引用使整个 push 失败。增补 MCP `set_topic_sharing`，仍需 personal token 与 owner 权限。正常 External API 契约不变。
+`GET /api/topics/:id` 与 MCP `get_topic` 增加 `documents`（path/title/body/references/exists）、`reference_numbers`（稳定条目 ID→编号）、`next_reference_number`；原始 snapshot 保留 frontmatter 和可选 pages。`references.json` 是当前全局资料表（旧 layout 使用 papers.json），条目可声明 `reference_number`，文档 frontmatter 只含编号子集。新编号按首次进入 Topic 的提交顺序保留，删除不复用；不按发表年份排序。无效中间文档或引用使整个 push 失败。增补 MCP `set_topic_sharing`，仍需 personal token 与 owner 权限。正常 External API 契约不变。
 
 `get_topic` 可选 `document: "pages/rq6.md"` 仅读该文档及其编号引用，或 `metadata_only: true` 省略所有页面正文，避免长 Wiki 重复返回全文；不传参数保留完整兼容结构。文档路径仍受 Topic/历史权限限制，不能读取任意仓库路径。
 
-v2 仓库必需 topic.json、references.json、pages/report.md；页面可以嵌套并有 title/fonticon/references frontmatter。其他安全文件是 Git 工作区，MCP/网页不会将其当作报告；AGENTS.md 作为指南例外读取。get_topic 现在给出 home_page、文档 slug/url、实际配置的资源 limits 和图标名清单；document 可选 pages/**/*.md 或 AGENTS.md，metadata_only 省略正文。干净文档 URL 不带 file 查询或 .md，历史仍用 version 查询。旧 v1 历史与查询链接兼容，普通 External API 契约不变。
+schema v1 仓库必需 topic.json、reports.yml、references.json、pages/report.md；页面可以嵌套并有 title/fonticon/references frontmatter。其他安全文件是 Git 工作区，MCP/网页不会将其当作报告；AGENTS.md 作为指南例外读取。get_topic 现在给出 home_page、文档 slug/url、实际配置的资源 limits 和图标名清单；document 可选 pages/**/*.md 或 AGENTS.md，metadata_only 省略正文。干净文档 URL 不带 file 查询或 .md，历史仍用 version 查询。旧 format_version:1/2 历史与查询链接兼容，普通 External API 契约不变。
 
 
 Topic detail 新增 paper_importable（entry ID→boolean），用于引用卡片/列表明确判断可导入条目。POST /api/topics/:id/import 继续使用原 {entry_id,commit?} 和 ACL，除 S2 外支持明确 arxiv.org abs/pdf/html 论文链接（现代/旧式 ID，去除版本号用于站内规范化去重）；保留 Git 中固定版本的 URL、编号与报告。其他项目链接不因此触发抓取/入库。返回后的原地卡片更新/引用折叠属于 UI，无新的普通 External API 端点或凭证权限。
 
 
 Topic文章树的桌面加宽与紧凑间距仅为前端布局调整；文件路径、title/fonticon、API/MCP字段、权限及引用格式不变。
+
+`get_topic_schema(schema_version?)` 是只读 MCP 工具，当前版本为 schema 1，返回 topic.json/reports.yml/references.json/frontmatter 完整例子、字段、限制与 legacy 迁移步骤；未知版本返回可操作错误。get_topic 增加 repository_schema（所选 encoding、schema_version、current/supported 版本、migration_required）；metadata_only 返回 navigation 和同样的 contract。MCP initialize 引导 agent 编辑前读取规范。reports.yml 必须恰好列出全部页面，默认 pages/report.md；manifest 与正文、引用一起校验和发布。现有鉴权、Topic scope、调用计数及普通 External API 保持一致，未增加普通 External API 路由。详见 [版本与迁移](topics.md#schema-版本显式目录与升级)。
 
 ## 概述
 

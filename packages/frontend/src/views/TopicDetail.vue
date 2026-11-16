@@ -312,7 +312,7 @@ onBeforeUnmount(() => { alive = false; gate.invalidate(); renderGeneration++; cl
 
         </div>
         <div class="grid min-w-0 items-start justify-center gap-5 lg:grid-cols-[240px_minmax(0,680px)] xl:grid-cols-[280px_minmax(0,680px)] 2xl:grid-cols-[300px_minmax(0,680px)]">
-          <aside v-if="wide" class="sticky top-4 max-h-[calc(100dvh-3rem)] min-w-0 overflow-y-auto" aria-label="Topic files"><TopicFileNav :documents="detail.documents" :selected="selectedFile" :home="homePage" @select="selectFile" /></aside>
+          <aside v-if="wide" class="sticky top-4 max-h-[calc(100dvh-3rem)] min-w-0 overflow-y-auto" aria-label="Topic files"><TopicFileNav :documents="detail.documents" :navigation="detail.snapshot.navigation" :selected="selectedFile" :home="homePage" @select="selectFile" /></aside>
           <main data-reading-surface="document" class="min-w-0 rounded-xl border bg-card p-5 shadow-sm sm:p-8" @click.capture="onDocumentLink">
             <template v-if="currentDocument">
               <div class="mb-6 flex min-w-0 items-center gap-2 border-b pb-4 text-xs text-muted-foreground"><component :is="topicIcon(currentDocument.fonticon || (currentDocument.path === homePage ? 'BookOpen' : 'FileText'))" class="size-4 shrink-0 text-primary" /><span :title="currentDocument.path" class="min-w-0 truncate font-medium">{{ currentDocument.title }}</span><span class="ml-auto shrink-0">{{ currentDocument.references.length }} {{ currentDocument.references.length === 1 ? 'reference' : 'references' }}</span></div>
@@ -333,7 +333,7 @@ onBeforeUnmount(() => { alive = false; gate.invalidate(); renderGeneration++; cl
       <AppVersion class="mt-12" />
     </div>
     <Sheet v-model:open="filesOpen">
-      <SheetContent side="left" class="w-full overflow-y-auto sm:max-w-sm"><SheetHeader><SheetTitle>Topic pages</SheetTitle><SheetDescription>Choose a document from the page tree.</SheetDescription></SheetHeader><TopicFileNav v-if="detail" class="p-4" :documents="detail.documents" :selected="selectedFile" :home="homePage" @select="selectFile" /></SheetContent>
+      <SheetContent side="left" class="w-full overflow-y-auto sm:max-w-sm"><SheetHeader><SheetTitle>Topic pages</SheetTitle><SheetDescription>Choose a document from the page tree.</SheetDescription></SheetHeader><TopicFileNav v-if="detail" class="p-4" :documents="detail.documents" :navigation="detail.snapshot.navigation" :selected="selectedFile" :home="homePage" @select="selectFile" /></SheetContent>
     </Sheet>
     <TopicCitationCard v-if="detail" ref="citationCard" :detail="detail" :host="page" :document-key="`${scope()}:${selectedFile}:${selectedCommit}:${detail.commit}`" :disabled="readerCovered" :busy="busy" :imported="imported" :errors="importErrors" @import="importPaper" @locate="locateReference" />
     <Sheet v-model:open="allReferencesOpen">

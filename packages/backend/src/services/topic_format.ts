@@ -3,12 +3,14 @@ import type { TopicDirectory, TopicSnapshot } from '@paperland/shared'
 import { parseS2Input } from '../utils/s2_ids.js'
 import { parseTopicDocument } from './topic_documents.js'
 import { isTopicPage, MAX_TOPIC_PAGES, MAX_TOPIC_FILES, requireSafeTopicPath, topicHomePath } from './topic_paths.js'
+import { parseTopicReports, serializeTopicReports, defaultTopicReports } from './topic_reports.js'
 import { TopicError } from './topic_error.js'
 export { TopicError } from './topic_error.js'
 
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/, 'Use a stable alphanumeric ID (up to 64 characters)')
 const title = z.string().trim().min(1).max(500)
-const manifest = z.object({ format_version: z.union([z.literal(1), z.literal(2)]), title, description: z.string().max(10000).default('') }).strict()
+const metadataFields = { title, description: z.string().max(10000).default('') }
+const manifest = z.union([z.object({ schema_version: z.literal(1), ...metadataFields }).strict().transform((value) => ({ ...value, format_version: 2 as const })), z.object({ format_version: z.union([z.literal(1), z.literal(2)]), ...metadataFields }).strict()])
 const directory = z.object({ id, name: title, parent_id: id.nullable().default(null), description: z.string().max(100000).optional() }).strict()
 const citation = z.object({ title: z.string().min(1).max(10000), author: z.array(z.string().max(1000)).max(200).optional(), year: z.number().int().min(1000).max(9999).optional(), month: z.string().max(100).optional(), howpublished: z.string().max(10000).optional(), note: z.string().max(100000).optional() }).strict()
 const paper = z.object({
@@ -67,7 +69,9 @@ export function parseTopicFiles(files: Record<string, string | Uint8Array>, maxB
   }
   let result: TopicSnapshot
   try {
-    const metadata = manifest.parse(JSON.parse(decode(files['topic.json'], 'topic.json', maxBytes)))
+    const rawMetadata = JSON.parse(decode(files['topic.json'], 'topic.json', maxBytes))
+    if (rawMetadata?.schema_version !== undefined && rawMetadata.schema_version !== 1) throw new TopicError(422, 'Unsupported Topic schema_version. Supported schema versions: 1. Call get_topic_schema for migration guidance.')
+    const metadata = manifest.parse(rawMetadata)
     const home = topicHomePath(metadata.format_version)
     const catalog = metadata.format_version === 2 ? 'references.json' : 'papers.json'
     if (files[home] === undefined) throw new TopicError(422, `Missing required file: ${home}`)
@@ -84,6 +88,10 @@ export function parseTopicFiles(files: Record<string, string | Uint8Array>, maxB
   } catch (error) {
     if (error instanceof TopicError) throw error
     throw new TopicError(422, `Invalid Topic format: ${(error as Error).message}`)
+  }
+  if (result.topic.schema_version === 1) {
+    if (files['reports.yml'] === undefined) throw new TopicError(422, 'Missing required file: reports.yml; call get_topic_schema for schema v1 examples')
+    result.navigation = parseTopicReports(decode(files['reports.yml'], 'reports.yml', maxBytes), ['pages/report.md', ...Object.keys(result.pages ?? {})])
   }
   const dirs = result.list.directories
   for (const [path, text] of Object.entries({ [topicHomePath(result.topic.format_version)]: result.report, ...result.pages })) parseTopicDocument(text, path)
@@ -114,8 +122,13 @@ export function parseTopicFiles(files: Record<string, string | Uint8Array>, maxB
   return result
 }
 
+export function topicMetadataFile(metadata: TopicSnapshot['topic']): string {
+  const { format_version, ...canonical } = metadata
+  return JSON.stringify(metadata.schema_version === 1 ? canonical : metadata, null, 2) + '\n'
+}
+
 export function topicFiles(snapshot: TopicSnapshot): Record<string, string> {
   const catalog = snapshot.topic.format_version === 2 ? 'references.json' : 'papers.json'
   const value = snapshot.topic.format_version === 2 ? { format_version: 1, references: snapshot.list.papers.map(({ directory_ids, ...entry }) => entry) } : snapshot.list
-  return { 'topic.json': JSON.stringify(snapshot.topic, null, 2) + '\n', [topicHomePath(snapshot.topic.format_version)]: snapshot.report, [catalog]: JSON.stringify(value, null, 2) + '\n', ...snapshot.pages, ...(snapshot.agent_instructions === undefined ? {} : { 'AGENTS.md': snapshot.agent_instructions }) }
+  return { 'topic.json': topicMetadataFile(snapshot.topic), ...(snapshot.topic.schema_version === 1 ? { 'reports.yml': serializeTopicReports(snapshot.navigation ?? defaultTopicReports(['pages/report.md', ...Object.keys(snapshot.pages ?? {})])) } : {}), [topicHomePath(snapshot.topic.format_version)]: snapshot.report, [catalog]: JSON.stringify(value, null, 2) + '\n', ...snapshot.pages, ...(snapshot.agent_instructions === undefined ? {} : { 'AGENTS.md': snapshot.agent_instructions }) }
 }

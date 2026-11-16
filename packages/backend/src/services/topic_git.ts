@@ -74,13 +74,15 @@ export async function readTopicCommit(topicId: number, commit: string, repo = to
     const m = entry.match(/^(\d+) (\w+) ([a-f0-9]{40})\s+(\d+|-)\t([\s\S]+)$/)
     if (!m || !['100644', '100755'].includes(m[1]) || m[2] !== 'blob') throw new TopicError(422, 'Only regular files are allowed; symlinks and submodules are not accepted')
     requireSafeTopicPath(m[5])
-    if (isTopicText(m[5]) && m[1] !== '100644') throw new TopicError(422, 'Published documents and metadata must be non-executable')
+    if (isTopicText(m[5]) && m[5] !== 'reports.yml' && m[1] !== '100644') throw new TopicError(422, 'Published documents and metadata must be non-executable')
     if (Number(m[4]) > getConfig().topics.max_file_bytes) throw new TopicError(422, `${m[5]} exceeds the configured file limit`)
     totalBytes += Number(m[4])
     if (totalBytes > getConfig().topics.max_file_bytes * 8) throw new TopicError(422, 'Topic text exceeds the aggregate limit')
     if (isTopicText(m[5])) files[m[5]] = (await git(repo, ['cat-file', 'blob', m[3]])).output
   }
-  return parseTopicFiles(files, getConfig().topics.max_file_bytes)
+  const snapshot = parseTopicFiles(files, getConfig().topics.max_file_bytes)
+  if (snapshot.topic.schema_version === 1 && entries.some((entry) => /^100755 /.test(entry) && entry.endsWith('\treports.yml'))) throw new TopicError(422, 'reports.yml must be non-executable')
+  return snapshot
 }
 
 /** Upgrade derived numbering only; never rewrite existing reports or Git commits. */
@@ -244,6 +246,7 @@ export async function commitTopicFiles(topicId: number, baseCommit: string, repl
   const treeId = await buildTree(repo, entries)
   const commit = (await git(repo, ['commit-tree', treeId, '-p', baseCommit], options.message ?? 'Update Topic\n', undefined, undefined, { GIT_AUTHOR_NAME: options.author_name ?? 'Paperland', GIT_AUTHOR_DATE: options.author_date })).output.toString().trim()
   const snapshot = await readTopicCommit(topicId, commit)
+  if (current.snapshot && JSON.parse(current.snapshot).topic.schema_version === 1 && snapshot.topic.schema_version !== 1) throw new TopicError(422, 'Repository schema cannot downgrade; retain schema_version: 1 and reports.yml')
   if (current.snapshot && JSON.parse(current.snapshot).topic.format_version === 2 && snapshot.topic.format_version !== 2) throw new TopicError(422, 'Repository format cannot downgrade; use pages/report.md')
   const event: Publication = { id: randomUUID(), topic_id: topicId, user_id: identity.user_id, token_id: identity.token_id, uploader_name: identity.display_name, old_commit: baseCommit, new_commit: commit, pushed_at: new Date().toISOString(), versions: [{ ...await revision(repo, commit), legacy_research_step_id: options.legacy_research_step_id ?? null }], snapshot }
   event.reference_allocations = planTopicReferences(topicId, [{ commit, snapshot, added_at: event.pushed_at }])
@@ -295,8 +298,11 @@ export async function topicGitRpc(topicId: number, service: string, input: Buffe
     const referencePlanner = createReferencePlanner(topicId)
     const pushedAt = new Date().toISOString()
     let format = JSON.parse(getDatabase().select().from(schema.topics).where(eq(schema.topics.id, topicId)).get()!.snapshot!).topic.format_version
+    let canonicalSchema = JSON.parse(getDatabase().select().from(schema.topics).where(eq(schema.topics.id, topicId)).get()!.snapshot!).topic.schema_version === 1
     for (const commit of commits) {
       snapshot = await readTopicCommit(topicId, commit, stage)
+      if (canonicalSchema && snapshot.topic.schema_version !== 1) throw new TopicError(422, 'Repository schema cannot downgrade; retain schema_version: 1 and reports.yml')
+      canonicalSchema = snapshot.topic.schema_version === 1
       if (format === 2 && snapshot.topic.format_version !== 2) throw new TopicError(422, 'Repository format cannot downgrade; use pages/report.md')
       format = snapshot.topic.format_version
       for (const entry of snapshot.list.papers) if (entry.paper_id != null && !getDatabase().select({ id: schema.papers.id }).from(schema.papers).where(eq(schema.papers.id, entry.paper_id)).get()) throw new TopicError(422, `Paper ${entry.paper_id} does not exist; use an external Semantic Scholar entry instead`)

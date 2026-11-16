@@ -189,3 +189,20 @@ describe('Topic web and MCP operations (offline)', () => {
     expect(imports).toBe(1)
   })
 })
+
+test('MCP teaches schema v1, detects old encodings, keeps Topic scope and counts schema calls', async () => {
+  const topic = await createTopic(1, { title: 'Schema discovery' })
+  const other = await createTopic(1, { title: 'Other private Topic' })
+  const token = (await issueTopicCredential(topic.id, 1)).token
+  const contract = JSON.parse((await call(token, 'get_topic_schema')).content[0].text)
+  expect(contract.schema_version).toBe(1)
+  expect(contract.required_files).toContain('reports.yml')
+  expect(contract.migrations.map((m: any) => m.from)).toEqual(['legacy_format_2', 'legacy_format_1'])
+  const detail = JSON.parse((await call(token, 'get_topic', { metadata_only: true })).content[0].text)
+  expect(detail.repository_schema).toMatchObject({ encoding: 'schema_v1', schema_version: 1, migration_required: false })
+  expect(detail.navigation.default_page).toBe('pages/report.md')
+  expect((await call(token, 'get_topic', { topic_id: other.id })).isError).toBe(true)
+  expect((await call(token, 'get_topic_schema', { schema_version: 2 })).isError).toBe(true)
+  const after = await getTopic(topic.id, 1)
+  expect(after.my_mcp_call_counts.get_topic_schema).toBe(2)
+})

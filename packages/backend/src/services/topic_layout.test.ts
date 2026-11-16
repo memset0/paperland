@@ -9,6 +9,7 @@ import { createTopic, getTopic, renameTopic, topicHistory } from './topics'
 import { initializeTopicRepo, commitTopicFiles, topicRepoPath } from './topic_git'
 import { upgradeTopicLayout } from './topic_layout'
 import { referenceRegistry } from './topic_references'
+import { defaultTopicReports } from './topic_reports'
 import { parseTopicFiles, topicFiles } from './topic_format'
 import { localProcess } from './local_process'
 import type { TopicSnapshot } from '@paperland/shared'
@@ -32,6 +33,7 @@ describe('V2 published pages and auxiliary Git workspace (offline)', () => {
     snapshot.report = '---\ntitle: Overview\nfonticon: BookOpen\nreferences: [1]\n---\n# Content'
     snapshot.list.papers = [{ id: 'first', reference_number: 1, title: 'First', s2_id: 'CorpusId:1', directory_ids: [], comment: '' }]
     snapshot.pages!['pages/research/nested/rq.md'] = '---\ntitle: Future prediction\nfonticon: Compass\nreferences: [1]\n---\n# RQ'
+    snapshot.navigation = defaultTopicReports(['pages/report.md', ...Object.keys(snapshot.pages!)])
     const fileset = topicFiles(snapshot)
     expect(JSON.parse(fileset['references.json']).references[0].directory_ids).toBeUndefined()
     const parsed = parseTopicFiles({ ...fileset, 'workspace/raw.bin': new Uint8Array([0, 255]), 'workspace/notes.md': '# Not a page' })
@@ -92,6 +94,6 @@ describe('V2 published pages and auxiliary Git workspace (offline)', () => {
   test('frontmatter and routes reject malformed metadata and ambiguous nested index routes', async () => {
     const topic = await createTopic(1, { title: 'Routes' })
     for (const body of ['---\ntitle: []\n---\n# Bad', '---\nfonticon: "<svg>"\n---\n# Bad']) await expect(commitTopicFiles(topic.id, topic.commit, { 'pages/bad.md': body }, actor)).rejects.toThrow()
-    await expect(commitTopicFiles(topic.id, topic.commit, { 'pages/a.md': '# A', 'pages/a/index.md': '# Another A' }, actor)).rejects.toThrow('ambiguous')
+    await expect(commitTopicFiles(topic.id, topic.commit, { 'pages/a.md': '# A', 'pages/a/index.md': '# Another A', 'reports.yml': 'schema_version: 1\ndefault_page: pages/report.md\nreports: [{path: pages/report.md}, {path: pages/research-questions/index.md}, {path: pages/a.md}, {path: pages/a/index.md}]' }, actor)).rejects.toThrow('ambiguous')
   })
 })

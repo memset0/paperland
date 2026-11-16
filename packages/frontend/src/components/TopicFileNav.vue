@@ -1,17 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Bot } from '@lucide/vue'
-import type { TopicDocument } from '@paperland/shared'
-import { topicDocumentTree } from '@/lib/topic-navigation'
+import type { TopicDocument, TopicReports } from '@paperland/shared'
+import { topicDocumentTree, selectedTopicAncestors } from '@/lib/topic-navigation'
 import TopicFileBranch from '@/components/TopicFileBranch.vue'
 
-const props = defineProps<{ documents: TopicDocument[]; selected: string; home: string }>()
+const props = defineProps<{ documents: TopicDocument[]; selected: string; home: string; navigation?: TopicReports }>()
 defineEmits<{ select: [path: string] }>()
-const tree = computed(() => topicDocumentTree(props.documents, props.home))
+const tree = computed(() => topicDocumentTree(props.documents, props.home, props.navigation))
 const openFolders = ref<Record<string, boolean>>({})
-watch(() => props.selected, (path) => {
-  const parts = path.split('/'); parts.pop()
-  for (let length = 2; length <= parts.length; length++) openFolders.value[parts.slice(0, length).join('/')] = true
+watch([() => props.selected, tree], ([path]) => {
+  for (const key of selectedTopicAncestors(tree.value, path)) openFolders.value[key] = true
 }, { immediate: true })
 </script>
 

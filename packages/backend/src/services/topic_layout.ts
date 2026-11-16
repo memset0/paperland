@@ -1,14 +1,20 @@
+import { getConfig } from '../config.js'
+import { localProcess } from './local_process.js'
 import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
-import { backfillTopicReferences, commitTopicFiles, readTopicCommit, reconcileTopic, type PushIdentity } from './topic_git.js'
+import { backfillTopicReferences, commitTopicFiles, readTopicCommit, reconcileTopic, topicRepoPath, type PushIdentity } from './topic_git.js'
 import { topicReferenceInfo } from './topic_references.js'
 import { TopicError } from './topic_error.js'
+import { defaultTopicReports, serializeTopicReports } from './topic_reports.js'
+import { topicMetadataFile } from './topic_format.js'
 import { withTopicLock } from './topic_lock.js'
 
 export const TOPIC_AGENT_GUIDE = `# Topic agent guide
 
 Use your own user-bound Topic token for MCP and Git. Never commit credentials or large media.
 
+- Before editing, call get_topic_schema and inspect get_topic.repository_schema for required migrations. The current repository contract is schema v1, declared as schema_version: 1 in topic.json.
+- Root reports.yml is the ordered page/group index. List every published page exactly once; page groups may have children. Update the manifest when adding or moving pages.
 - Published documents live under pages/. The default report is pages/report.md.
 - Root topic.json and references.json hold metadata and the single global reference catalog. A work can appear in many report subsets; never duplicate metadata per report.
 - Root README.md explains the repository. This AGENTS.md is the agent guide.
@@ -40,6 +46,36 @@ export async function upgradeTopicLayout(topicId: number, identity: PushIdentity
       [`workspace/legacy/papers-${topic.published_commit.slice(0, 12)}.json`]: { copy_from: 'papers.json' },
       ...(snapshot.agent_instructions === undefined ? { 'AGENTS.md': TOPIC_AGENT_GUIDE } : {}),
     }, identity, { message: 'Move published report into pages/' })
+    return { topic_id: topicId, commit, previous_commit: topic.published_commit, skipped: false }
+  })
+}
+
+/** Upgrade either legacy encoding directly to the canonical schema without rewriting history. */
+export async function upgradeTopicSchema(topicId: number, identity: PushIdentity = { user_id: 0, token_id: null, display_name: 'Topic schema migration' }) {
+  return withTopicLock(topicId, async () => {
+    await reconcileTopic(topicId)
+    const topic = getDatabase().select().from(schema.topics).where(eq(schema.topics.id, topicId)).get()
+    if (!topic?.published_commit) throw new TopicError(503, 'Topic has no published version')
+    const snapshot = await readTopicCommit(topicId, topic.published_commit)
+    if (snapshot.topic.schema_version === 1) return { topic_id: topicId, commit: topic.published_commit, skipped: true }
+    const existingIndex = await localProcess(getConfig().topics.git_path, ['-C', topicRepoPath(topicId), 'ls-tree', '--name-only', topic.published_commit, '--', 'reports.yml'], { timeout_ms: getConfig().topics.operation_timeout_ms, max_bytes: 2000 })
+    if (existingIndex.output.toString().trim()) throw new TopicError(409, 'reports.yml already exists in legacy workspace; move it into workspace/ before migrating')
+    const legacyRoot = snapshot.topic.format_version === 1
+    if (legacyRoot && snapshot.pages?.['pages/report.md'] !== undefined) throw new TopicError(409, 'pages/report.md already exists; resolve the home-page conflict before migrating')
+    await backfillTopicReferences(topicId)
+    const numbers = topicReferenceInfo(topicId, snapshot).reference_numbers
+    const navigation = defaultTopicReports(['pages/report.md', ...Object.keys(snapshot.pages ?? {})])
+    const commit = await commitTopicFiles(topicId, topic.published_commit, {
+      'topic.json': topicMetadataFile({ ...snapshot.topic, format_version: 2, schema_version: 1 }),
+      'reports.yml': serializeTopicReports(navigation),
+      ...(legacyRoot ? {
+        'pages/report.md': { copy_from: 'report.md' }, 'report.md': null,
+        'references.json': JSON.stringify({ format_version: 1, references: snapshot.list.papers.map(({ directory_ids, ...entry }) => ({ ...entry, reference_number: numbers[entry.id] })).sort((a, b) => a.reference_number - b.reference_number) }, null, 2) + '\n',
+        'papers.json': null,
+        [`workspace/legacy/papers-${topic.published_commit.slice(0, 12)}.json`]: { copy_from: 'papers.json' },
+      } : {}),
+      ...(snapshot.agent_instructions === undefined ? { 'AGENTS.md': TOPIC_AGENT_GUIDE } : {}),
+    }, identity, { message: 'Declare Topic schema v1 and ordered report navigation' })
     return { topic_id: topicId, commit, previous_commit: topic.published_commit, skipped: false }
   })
 }

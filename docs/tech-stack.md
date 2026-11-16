@@ -2,7 +2,7 @@
 
 ## Topics 持久化与格式
 
-Topics 使用每专题一个 bare Git 仓库（`topics.repos_dir`，默认 `./data/topics`），SQLite 保存最近完整索引快照、版本元数据、真实推送者审计、成员和来源明确的目录关联。`topic.json`、`report.md`、`papers.json` 是 v1 必需文件；可选 `README.md` 和最多 32 个安全 `pages/<slug>.md`。每份文档可用 YAML frontmatter 指定全局资料编号子集；后端复用 js-yaml JSON_SCHEMA 解析，只读展示时去除头部。单文件受 max_file_bytes 限制，总文本不超过其 8 倍。媒体继续使用现有存储。详见 [Topics 仓库与接口约定](topics.md)。
+Topics 使用每专题一个 bare Git 仓库（`topics.repos_dir`，默认 `./data/topics`），SQLite 保存最近完整索引快照、版本元数据、真实推送者审计、成员和来源明确的目录关联。`topic.json`、`reports.yml`、`pages/report.md`、`references.json` 是 schema v1 必需文件（旧 layout 历史兼容）；可选 `README.md` 和最多 32 个安全 `pages/<slug>.md`。每份文档可用 YAML frontmatter 指定全局资料编号子集；后端复用 js-yaml JSON_SCHEMA 解析，只读展示时去除头部。单文件受 max_file_bytes 限制，总文本不超过其 8 倍。媒体继续使用现有存储。详见 [Topics 仓库与接口约定](topics.md)。
 
 数据库通过 `0042_topics.sql` 添加 Topic 表、`api_tokens.topic_id` 和 `users.mcp_call_counts`，不改变旧 Research 数据。用户与 Topic 成员记录上的 JSON 聚合计数与 token 生命周期独立，不创建逐次流量表。配置块 `topics` 控制 Git 路径、文件/请求/提交数量上限及超时；`pdf_pages` 控制本地 Poppler 可执行文件、图片大小、超时与并发。
 
@@ -10,7 +10,7 @@ Topics 使用每专题一个 bare Git 仓库（`topics.repos_dir`，默认 `./da
 
 `0044_topic_uploader_identity.sql` 给推送审计添加不可变用户 ID，账号删除后仍能恢复未完成发布并显示原始归属。`paper_in_library` 是 Topic 详情按当前读者推导的条目状态，不进入共享 Git 内容或 localStorage 内容快照。
 
-`0045_legacy_research_topics.sql` 添加唯一 legacy 会话/步骤映射、pending/complete 状态和临时转换计划。`scripts/migrate-research-to-topics.ts` 是手动一次性内容迁移，默认只读；apply 用 `VACUUM INTO` 备份并经 `initDatabase({maintenance:true})` 应用 schema，跳过账号/凭证播种和运行时 backfill。迁移提交复用 Git 的 journal/CAS/数据库发布路径；完成后保留来源映射，清空计划，重复执行不重置新 Topic。仓库 v1 兼容 URL/citation 和目录 description，以完整保留旧研究的引用与说明。网页改名也复用同一发布路径，其他文件 blob 不变。
+`0045_legacy_research_topics.sql` 添加唯一 legacy 会话/步骤映射、pending/complete 状态和临时转换计划。`scripts/migrate-research-to-topics.ts` 是手动一次性内容迁移，默认只读；apply 用 `VACUUM INTO` 备份并经 `initDatabase({maintenance:true})` 应用 schema，跳过账号/凭证播种和运行时 backfill。迁移提交复用 Git 的 journal/CAS/数据库发布路径；完成后保留来源映射，清空计划，重复执行不重置新 Topic。旧 layout 1 兼容 URL/citation 和目录 description，以完整保留旧研究的引用与说明。网页改名也复用同一发布路径，其他文件 blob 不变。
 
 `0046_topic_default_access.sql` 加入逐 Topic 默认 none/viewer/editor；实际权限取个人 grant 和一般权限的较高者，按 Topic 锁与 Git 发布串行。默认访问者的计数行 role=default，避免计数把 Public 读者变成永久个人授权。旧 Topic 保持 none 和既有 grants，账户全局开关不参与 Topic ACL。
 
@@ -18,7 +18,7 @@ Topics 使用每专题一个 bare Git 仓库（`topics.repos_dir`，默认 `./da
 
 `get_topic` 可选 `document: "pages/rq6.md"` 仅读该文档及其编号引用，或 `metadata_only: true` 省略所有页面正文，避免长 Wiki 重复返回全文；不传参数保留完整兼容结构。文档路径仍受 Topic/历史权限限制，不能读取任意仓库路径。
 
-Topic 仓库 v2 以 pages/report.md 为主页、references.json 为唯一资料表；topic_paths.ts 约束路径，topic_documents.ts 解析 title/fonticon/引用及干净 slug，topic_layout.ts 提供幂等布局迁移。辅助工作区最多1024个安全普通文件（含非文本/执行位），不执行/渲染；只对页面/元数据解码，拒绝symlink/submodule，沿用单文件/总字节限制。mktree -z 递归构造任意安全子树，受控改名/移动保存未知辅助文件的原 blob/mode；迁移以原对象复制报告和旧目录清单，系统审计不冒充所有者。migrate-topic-pages.ts 默认只读，apply 先一致性备份并要求无活动工作。无新数据库表/列；format2 是仓库协议，历史format1读取保留，升级后禁降级。
+旧 layout 2 及当前 schema v1 以 pages/report.md 为主页、references.json 为唯一资料表；topic_paths.ts 约束路径，topic_documents.ts 解析 title/fonticon/引用及干净 slug，topic_layout.ts 提供幂等布局迁移。辅助工作区最多1024个安全普通文件（含非文本/执行位），不执行/渲染；只对页面/元数据解码，拒绝symlink/submodule，沿用单文件/总字节限制。mktree -z 递归构造任意安全子树，受控改名/移动保存未知辅助文件的原 blob/mode；迁移以原对象复制报告和旧目录清单，系统审计不冒充所有者。migrate-topic-pages.ts 默认只读，apply 先一致性备份并要求无活动工作。无新数据库表/列；format2 是仓库协议，历史format1读取保留，升级后禁降级。
 
 参考编号规划按引入版本逐个处理，不将所有文档快照保留在内存中；保留表按真实首次出现时间/序号分配，和模型/发表时间无关。前端目录/URL helper 有离线测试，图标使用已有 Lucide 静态列表，无额外依赖。中心680px、1024px三栏、单独全局引用右抽屉和数字引用chip均用原 Vue/shadcn/语义主题实现。
 
@@ -29,6 +29,10 @@ Q&A Feed 的阅读布局仅调整 `QAPage.vue` 与 `QAFeedPanel.vue`：沿用 Vu
 
 
 TopicFileNav/TopicFileBranch 的紧凑树布局仅调整既有Vue/Tailwind类：桌面导航240/280/300px、2px行间距及更浅的层级缩进；沿用字体/图标、680px阅读上限和手机抽屉，无依赖、配置或数据库变更。
+
+schema v1：topic_format.ts 按显式 schema_version/旧 format_version 分派，canonical 元数据序列化省略旧字段；内部 normalized snapshot 仍保留 layout discriminator 供兼容调用方使用。topic_reports.ts 用既有 js-yaml JSON_SCHEMA 校验 reports.yml，限定 8 层/64 项，要求完整唯一的页面集合。topic_schema.ts 集中提供 MCP contract/版本状态/迁移指引；get_topic_schema 属于只读工具，沿用鉴权、scope 和聚合计数。当前完整规范统一叫 schema v1，旧 layout 数字不等于 schema 版本。
+
+migrate-topic-schema.ts 支持 dry-run/apply/verify，一致 SQLite 备份后使用既有 Topic 锁、Git CAS 和 durable journal/audit 迁移；旧页面保持原 blob，辅助文件和个人 AGENTS.md 保留。没有新增数据库表、依赖或配置。前端按清单组织树、合并概览与分组，仍保持现有宽度、680px正文和引用卡片/抽屉。详见 [Topics 规范](topics.md)。
 
 ## 总览
 

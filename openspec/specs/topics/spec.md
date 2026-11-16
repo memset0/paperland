@@ -89,7 +89,7 @@ Dry run SHALL be read-only. Applied migration SHALL create a consistent backup a
 - **THEN** unfinished work SHALL resume once and completed Topics SHALL not be reset
 
 ### Requirement: Research pages and per-page references
-Topics SHALL support bounded Markdown documents and readable v1 history, with pages/report.md as the v2 home. Navigation SHALL include Research questions and All references. A themed center card SHALL render the selected page with a default-collapsed reference subset and no permanent reference rail. Phone navigation SHALL avoid horizontal overflow. Relative links SHALL preserve Topic/history context.
+Topics SHALL support bounded Markdown documents and readable legacy history, with pages/report.md as the schema v1 home. Navigation SHALL include Research questions and All references. A themed center card SHALL render the selected page with a default-collapsed reference subset and no permanent reference rail. Phone navigation SHALL avoid horizontal overflow. Relative links SHALL preserve Topic/history context.
 
 #### Scenario: Open a supplementary report
 - **WHEN** a reader selects pages/methods.md
@@ -117,11 +117,11 @@ Reading baselines SHALL be separate for each document, its displayed reference s
 - **THEN** opening the changed page SHALL compare with its last actually displayed content, without treating hidden updates as already read
 
 ### Requirement: Folder-derived navigation and document metadata
-The left navigation SHALL derive its tree from folders under pages/. Frontmatter title and fonticon SHALL control each document's display label/icon, with safe defaults. Root README SHALL not replace the research report. The center SHALL reserve sidebar space and use a readable maximum width around680px on desktop.
+The left navigation SHALL follow the ordered reports.yml tree for schema v1, with folder-derived fallback for legacy commits. A group with an index document SHALL appear once, with separate page and expansion controls. Frontmatter title and fonticon SHALL control each document's display label/icon, with safe defaults. Root README SHALL not replace the research report. The center SHALL reserve sidebar space and use a readable maximum width around680px on desktop.
 
 #### Scenario: Nested research pages
 - **WHEN** pages/research/rq6.md declares a title and icon
-- **THEN** it SHALL appear under the Research folder with that metadata and open in the center card
+- **THEN** it SHALL appear at its manifest location, or under the Research folder in a legacy commit with that metadata and open in the center card
 
 ### Requirement: First-class document routes
 Document routes SHALL omit the pages/ prefix, .md suffix and file query, such as /topics/3/discussions. Home SHALL use /topics/3. Legacy query links and selected historical versions SHALL remain usable without exposing arbitrary workspace files.
@@ -146,7 +146,7 @@ Topic3's pre-split full report SHALL remain a current first-class background pag
 - **THEN** the pre-split report SHALL render with its applicable current global-reference subset
 
 ### Requirement: References reused across reports
-V2 references.json SHALL define each work once with a stable ID/number and source. Multiple report frontmatter lists MAY include the same number without copying reference metadata. Distinct versions treated as different works, including HexaShell Preview and Universal/v3, SHALL retain separate identities.
+Schema v1 references.json SHALL define each work once with a stable ID/number and source. Multiple report frontmatter lists MAY include the same number without copying reference metadata. Distinct versions treated as different works, including HexaShell Preview and Universal/v3, SHALL retain separate identities.
 
 #### Scenario: Shared COAP and EAT references
 - **WHEN** RQ3 and RQ6 both discuss COAP and EAT
