@@ -186,7 +186,7 @@ export const translationApi = {
 }
 
 // Auth + user management API
-import type { MyApiTokens, MyUsage, SessionUser, UsageLeaderboardEntry, UsageRecalculateResult, User, UserRole } from '@paperland/shared'
+import type { AgentTokenInfo, MyUsage, SessionUser, UsageLeaderboardEntry, UsageRecalculateResult, User, UserRole } from '@paperland/shared'
 
 export const authApi = {
   me: () => api.get<{ user: SessionUser | null; registration_enabled: boolean }>('/api/auth/me'),
@@ -257,13 +257,11 @@ export const quickOpenApi = {
   },
 }
 
-// The signed-in user's API tokens: personal tokens (full value only at creation) and the Codex agent
-// token (never returned; reset in place).
+// The signed-in user's Codex agent token (never returned; reset in place). External apps use
+// Plugins services (mcpServicesApi).
 export const myTokensApi = {
-  list: () => api.get<{ data: MyApiTokens }>('/api/auth/me/tokens'),
-  create: () => api.post<{ data: { id: number; token: string; created_at: string } }>('/api/auth/me/tokens'),
-  revoke: (id: number) => api.delete<{ success: boolean }>(`/api/auth/me/tokens/${id}`),
-  resetAgent: () => api.post<{ data: MyApiTokens['agent'] }>('/api/auth/me/agent-token/reset'),
+  agent: () => api.get<{ data: AgentTokenInfo }>('/api/auth/me/agent-token'),
+  resetAgent: () => api.post<{ data: AgentTokenInfo }>('/api/auth/me/agent-token/reset'),
 }
 
 export const mcpServicesApi = {
@@ -420,6 +418,11 @@ import type { ImageWithUrl } from '@paperland/shared'
 
 export const imagesApi = {
   list: () => api.get<{ data: ImageWithUrl[]; public_base_url: string }>('/api/images'),
+  /** One page, newest first; `next_offset` is null on the last page. */
+  page: (limit: number, offset: number) =>
+    api.get<{ data: ImageWithUrl[]; public_base_url: string; total: number; next_offset: number | null }>(`/api/images?limit=${limit}&offset=${offset}`),
+  /** Small WebP grid thumbnail (poster frame for videos); falls back to the original server-side. */
+  thumbUrl: (hash: string) => `/image-thumb/${hash}.webp`,
 
   // `data` is a base64 string or a data: URL; the backend dedupes on content hash.
   upload: (data: string, filename?: string | null) =>

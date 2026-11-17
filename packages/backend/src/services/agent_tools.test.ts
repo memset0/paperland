@@ -193,7 +193,7 @@ describe('upload_image', () => {
   let savedDir = ''
   let generated = ''
   const AGENT = { viewer: OWNER, token_kind: 'agent' as const }
-  const PERSONAL = { viewer: OWNER, token_kind: 'personal' as const }
+  const PERSONAL = { viewer: OWNER, token_kind: 'service' as const }
   const upload = async (args: Record<string, unknown>, ctx: any = AGENT) => callAgentTool('upload_image', args, ctx)
 
   beforeEach(() => {
@@ -260,11 +260,11 @@ describe('upload_image', () => {
     const variant = (n: number) => Buffer.concat([png, Buffer.from([n])]).toString('base64')
     expect(await via({ ...AGENT }, variant(1))).toBe('Paperland [MCP]')
     expect(await via({ ...PERSONAL, token_kind: 'service', service_name: 'ChatGPT', service_permissions: { write: true, delete_papers: false, delete_answers: false } }, variant(2))).toBe('ChatGPT [MCP]')
-    expect(await via({ ...PERSONAL }, variant(3))).toBe('API token [MCP]')
+    expect(await via({ ...PERSONAL }, variant(3))).toBe('Plugins service [MCP]')
   })
 
   it('is the only non-read-only tool besides the Topic actions, paper write, Q&A write and delete tools', () => {
-    const topicWrites = ['create_topic', 'set_topic_sharing', 'set_topic_member', 'create_topic_token', 'rotate_topic_token', 'revoke_topic_token', 'import_topic_paper']
+    const topicWrites = ['create_topic', 'set_topic_sharing', 'set_topic_archived', 'set_topic_member', 'import_topic_paper']
     const writable = AGENT_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name)
     expect(writable).toEqual([...topicWrites, 'upload_image', 'add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper', 'add_paper_qa', 'delete_paper', 'delete_qa_answer'])
     expect(AGENT_TOOLS.filter((t) => t.write && !t.name.includes('topic')).map((t) => t.name)).toEqual(['add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper', 'add_paper_qa', 'delete_paper', 'delete_qa_answer'])

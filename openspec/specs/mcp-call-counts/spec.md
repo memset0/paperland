@@ -18,11 +18,11 @@ Every authenticated attempt to call a known MCP tool SHALL increment that user's
 - **THEN** the user's per-tool aggregates SHALL record three attempts in total
 
 ### Requirement: User totals and optional Topic subtotals
-Calls with authenticated Topic context SHALL also increment that user/Topic's per-tool subtotal as a subset of the user's total. Attribution SHALL use actual authentication context and SHALL NOT depend on client-declared authors or group counts by credential. Rotating or revoking credentials SHALL NOT reset counts.
+Calls to tools that operate on one Topic (with a `topic_id` argument the caller is allowed to use) SHALL also increment that user/Topic's per-tool subtotal as a subset of the user's total. Attribution SHALL use actual authentication context and SHALL NOT depend on client-declared authors or group counts by credential. Rotating or revoking credentials SHALL NOT reset counts.
 
 #### Scenario: Topic and ordinary calls
-- **WHEN** a user invokes the same tool twice through a Topic and once through ordinary Q&A
-- **THEN** their tool total SHALL be three and the user/Topic subtotal SHALL be two
+- **WHEN** a user invokes `get_topic` twice for Topic 3 and calls `search_papers` once without a Topic
+- **THEN** their tool totals SHALL count all three calls and the user/Topic 3 subtotal SHALL count the two `get_topic` calls
 
 ### Requirement: Durable zero-based aggregates
 Aggregate counts SHALL survive service restarts and concurrent increments. Missing counts SHALL read as zero and historical calls SHALL NOT be invented or backfilled. The initial release SHALL store aggregates only, without a per-request traffic ledger, byte-volume statistics or request-body retention.

@@ -28,18 +28,18 @@ When auth is disabled (development bypass), the server SHALL log a warning at st
 - **THEN** a warning message SHALL be printed to the console (e.g., "WARNING: Auth is disabled — all API routes are accessible as admin")
 
 ### Requirement: Bearer Token auth for External API
-All `/external-api/*` routes SHALL require a valid Bearer Token in the Authorization header. Tokens SHALL be looked up in the `api_tokens` table. On success, the request SHALL be treated as acting on behalf of the token's owning `user_id`, so data created via the External API is owned by that user. Only tokens of kind `personal` SHALL be accepted; an `agent` token SHALL receive 401. A token whose owning user exists but is not `active` (e.g. a pending registration) SHALL receive 401; a legacy token with no owning user SHALL keep working without a user context.
+All `/external-api/*` routes SHALL require a valid Bearer Token in the Authorization header, which SHALL be the key of a non-revoked Plugins service (see the mcp-services capability). The request SHALL act on behalf of the service owner, so data created via the External API is owned by that user. Methods other than GET and HEAD SHALL require the service's `write` permission (403 otherwise). Agent tokens SHALL receive 401. A key whose owning user is not `active` (e.g. a pending registration) SHALL receive 401.
 
 #### Scenario: Valid token resolves owner
-- **WHEN** a request to `/external-api/v1/papers` includes `Authorization: Bearer <valid-token>` where the token exists in `api_tokens` and `revoked_at` is null
-- **THEN** the request SHALL be allowed and SHALL act as the token's owning user
+- **WHEN** a request to `/external-api/v1/papers` includes `Authorization: Bearer <key>` for an active service
+- **THEN** the request SHALL be allowed and SHALL act as the service owner
 
 #### Scenario: Revoked token
-- **WHEN** a request includes a Bearer Token that exists but has a non-null `revoked_at`
+- **WHEN** a request includes the key of a revoked service
 - **THEN** the server SHALL respond with 401 Unauthorized
 
 #### Scenario: Invalid token
-- **WHEN** a request includes a Bearer Token that does not exist in `api_tokens`
+- **WHEN** a request includes a Bearer Token that matches no service
 - **THEN** the server SHALL respond with 401 Unauthorized
 
 #### Scenario: Agent token rejected
@@ -47,30 +47,23 @@ All `/external-api/*` routes SHALL require a valid Bearer Token in the Authoriza
 - **THEN** the server SHALL respond with 401 Unauthorized
 
 #### Scenario: Inactive owner rejected
-- **WHEN** a request uses a personal token whose owning user has status `pending`
+- **WHEN** a request uses a service key whose owning user has status `pending`
 - **THEN** the server SHALL respond with 401 Unauthorized
 
 #### Scenario: Owner-less legacy token
-- **WHEN** a request uses a non-revoked token whose `user_id` is null
-- **THEN** the request SHALL be allowed without acting as any user
+- **WHEN** a request uses a non-revoked token row whose `user_id` is null
+- **THEN** the server SHALL respond with 401 Unauthorized, because only owned services are accepted
 
-### Requirement: Token issuance API
-The Internal API SHALL provide an admin-only endpoint to issue new API tokens. The generated token SHALL be stored in `api_tokens` with `created_at` set to the current time and an owning `user_id` (defaulting to the issuing admin, or a specified user).
-
-#### Scenario: Issue new token
-- **WHEN** an authenticated admin calls `POST /api/settings/tokens`
-- **THEN** the server SHALL generate a random token, store it with an owning `user_id`, and return the token value in the response
-
-#### Scenario: Non-admin cannot issue token
-- **WHEN** a `user`-role account or an anonymous caller calls `POST /api/settings/tokens`
-- **THEN** the server SHALL respond with 403 (non-admin) or 401 (anonymous)
+#### Scenario: Read-only service cannot write
+- **WHEN** a service with `write` disabled sends a POST to the External API
+- **THEN** the server SHALL respond with 403 and change nothing
 
 ### Requirement: Token revocation API
-The Internal API SHALL provide an admin-only endpoint to revoke an existing API token by setting its `revoked_at` timestamp. Agent tokens SHALL NOT be revocable this way (400); only their owner can reset them.
+The Internal API SHALL provide an admin-only endpoint to revoke a Plugins service of any user by setting its `revoked_at` timestamp. Agent tokens SHALL NOT be revocable this way (400); only their owner can reset them.
 
 #### Scenario: Revoke token
-- **WHEN** an authenticated admin calls `DELETE /api/settings/tokens/:id`
-- **THEN** the server SHALL set `revoked_at` to the current time for that token
+- **WHEN** an authenticated admin calls `DELETE /api/settings/tokens/:id` for a service
+- **THEN** the server SHALL set `revoked_at` to the current time and its key SHALL stop working
 
 #### Scenario: Non-admin cannot revoke
 - **WHEN** a non-admin or anonymous caller calls `DELETE /api/settings/tokens/:id`
@@ -81,19 +74,19 @@ The Internal API SHALL provide an admin-only endpoint to revoke an existing API 
 - **THEN** the server SHALL respond with 400 and the token SHALL stay valid
 
 ### Requirement: Token listing API
-The Internal API SHALL provide an admin-only endpoint to list personal and agent API tokens with their id, kind (`personal` | `agent`), masked token value, owning user, `created_at`, `rotated_at`, and `revoked_at`. For agent tokens the token value SHALL be null (not even masked). Topic credentials SHALL be managed through their member-scoped Topic endpoints and SHALL NOT appear in this general list or be revocable through the general admin endpoint.
+The Internal API SHALL provide an admin-only endpoint to list agent tokens and Plugins services with their id, kind (`agent` | `service`), service name, owning user, `created_at`, `rotated_at` and `revoked_at`. It SHALL NOT return any token or key value, masked or not.
 
 #### Scenario: List tokens
 - **WHEN** an authenticated admin calls `GET /api/settings/tokens`
-- **THEN** the server SHALL return personal/agent tokens with personal token values partially masked (e.g., "sk-xxxx...xxxx") and the owning user
+- **THEN** the server SHALL return agent tokens and services with their owner and no values
 
 #### Scenario: Agent token listed without value
 - **WHEN** an admin lists tokens and a user has an agent token
 - **THEN** that row SHALL have `kind: "agent"` and `token: null`
 
 #### Scenario: Topic credential remains member-scoped
-- **WHEN** a non-member admin lists or attempts to revoke a Topic credential through general token management
-- **THEN** it SHALL not be disclosed or changed through that endpoint
+- **WHEN** an admin lists tokens after the legacy Topic tokens were converted
+- **THEN** the converted rows SHALL appear as services named "Topic token <id>" with no value, and no `topic` kind SHALL be listed
 
 ### Requirement: Authorization tiers for website API
 The website Internal API SHALL require an authenticated, active user for every `/api/*` request, except for this anonymous allowlist: `GET /api/health`, `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me`, and `GET /api/notes/:noteId` (which still only returns published notes to anonymous callers). Any other `/api/*` request without a session SHALL be rejected with 401 before the route runs. Within the authenticated tier, admin-only endpoints SHALL additionally require the `admin` role. `/external-api/*` SHALL remain governed solely by Bearer Token auth and SHALL NOT be subject to website session auth. `/image/*` (image host) SHALL stay public. Identity SHALL be resolved once per request.
@@ -141,19 +134,8 @@ The website Internal API SHALL require an authenticated, active user for every `
 - **WHEN** a logged-in user requests `/api/files/..%2Fconfig.yml` or `/api/files/data%2Fpaperland.db`
 - **THEN** the server SHALL respond 404
 
-### Requirement: Personal token self-service
-Every signed-in user SHALL be able to manage their own personal API tokens, which work for the External API and for `/mcp`: `GET /api/auth/me/tokens` lists the caller's personal tokens (id, masked value, `created_at`, `revoked_at`, newest first) together with their agent token's `created_at` and `rotated_at` (no value); `POST /api/auth/me/tokens` creates a personal token owned by the caller and returns its full value in that response only; `DELETE /api/auth/me/tokens/:id` revokes one of the caller's own personal tokens. A token that is not the caller's, or is not a personal token, SHALL be answered with 404 and left unchanged. Anonymous callers SHALL receive 401. The API Tokens section of the Settings page's Account area SHALL offer listing, creating (showing the new value once), and revoking (after confirmation), and SHALL show the MCP URL.
-
-#### Scenario: New token shown once
-- **WHEN** a user creates a personal token and then lists their tokens
-- **THEN** the creation response SHALL contain the full value and the listing SHALL show it masked
-
-#### Scenario: Cannot revoke another user's token
-- **WHEN** a user calls `DELETE /api/auth/me/tokens/:id` for another user's token
-- **THEN** the server SHALL respond with 404 and the token SHALL stay valid
-
 ### Requirement: Codex agent token
-Every active user SHALL have exactly one API token of kind `agent` (enforced by a unique index on `user_id` for agent tokens). It SHALL be created automatically when a user becomes active (admin creation, registration approval, the initial admin seeding, and a startup backfill for any active user without one) and on demand when it is needed but missing; creation SHALL be idempotent. The agent token is used by the Codex agents Paperland runs on the user's behalf and SHALL only be accepted by `/mcp`. No API SHALL return its value. `POST /api/auth/me/agent-token/reset` SHALL replace its value in place (same row, `rotated_at` set) so that the previous value stops working immediately, returning only `created_at` and `rotated_at`. The same section SHALL show "Codex agent token" with its creation or reset time and a Reset button that asks for confirmation.
+Every active user SHALL have exactly one API token of kind `agent` (enforced by a unique index on `user_id` for agent tokens). It SHALL be created automatically when a user becomes active (admin creation, registration approval, the initial admin seeding, and a startup backfill for any active user without one) and on demand when it is needed but missing; creation SHALL be idempotent. The agent token is used by the Codex agents Paperland runs on the user's behalf and SHALL only be accepted by `/mcp`. No API SHALL return its value. `POST /api/auth/me/agent-token/reset` SHALL replace its value in place (same row, `rotated_at` set) so that the previous value stops working immediately, returning only `created_at` and `rotated_at`; `GET /api/auth/me/agent-token` SHALL return those two times. The Settings page SHALL show "Codex agent token" with its creation or reset time and a Reset button that asks for confirmation, and SHALL point to the Plugins page for connecting external apps.
 
 #### Scenario: Exactly one per user
 - **WHEN** the agent token of a user is requested several times, concurrently or not

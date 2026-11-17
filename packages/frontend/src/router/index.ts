@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type LocationQuery } from 'vue-router'
 import { House, FileText, MessageSquare, Activity, Settings, Tag, NotebookPen, Image as ImageIcon, Languages, Puzzle, Telescope, Plug } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
@@ -46,11 +46,15 @@ const routes = [
     meta: { requiresAuth: true, title: 'Notes', icon: NotebookPen },
   },
   {
-    path: '/research',
-    alias: '/topics',
-    name: 'research',
+    path: '/topics',
+    name: 'topics',
     component: () => import('@/views/TopicsList.vue'),
     meta: { requiresAuth: true, title: 'Topics', icon: Telescope },
+  },
+  {
+    // Old Topics list URL; keep links and bookmarks (including ?new=1&seed_result=…) working.
+    path: '/research',
+    redirect: (to: { query: LocationQuery; hash: string }) => ({ path: '/topics', query: to.query, hash: to.hash }),
   },
   {
     path: '/research/history',

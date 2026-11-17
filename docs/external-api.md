@@ -2,7 +2,7 @@
 
 ## Topics 与 agent 协作
 
-Topics 的仓库文件格式、用户身份、MCP/Git 凭证与接口见 [Topics 仓库与接口约定](topics.md)。Topic 凭证同时绑定专题和实际用户，Git 推送审计不依赖提交中自行声明的作者；调用次数按用户与可选 Topic 聚合，不按 token 聚合。普通 External API 继续只接受 personal token。
+Topics 的仓库文件格式、用户身份、MCP/Git 凭证与接口见 [Topics 仓库与接口约定](topics.md)。Topic 不再有专门的凭证：MCP 与 Git 都用 Plugins 服务的密钥（Git 密码填密钥），按其属主在各 Topic 的权限执行；Git 推送审计记录实际用户与所用服务（历史显示 "via <服务名>"），不依赖提交中自行声明的作者；调用次数按用户与可选 Topic（调用参数里的 `topic_id`）聚合，不按凭证聚合。
 
 网站新增 `PATCH /api/topics/:id`，owner/editor 提交 `{title,base_commit}` 改名，过期基准为 409；改名保留论文清单/报告与标签身份并进入 Git 历史。旧 Research 的一次性迁移脚本保留完整结果版本和 URL 引用，不执行远程抓取。迁移中的 Topic 不暴露内容/标签，完成后继承所属账号和已共享读者；正常 External API 契约不受影响。
 
@@ -11,6 +11,8 @@ Topic 创建接受 `default_access: "none"|"viewer"|"editor"`（默认 none）�
 `GET /api/topics/:id` 与 MCP `get_topic` 增加 `documents`（path/title/body/references/exists）、`reference_numbers`（稳定条目 ID→编号）、`next_reference_number`；原始 snapshot 保留 frontmatter 和可选 pages。`references.json` 是当前全局资料表（旧 layout 使用 papers.json），条目可声明 `reference_number`，文档 frontmatter 只含编号子集。新编号按首次进入 Topic 的提交顺序保留，删除不复用；不按发表年份排序。无效中间文档或引用使整个 push 失败。增补 MCP `set_topic_sharing`，仍需 personal token 与 owner 权限。正常 External API 契约不变。
 
 `get_topic` 可选 `document: "pages/rq6.md"` 仅读该文档及其编号引用，或 `metadata_only: true` 省略所有页面正文，避免长 Wiki 重复返回全文；不传参数保留完整兼容结构。文档路径仍受 Topic/历史权限限制，不能读取任意仓库路径。
+
+Topic 归档：owner 用 `PUT /api/topics/:id/archive {archived: boolean}` 或 MCP `set_topic_archived(topic_id, archived)` 归档 / 取消；列表、详情、`list_topics`、`get_topic` 增加 `archived_at`。归档后网页改名和 Git push 返回 403，读取、clone/pull、导入与共享管理不变。详见 [topics.md](topics.md#归档)。
 
 schema v1 仓库必需 topic.json、reports.yml、references.json、pages/report.md；页面可以嵌套并有 title/fonticon/references frontmatter。其他安全文件是 Git 工作区，MCP/网页不会将其当作报告；AGENTS.md 作为指南例外读取。get_topic 现在给出 home_page、文档 slug/url、实际配置的资源 limits 和图标名清单；document 可选 pages/**/*.md 或 AGENTS.md，metadata_only 省略正文。干净文档 URL 不带 file 查询或 .md，历史仍用 version 查询。旧 format_version:1/2 历史与查询链接兼容，普通 External API 契约不变。
 
@@ -42,11 +44,11 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 
 ### MCP 服务器（`/mcp`）
 
-> 设计检查：`bun run packages/backend/src/testing/mcp_inventory.ts [--json]` 在内存数据库上调用真实 `/mcp` 路由，离线输出 `initialize` 指南与 `tools/list`（含每个工具及总体字符数，分 personal/agent/topic 三种 token 核对）。按需执行的检查流程见 `.claude/skills/mcp-review/SKILL.md`（`/mcp-review`），报告按日期存于 `docs/mcp-reviews/`。该检查不改变任何 MCP 行为。
+> 设计检查：`bun run packages/backend/src/testing/mcp_inventory.ts [--json]` 在内存数据库上调用真实 `/mcp` 路由，离线输出 `initialize` 指南与 `tools/list`（含每个工具及总体字符数，分默认服务 / 只读服务 / 全权限服务 / agent token 核对）。按需执行的检查流程见 `.claude/skills/mcp-review/SKILL.md`（`/mcp-review`），报告按日期存于 `docs/mcp-reviews/`。该检查不改变任何 MCP 行为。
 
-`POST /mcp` 是 Paperland 的 MCP 服务器（只读工具 + `upload_image` + 论文写工具）（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，接受 **personal、agent 与 topic** 三种 token（topic 另验证绑定专题及当前成员权限），按 token 所属用户的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的 token 返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和自己的 personal token 即可使用；Deep Research 回合由后端自动注入会话所有者的 agent token，Codex QA 回合注入提问者的 agent token（只开放 `upload_image`）。`upload_image` 上传图片或视频（PNG / JPEG / GIF / WebP / MP4 / WebM）到图床并返回可嵌入的 Markdown（视频同样是 `![alt](url)`，Article 视图里内联播放）：`url`（服务端下载，规则同下方 `POST /external-api/v1/images?url=`）、`data`（base64 或 data URL，只适合很小的图）、`path`（服务器本地路径，只对 agent token 开放），三选一。只读工具 `get_skill(name?)` 返回内置 agent 指南（不带 name 时列出，如 `blog-import`：如何把博客导入为文章）。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
+`POST /mcp` 是 Paperland 的 MCP 服务器（只读工具 + `upload_image` + 论文写工具）（Streamable HTTP、无状态 JSON-RPC，直接返回 `application/json`），不在 `/external-api/v1` 下，但鉴权方式相同：`Authorization: Bearer <token>`，只接受两种凭证：**Plugins 服务密钥**（外部应用，受该服务权限限制）与 **agent token**（Paperland 自己拉起的 Codex），按属主的身份和可见性执行工具；任何来源都可访问（含经反向代理），未携带、无效、已撤销、无属主或属主账号非 active 的凭证返回 401。在其他 MCP 客户端里配置 URL `https://<站点>/mcp` 和 Plugins 页给出的密钥（Bearer）即可，或直接用服务地址 `/mcp/s/<密钥>`，两种方式等价；Deep Research 回合由后端自动注入会话所有者的 agent token，Codex QA 回合注入提问者的 agent token（只开放 `upload_image`）。`upload_image` 上传图片或视频（PNG / JPEG / GIF / WebP / MP4 / WebM）到图床并返回可嵌入的 Markdown（视频同样是 `![alt](url)`，Article 视图里内联播放）：`url`（服务端下载，规则同下方 `POST /external-api/v1/images?url=`）、`data`（base64 或 data URL，只适合很小的图）、`path`（服务器本地路径，只对 agent token 开放），三选一。只读工具 `get_skill(name?)` 返回内置 agent 指南（不带 name 时列出，如 `blog-import`：如何把博客导入为文章）。工具清单见 `tech-stack.md`「Agent 工具（MCP）」。
 
-**论文写工具（只接受 personal token；agent token 调用返回工具错误，Deep Research / QA 回合也看不到它们）**：让自己的 agent 添加和维护论文，校验与副作用与站内接口相同。
+**论文写工具（只接受有 write 的 Plugins 服务密钥；agent token 调用返回工具错误，Deep Research / QA 回合也看不到它们）**：让自己的 agent 添加和维护论文，校验与副作用与站内接口相同。
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
@@ -55,9 +57,9 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 | `upload_paper_pdf` | `paper_id` + `data` 或 `url`（二选一），`replace?` | `data` 同 `POST /api/papers/:id/pdf`；`url` 写入 `pdf_url` 并下载（arXiv 论文不接受 `url`）。已有 PDF 时须 `replace: true`，内容不同则切换文件并重新生成解析 / 翻译 |
 | `refresh_paper` | `paper_id`，`pdf?`、`s2?` | 手动重新抓取 PDF（arXiv 给最新版本）/ 刷新 S2 引用数据，后台运行，返回已排队的服务与各自的错误 |
 
-**按应用的 MCP 服务地址（Plugins）**：用户在 Plugins 页为每个应用（如 ChatGPT）创建服务，得到 `https://<站点>/mcp/s/pls_<64 hex>`（只显示一次，库中仅存 SHA-256），对不能发送请求头的客户端以"无认证"方式直接使用；路径中的密钥即凭据，按其属主身份执行，后端请求日志中路径被打码为 `/mcp/s/[redacted]`。无效、已换新或已撤销地址返回 404（不返回 401，避免客户端发起 OAuth 发现），GET/DELETE 返回 405。每个服务有权限 `write`（默认开：论文写工具、`upload_image`、Topic 写/管理、`add_paper_qa`）、`delete_papers`、`delete_answers`（默认关）；读工具总是可用，`tools/list` 只列出该服务权限允许的工具，越权调用为工具错误且不做改动。管理接口（会话鉴权，只作用于本人）：`GET/POST /api/auth/me/mcp-services`、`PATCH /api/auth/me/mcp-services/:id`（name / permissions）、`POST /api/auth/me/mcp-services/:id/rotate`、`DELETE /api/auth/me/mcp-services/:id`；create/rotate 返回 `url_path`。服务行属于 `api_tokens`（kind `service`），不出现在管理员 token 表。
+**Plugins 服务（外部应用的唯一凭证）**：用户在 Plugins 页为每个应用（如 ChatGPT）创建服务，得到一个密钥 `pls_<64 hex>`（只显示一次，库中仅存 SHA-256）。同一密钥可用三种方式：服务地址 `https://<站点>/mcp/s/<密钥>`（对不能发送请求头的客户端以"无认证"方式直接使用）、`/mcp` 与 External API 的 `Authorization: Bearer <密钥>`、Topic Git 的 HTTPS 密码；服务地址中的密钥即凭据，按其属主身份执行，后端请求日志中路径被打码为 `/mcp/s/[redacted]`。无效、已换新或已撤销地址返回 404（不返回 401，避免客户端发起 OAuth 发现），GET/DELETE 返回 405。每个服务有权限 `write`（默认开：论文写工具、`upload_image`、Topic 写/管理、`add_paper_qa`）、`delete_papers`、`delete_answers`（默认关）；读工具总是可用，`tools/list` 只列出该服务权限允许的工具，越权调用为工具错误且不做改动。管理接口（会话鉴权，只作用于本人）：`GET/POST /api/auth/me/mcp-services`、`PATCH /api/auth/me/mcp-services/:id`（name / permissions）、`POST /api/auth/me/mcp-services/:id/rotate`、`DELETE /api/auth/me/mcp-services/:id`；create/rotate 返回 `key` 与 `url_path`（仅此一次）。服务行属于 `api_tokens`（kind `service`）；管理员 Settings → All credentials 可看到（名称、属主，无密钥值）并撤销。服务不限定 Topic，相当于属主本人（删除权限除外）。
 
-新增 MCP 工具：`add_paper_qa(paper_id, question, answer, model)` 把外部模型的问答存为调用者自己的 free Q&A（`model_name` 署名 `<model> [MCP]`，时间取服务器时间，`qa_results.source = 'mcp'`；需 personal token 或有 write 的服务）；`delete_paper(paper_id)` 与网页删除相同的全局级联删除（需 `delete_papers`）；`delete_qa_answer(result_id)` 与网页相同的软删除规则（需 `delete_answers`）。`get_paper_qa` 的条目新增 `result_id` 与 `source`。`search_papers(query?, topic_id?, limit?, offset?)`：`query` 可省略（按新到旧列出）；不带 `topic_id` 为全站 listed 论文，带 `topic_id`（需可读该 Topic；Topic 凭证只能用自己的 Topic）为该 Topic 引用的站内论文（含未 listed），返回 `total_matches`、`offset`、`next_offset`；Topic 的站外引用仍通过 `get_topic` 获取。经 MCP `upload_image` 上传的图片记录 `images.uploaded_via = "<应用> [MCP]"`：服务地址用服务名（如 `ChatGPT [MCP]`），Paperland 自己的 agent 运行（如站内 Q&A 的 Codex）为 `Paperland [MCP]`，personal / topic token 为 `API token [MCP]` / `Topic token [MCP]`；网页与 External API 上传为 null，Images 页显示 "via …"。MCP 说明与 `read_paper` 描述要求模型读取 Paperland 解析的原文，不去抓 arXiv HTML，仅在需要表格、图时去 arXiv 或用 `read_pdf_page(image=true)`。
+新增 MCP 工具：`add_paper_qa(paper_id, question, answer, model)` 把外部模型的问答存为调用者自己的 free Q&A（`model_name` 署名 `<model> [MCP]`，时间取服务器时间，`qa_results.source = 'mcp'`；需有 write 的服务）；`delete_paper(paper_id)` 与网页删除相同的全局级联删除（需 `delete_papers`）；`delete_qa_answer(result_id)` 与网页相同的软删除规则（需 `delete_answers`）。`get_paper_qa` 的条目新增 `result_id` 与 `source`。`search_papers(query?, topic_id?, limit?, offset?)`：`query` 可省略（按新到旧列出）；不带 `topic_id` 为全站 listed 论文，带 `topic_id`（需可读该 Topic；Topic 凭证只能用自己的 Topic）为该 Topic 引用的站内论文（含未 listed），返回 `total_matches`、`offset`、`next_offset`；Topic 的站外引用仍通过 `get_topic` 获取。经 MCP `upload_image` 上传的图片记录 `images.uploaded_via = "<应用> [MCP]"`：服务地址用服务名（如 `ChatGPT [MCP]`），Paperland 自己的 agent 运行（如站内 Q&A 的 Codex）为 `Paperland [MCP]`，没有服务名时为 `Plugins service [MCP]`；网页与 External API 上传为 null，Images 页显示 "via …"。MCP 说明与 `read_paper` 描述要求模型读取 Paperland 解析的原文，不去抓 arXiv HTML，仅在需要表格、图时去 arXiv 或用 `read_pdf_page(image=true)`。
 
 `read_paper` 的全文就绪兜底：结果带 `precision`（`precise`＝user_input / doc2x Markdown，`rough`＝其他 PDF 文本）与 `precise_pending`（doc2x 精确解析已排队/进行中且未失败）。尚无存储文本但本地 PDF 可读时，用本地 Poppler 即时抽取全文（`source: "pdf_text"`，与 `read_pdf_page` 共用限额、并发、超时，内存缓存最近 8 份）；rough 结果附 `note`，提示公式/表格可能错乱并让模型在用户下一个问题时再调用一次。既无文本也无 PDF 时返回**非错误**结果 `status: "not_ready"`、`text: null`，附 `pdf_status`、摘要、arXiv 论文的 `arxiv_html` / `arxiv_abs` 链接和同样的复查提示。`get_paper` 额外返回 `pdf_status`、`pdf_unavailable_reason`、`precise_pending`，`full_text` 增加 `precision`。
 
@@ -73,24 +75,23 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 
 ### 获取 Token
 
-每个用户都可以在 **Settings** 页（侧边栏 Settings 或账户菜单 → Account settings）的 **API Tokens** 卡片管理**自己的** personal token：列表只显示掩码，新建时完整值**只显示一次**，可随时撤销。管理员另可在同一页面下方的 Administration → All API Tokens 查看全站 token、为自己签发和撤销 personal token。复制后配置到第三方服务中。
+External API 与 MCP 使用 **Plugins 页**创建的服务密钥（每个应用一个，见上文「Plugins 服务」）：创建或换新时密钥**只显示一次**，可随时换新或断开。Settings 页的 Connections 卡片只保留 Codex agent token 的查看/重置并指向 Plugins。
 
-对应的 Internal API（会话登录，只能操作自己的 token）：
+对应的 Internal API（会话登录，只作用于本人）：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/auth/me/tokens` | `{ data: { personal: [{ id, token(掩码), created_at, revoked_at }], agent: { created_at, rotated_at } } }` |
-| POST | `/api/auth/me/tokens` | 新建 personal token，201 `{ data: { id, token(完整值，仅此一次), created_at } }` |
-| DELETE | `/api/auth/me/tokens/:id` | 撤销自己的 personal token；不是自己的或不是 personal → 404 |
+| GET | `/api/auth/me/agent-token` | `{ data: { created_at, rotated_at } }`（不返回值） |
 | POST | `/api/auth/me/agent-token/reset` | 原地重置自己的 Codex agent token，旧值立即失效；只返回 `{ data: { created_at, rotated_at } }` |
+
+旧的 `/api/auth/me/tokens`（personal token 自助管理）与管理员签发 `POST /api/settings/tokens` 已移除。
 
 ### Token 类型
 
-`api_tokens.kind` 区分 personal / agent / topic 三种 token；前两者格式是 `sk-` + 64 位十六进制，topic 使用 `plt_` + 64 位十六进制并仅存 verifier：
+`api_tokens.kind` 只剩两种：
 
-- **personal**（默认，所有既有 token）：用户自己管理，**External API 与 MCP（`/mcp`）都可用**。
-- **topic**：成员自己的专题凭证，绑定用户和 Topic，适用于该专题的 MCP / Git，不适用于普通 External API；在 Topic 页面管理，不显示在全站 personal/agent token 表。详见 [topics.md](topics.md)。
-- **agent**（Codex agent token）：每个用户恰好一个，自动创建，供 Paperland 在 Deep Research 回合里注入自己拉起的 Codex 使用。**只有 `/mcp` 接受**，调用 External API 返回 401；任何接口都不返回它的值（管理员列表里 `token` 为 `null`、不可撤销），只能由本人重置。
+- **service**（Plugins 服务）：外部应用的唯一凭证，External API、`/mcp`（Bearer 或 `/mcp/s/<密钥>`）与 Topic Git 都可用，受服务权限限制（External API 的非 GET/HEAD 请求需要 `write`，否则 403）。新密钥为 `pls_` + 64 位十六进制；升级时既有的 personal token（`sk-…`）与 Topic token（`plt_…`）被一次性转换为名为 "API token <id>" / "Topic token <id>" 的服务（write 开、删除关），**原密钥值继续可用**（库中改存 verifier），Zotero 等既有集成无需改动。已撤销的旧 token 保持撤销。
+- **agent**（Codex agent token）：每个用户恰好一个，自动创建，供 Paperland 在 Q&A / Deep Research 回合里注入自己拉起的 Codex 使用。**只有 `/mcp` 接受**，调用 External API 返回 401；任何接口都不返回它的值（管理员列表里 `token` 为 `null`、不可撤销），只能由本人重置。
 
 ### 使用 Token
 
@@ -100,13 +101,13 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 Authorization: Bearer <token>
 ```
 
-未携带或 Token 无效 / 已撤销，或使用 agent token 时，返回 `401 Unauthorized`。
+未携带或密钥无效 / 已撤销，或使用 agent token 时，返回 `401 Unauthorized`；只读服务（未开 write）发出非 GET/HEAD 请求返回 `403`。
 
 > 网站的登录墙（未登录的 `/api/*` 一律 401）与自助注册审核只作用于网站 Internal API，**不影响** External API：`/external-api/*` 仍只认 Bearer Token。
 
 ### Token 的用户归属
 
-每个 Token 归属一个用户（签发它的管理员，或指定用户）。以该 Token 调用 External API 时，请求**按其归属用户**操作：因此通过 Token 创建 / 同步的**标签**等按用户私有的数据，归该用户所有，与其他用户的数据相互隔离。升级到用户系统前已存在的 Token 一律迁移归属到初始 `admin` 用户，**Zotero 等既有集成无需改动即可继续工作**。归属用户不是 active 状态（如待审核的注册账号）时，其 Token 调用 External API 返回 401（与 `/mcp` 一致）；没有归属用户的老 Token 仍可使用。
+每个服务归属创建它的用户。以其密钥调用 External API 时，请求**按其归属用户**操作：因此通过 Token 创建 / 同步的**标签**等按用户私有的数据，归该用户所有，与其他用户的数据相互隔离。升级到用户系统前已存在的 Token 一律迁移归属到初始 `admin` 用户，**Zotero 等既有集成无需改动即可继续工作**。归属用户不是 active 状态（如待审核的注册账号）时，其密钥调用 External API 返回 401（与 `/mcp` 一致）；没有归属用户的老 token 不再被接受。
 
 External API 只涉及论文（始终全站共享）与标签（始终私有），不暴露高亮、笔记、Free Q&A、参考链接等「用户可选共享」数据，因此不受 Account → Sharing 开关影响（多用户可见性规则见 `frontend-architecture.md` §5.3）。
 
@@ -457,7 +458,7 @@ Base URL: `/external-api/v1`
 
 #### POST /external-api/v1/images
 
-给外部 agent 上传图片 / 视频用（不必把文件 base64 塞进 MCP 调用）。personal token；文件归 token 用户所有，校验、去重与站内 `POST /api/images` 相同（按文件头识别 PNG / JPEG / GIF / WebP / MP4 / WebM，图片上限 `image_host.max_size_mb`、视频上限 `image_host.max_video_size_mb`）。二选一：
+给外部 agent 上传图片 / 视频用（不必把文件 base64 塞进 MCP 调用）。需有 write 的 Plugins 服务密钥；文件归服务属主所有，校验、去重与站内 `POST /api/images` 相同（按文件头识别 PNG / JPEG / GIF / WebP / MP4 / WebM，图片上限 `image_host.max_size_mb`、视频上限 `image_host.max_video_size_mb`）。二选一：
 
 - **原始文件体**：`Content-Type` 为 `image/*`、`video/*` 或 `application/octet-stream`，可带 `?filename=`、`?alt=`。
 - **`?url=<http(s) URL>`**（无请求体）：服务端下载。只允许 http/https；主机解析到回环 / 私网 / 链路本地 / 未指定地址时 422 `URL_NOT_ALLOWED`；最多 5 次重定向（每跳重新检查）；超时 `image_host.download_timeout`（默认 60 s）；超过大小上限即中止。
@@ -475,6 +476,14 @@ curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: image/png" \
 ```
 
 错误：400 `INVALID_REQUEST`（无文件也无 url，或两者都给）/ `INVALID_MEDIA`（不识别、不允许或超限）；422 `URL_NOT_ALLOWED` / `DOWNLOAD_FAILED`。
+
+#### GET /image-thumb/:hash.webp（公开，无鉴权）
+
+图床网格用的缩略图：图片缩到最长边 `image_host.thumb_size`（默认 480）px 的 WebP，视频取 0.5 s 处（太短则第 1 帧）的封面帧。首次请求时用 ffmpeg（`image_host.ffmpeg_path`，并发 `image_host.thumb_concurrency`，默认 2，单次 15 s 超时）生成，缓存在 `<image_host.dir>/.thumbs/<hash>.webp`，之后直接读盘；`Cache-Control: public, max-age=31536000, immutable`。生成失败时 302 跳转到原图 `/image/<path>`（不缓存）；未知 hash 或文件名不是 `<6 位十六进制>.webp` 时 404。
+
+#### GET /api/images 分页（站内）
+
+可选 `limit`（1–200）+ `offset`（≥0）：按上传时间倒序返回该页，并附 `total` 与 `next_offset`（最后一页为 null）；引用计数只算本页。不带 `limit` 时与以前一样返回全部（无 `total`）。`limit` / `offset` 不合法时 400。
 
 ---
 

@@ -7,7 +7,8 @@ import { schema } from '../db/index'
 import { topicFixture } from '../testing/topic_fixture'
 import { topicGitRoutes } from '../api/topic_git'
 import { initializeTopicRepo, readTopicCommit, recoverTopicRepositories, setTopicPublicationFaultForTesting, topicRepoPath } from './topic_git'
-import { issueTopicCredential, setTopicDefaultAccess, setTopicMember } from './topic_access'
+import { setTopicDefaultAccess, setTopicMember } from './topic_access'
+import { createMcpService } from './mcp_services'
 import { localProcess } from './local_process'
 import { upgradeTopicSchema } from './topic_layout'
 import { topicFiles } from './topic_format'
@@ -26,7 +27,7 @@ beforeEach(async () => {
   f.db.insert(schema.topicMembers).values({ topic_id: id, user_id: 1, role: 'owner' }).run()
   await setTopicMember(id, 1, 'editor', 'editor'); await setTopicMember(id, 1, 'viewer', 'viewer')
   await initializeTopicRepo(id, snapshot, { user_id: 1, token_id: null, display_name: 'owner' })
-  token = (await issueTopicCredential(id, 2)).token
+  token = createMcpService(2, { name: 'Git client' }).secret
   app = Fastify(); await app.register(topicGitRoutes)
   const address = await app.listen({ port: 0, host: '127.0.0.1' })
   url = `${address}/topic-git/${id}.git`
@@ -58,7 +59,7 @@ describe('Topic smart HTTP Git clients and publication (offline)', () => {
   })
   test('public policy and individual grants use the higher permission at Git authorization time', async () => {
     await setTopicDefaultAccess(id, 1, 'viewer')
-    token = (await issueTopicCredential(id, 4)).token
+    token = createMcpService(4, { name: 'Git client' }).secret
     const work = join(f.root, 'public'); await client(['clone', url, work])
     expect((await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-receive-pack`, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(403)
     await setTopicDefaultAccess(id, 1, 'editor')
@@ -70,7 +71,37 @@ describe('Topic smart HTTP Git clients and publication (offline)', () => {
     await setTopicMember(id, 1, 'outsider', null)
     expect((await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-receive-pack`, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200)
     await setTopicDefaultAccess(id, 1, 'none')
-    expect((await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-upload-pack`, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401)
+    expect((await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-upload-pack`, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(404)
+  })
+  test('read-only services cannot push and history names the app a push came through', async () => {
+    const readOnly = createMcpService(2, { name: 'Reader', permissions: { write: false } }).secret
+    const refused = await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-receive-pack`, headers: { authorization: `Bearer ${readOnly}` } })
+    expect(refused.statusCode).toBe(403)
+    expect(refused.body).toContain('read-only')
+    expect((await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-upload-pack`, headers: { authorization: `Bearer ${readOnly}` } })).statusCode).toBe(200)
+    token = createMcpService(2, { name: 'ChatGPT' }).secret
+    const work = join(f.root, 'via'); await client(['clone', url, work])
+    writeFileSync(join(work, 'report.md'), 'Pushed through an app')
+    await client(['add', '--', 'report.md'], work); await client(['commit', '-m', 'Via app'], work); await client(['push', 'origin', 'main'], work)
+    const { topicHistory } = await import('./topics')
+    expect(topicHistory(id, 1).versions[0]).toMatchObject({ message: 'Via app', pushed_by_user_id: 2, pushed_via: 'ChatGPT' })
+  })
+  test('archived Topics refuse pushes but still clone, and accept pushes again after unarchive', async () => {
+    const { setTopicArchived } = await import('./topics')
+    const work = join(f.root, 'archived'); await client(['clone', url, work])
+    const before = current().published_commit
+    await setTopicArchived(id, 1, true)
+    const refused = await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-receive-pack`, headers: { authorization: `Bearer ${token}` } })
+    expect(refused.statusCode).toBe(403)
+    expect(refused.body).toContain('archived')
+    writeFileSync(join(work, 'report.md'), 'Archived edit')
+    await client(['add', '--', 'report.md'], work); await client(['commit', '-m', 'Archived edit'], work)
+    expect((await client(['push', 'origin', 'main'], work, [0, 1, 128])).code).not.toBe(0)
+    expect(current().published_commit).toBe(before)
+    expect((await client(['clone', url, join(f.root, 'archived-clone')], undefined, [0])).code).toBe(0)
+    await setTopicArchived(id, 1, false)
+    await client(['push', 'origin', 'main'], work)
+    expect(JSON.parse(current().snapshot!).report).toBe('Archived edit')
   })
   test('publishes supplementary pages with numbered subsets and rejects an invalid intermediate subset', async () => {
     const work = join(f.root, 'pages'); await client(['clone', url, work])
@@ -109,7 +140,7 @@ describe('Topic smart HTTP Git clients and publication (offline)', () => {
     expect(f.db.select().from(schema.topicPapers).where(eq(schema.topicPapers.paper_id, 10)).all().map((r) => r.node_id).sort()).toEqual(['a', 'b', 'root'])
   })
   test('refuses viewer writes, cross-Topic credentials and revoked access while permitting reads', async () => {
-    token = (await issueTopicCredential(id, 3)).token
+    token = createMcpService(3, { name: 'Git client' }).secret
     const basic = `Basic ${Buffer.from(`viewer:${token}`).toString('base64')}`
     expect((await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-upload-pack`, headers: { authorization: basic } })).statusCode).toBe(200)
     await client(['clone', url, join(f.root, 'viewer')])
@@ -118,7 +149,7 @@ describe('Topic smart HTTP Git clients and publication (offline)', () => {
     const cross = await app.inject({ url: '/topic-git/999.git/info/refs?service=git-upload-pack', headers: { authorization: `Bearer ${token}` } })
     expect(cross.statusCode).toBe(404)
     await setTopicMember(id, 1, 'viewer', null)
-    expect((await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-upload-pack`, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401)
+    expect((await app.inject({ url: `/topic-git/${id}.git/info/refs?service=git-upload-pack`, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(404)
   })
   test('rejects malformed intermediate commits, unsafe modes and extra refs without advancing real main', async () => {
     const work = join(f.root, 'client'); await client(['clone', url, work])
@@ -176,7 +207,7 @@ describe('Topic smart HTTP Git clients and publication (offline)', () => {
     // The authenticated account can disappear before restart; original audit identity must survive.
     f.db.delete(schema.apiTokens).where(eq(schema.apiTokens.user_id, 2)).run()
     f.db.delete(schema.users).where(eq(schema.users.id, 2)).run()
-    token = (await issueTopicCredential(id, 1)).token
+    token = createMcpService(1, { name: 'Git client' }).secret
     setTopicPublicationFaultForTesting()
     await recoverTopicRepositories()
     expect(f.db.select().from(schema.topicReferences).where(eq(schema.topicReferences.topic_id, id)).all().map((r) => r.reference_number).sort()).toEqual([1, 2, 3])

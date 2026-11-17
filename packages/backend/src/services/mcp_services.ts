@@ -1,11 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
+import { topicTokenVerifier } from './topic_access.js'
 
 /**
- * Per-application MCP services: `api_tokens` rows of kind `service`, each with a display name and
- * permissions. The secret lives only in the service URL `/mcp/s/<secret>` (for clients such as
- * ChatGPT that cannot send an Authorization header); the table keeps a SHA-256 verifier.
+ * Plugins services: `api_tokens` rows of kind `service`, each with a display name and permissions.
+ * They are the only credential for external apps. One key works as the service URL
+ * `/mcp/s/<key>`, as `Authorization: Bearer <key>` on `/mcp` and the External API, and as the
+ * Topic Git password. The table keeps only a SHA-256 verifier. Former personal (`sk-…`) and Topic
+ * (`plt_…`) tokens were converted into services and keep their key value (see convertLegacyTokens).
  */
 
 export interface McpServicePermissions { write: boolean; delete_papers: boolean; delete_answers: boolean }
@@ -106,15 +109,51 @@ export function revokeMcpService(userId: number, id: number): void {
   getDatabase().update(schema.apiTokens).set({ revoked_at: new Date().toISOString() }).where(eq(schema.apiTokens.id, row.id)).run()
 }
 
-/** Resolve a service URL secret to its active owner, or null (never says why). */
-export function checkServiceSecret(secret: string): { token: Row; user: typeof schema.users.$inferSelect; permissions: McpServicePermissions } | null {
-  if (!/^pls_[0-9a-f]{64}$/.test(secret)) return null
+// New keys are pls_…; converted personal tokens are sk-…, converted Topic tokens plt_… (64 hex each).
+const KEY_FORMAT = /^(pls_|sk-|plt_)[0-9a-f]{64}$/
+
+export interface ResolvedService { token: Row; user: typeof schema.users.$inferSelect; permissions: McpServicePermissions }
+
+/** Resolve a service key to its active service and owner, or null (never says why). */
+export function resolveServiceKey(key: string | null | undefined): ResolvedService | null {
+  if (!key || !KEY_FORMAT.test(key)) return null
   const db = getDatabase()
-  const token = db.select().from(schema.apiTokens).where(and(eq(schema.apiTokens.token, serviceVerifier(secret)), eq(schema.apiTokens.kind, 'service'))).get()
+  // Converted Topic tokens keep their original verifier (the raw key was never stored).
+  const verifiers = key.startsWith('plt_') ? [serviceVerifier(key), topicTokenVerifier(key)] : [serviceVerifier(key)]
+  const token = db.select().from(schema.apiTokens).where(and(inArray(schema.apiTokens.token, verifiers), eq(schema.apiTokens.kind, 'service'))).get()
   if (!token || token.revoked_at !== null || token.user_id == null) return null
   const user = db.select().from(schema.users).where(eq(schema.users.id, token.user_id)).get()
   if (!user || user.status !== 'active') return null
   return { token, user, permissions: parsePermissions(token.permissions) }
+}
+
+/** Service URL form (`/mcp/s/<key>`); same resolution as the header form. */
+export const checkServiceSecret = resolveServiceKey
+
+/**
+ * One-time, idempotent conversion of the retired credential kinds: every non-revoked `personal`
+ * token becomes the service "API token <id>" (its plaintext value replaced by the verifier) and every
+ * non-revoked `topic` token becomes "Topic token <id>" (keeps its Topic verifier). Both get the
+ * default permissions (write, no deletes) and no Topic binding. Revoked rows stay as they are.
+ */
+export function convertLegacyTokens(): { personal: number; topic: number } {
+  const db = getDatabase()
+  const permissions = JSON.stringify(DEFAULT_SERVICE_PERMISSIONS)
+  return db.transaction((tx) => {
+    const rows = tx.select().from(schema.apiTokens)
+      .where(and(inArray(schema.apiTokens.kind, ['personal', 'topic']), isNull(schema.apiTokens.revoked_at))).all()
+    let personal = 0, topic = 0
+    for (const row of rows) {
+      if (row.kind === 'personal') {
+        tx.update(schema.apiTokens).set({ kind: 'service', token: serviceVerifier(row.token), name: `API token ${row.id}`, permissions, topic_id: null }).where(eq(schema.apiTokens.id, row.id)).run()
+        personal++
+      } else {
+        tx.update(schema.apiTokens).set({ kind: 'service', name: `Topic token ${row.id}`, permissions, topic_id: null }).where(eq(schema.apiTokens.id, row.id)).run()
+        topic++
+      }
+    }
+    return { personal, topic }
+  })
 }
 
 /** `/mcp/s/<secret>` with the secret replaced, for logs. */

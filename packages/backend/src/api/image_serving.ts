@@ -3,6 +3,7 @@ import { createReadStream, existsSync, statSync } from 'fs'
 import { resolve, sep } from 'path'
 import { getConfig } from '../config.js'
 import { mimeForExt } from '../services/image_store.js'
+import { imageThumb } from '../services/image_thumbs.js'
 
 /** Parse a single `bytes=` range against a file size; null = no/unsupported range, 'invalid' = 416. */
 export function parseRange(header: string | undefined, size: number): { start: number; end: number } | null | 'invalid' {
@@ -62,5 +63,19 @@ export async function imageServingRoutes(app: FastifyInstance): Promise<void> {
     }
     reply.header('Content-Length', String(size))
     return reply.send(createReadStream(filePath))
+  })
+
+  // Grid thumbnails: small WebP (images) or poster frame (videos), generated once and cached on
+  // disk. Public and immutable like the originals; a failed generation redirects to the original.
+  app.get<{ Params: { file: string } }>('/image-thumb/:file', async (request, reply) => {
+    const match = request.params.file.match(/^([0-9a-f]{6})\.webp$/)
+    if (!match) return reply.code(404).send({ error: 'Image not found' })
+    const result = await imageThumb(match[1])
+    if (result.kind === 'missing') return reply.code(404).send({ error: 'Image not found' })
+    if (result.kind === 'original') return reply.code(302).header('Location', `/image/${result.path}`).header('Cache-Control', 'no-store').send()
+    reply.header('Content-Type', 'image/webp')
+    reply.header('Cache-Control', 'public, max-age=31536000, immutable')
+    reply.header('Content-Length', String(statSync(result.path).size))
+    return reply.send(createReadStream(result.path))
   })
 }

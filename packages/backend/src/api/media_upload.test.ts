@@ -40,6 +40,8 @@ beforeEach(() => {
   db = drizzle(new Database(':memory:'), { schema })
   migrate(db, { migrationsFolder: resolve(import.meta.dir, '../db/migrations') })
   setDatabaseForTesting(db)
+  // MCP tool calls are counted per active user, so the calling viewer must exist.
+  db.insert(schema.users).values({ id: 1, username: 'owner', password_hash: 'x', role: 'user', created_at: new Date().toISOString() }).run()
 })
 
 afterAll(() => {
@@ -210,9 +212,9 @@ describe('MCP get_skill and upload_image url', () => {
   })
 
   it('upload_image refuses private URLs and requires exactly one source', async () => {
-    const priv = await callAgentTool('upload_image', { url: 'http://10.0.0.1/x.png' }, { viewer, token_kind: 'personal' } as any)
+    const priv = await callAgentTool('upload_image', { url: 'http://10.0.0.1/x.png' }, { viewer, token_kind: 'service' } as any)
     expect(priv.isError).toBe(true)
     expect(priv.text).toMatch(/private or local/)
-    expect((await callAgentTool('upload_image', { url: 'https://a.example/x.png', data: 'AA==' }, { viewer, token_kind: 'personal' } as any)).isError).toBe(true)
+    expect((await callAgentTool('upload_image', { url: 'https://a.example/x.png', data: 'AA==' }, { viewer, token_kind: 'service' } as any)).isError).toBe(true)
   })
 })

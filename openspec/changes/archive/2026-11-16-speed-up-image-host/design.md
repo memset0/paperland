@@ -1,0 +1,10 @@
+# Design
+
+## Decisions
+
+- **ffmpeg WebP.** Images use `ffmpeg -i <src> -frames:v 1 -vf "scale='min(480,iw)':'min(480,ih)':force_original_aspect_ratio=decrease" -c:v libwebp -quality 75 -f webp <tmp>`. Videos use the same command with `-ss 0.5` before `-i`, falling back to frame 0. The output is written to a temp file and renamed atomically into `<image_host.dir>/.thumbs/<hash>.webp`. The command goes through `localProcess` with a timeout (15 s) and an output cap, behind a `Semaphore` (default 2). The concurrent first-request burst from a page of 48 cards is queued, not dropped.
+- **Route.** `/image-thumb/:file` validates `^[0-9a-f]{6}\.webp$`, looks up the image row by hash and uses its stored path. Errors redirect with 302 to `/image/<path>`. Successful responses use `Cache-Control: public, max-age=31536000, immutable`. GIF thumbnails take the first frame, so the card shows a still image and the original stays one click away (Link).
+- **Config.** `image_host.thumb_size` (default 480), `image_host.thumb_concurrency` (default 2) and `image_host.ffmpeg_path` (default `ffmpeg`), validated with Zod and defaulted so the existing `config.yml` is unaffected.
+- **Pagination.** Use SQL `limit`/`offset` on the existing ordered query, with `hash` as a tiebreaker after `created_at` so pages are stable. A separate `count(*)` with the same visibility filter gives `total`. Reference counting builds the note-body scan and Q&A input map once per request, as today, but filters to the page's hashes. A later change can make it incremental if needed.
+- **Frontend.** The images Pinia store (used only by this page) keeps the items, `total` and `nextOffset`, with a generation guard against stale responses. An `IntersectionObserver` sentinel loads the next page, and a "Load more" Button is the fallback. Uploads are prepended locally. Cards use `<img :src="thumbUrl" loading="lazy" decoding="async">`. Video cards show the thumbnail and swap in a `<video preload="none">` on pointerenter or click.
+- **Tests** are offline. A fake ffmpeg executable writes a tiny WebP. Covered: route caching, fallback redirect, pagination totals and per-page reference counts.

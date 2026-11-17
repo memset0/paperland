@@ -52,6 +52,7 @@ import { registerFrontendHosting } from './frontend_hosting.js'
 import { topicRoutes } from './api/topics.js'
 import { topicGitRoutes } from './api/topic_git.js'
 import { recoverTopicRepositories } from './services/topic_git.js'
+import { convertLegacyTokens } from './services/mcp_services.js'
 
 async function main() {
   let interruptedResearchSessions: number[] = []
@@ -64,6 +65,11 @@ async function main() {
 
   // Initialize database
   initDatabase()
+  // Personal and Topic tokens are retired: convert any active ones into Plugins services (idempotent).
+  {
+    const converted = convertLegacyTokens()
+    if (converted.personal || converted.topic) console.log(`Converted legacy tokens into Plugins services: ${converted.personal} personal, ${converted.topic} Topic`)
+  }
   await recoverTopicRepositories()
 
   // Clean up stale executions from previous runs

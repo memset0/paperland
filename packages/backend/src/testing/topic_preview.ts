@@ -23,12 +23,12 @@ import { usageRoutes } from '../api/usage.js'
 import { registerFrontendHosting } from '../frontend_hosting.js'
 import { TOPIC_AGENT_GUIDE } from '../services/topic_layout.js'
 import { initializeTopicRepo } from '../services/topic_git.js'
-import { issueTopicCredential, setTopicMember } from '../services/topic_access.js'
+import { setTopicMember } from '../services/topic_access.js'
 import { localProcess } from '../services/local_process.js'
 import { setTopicImporterForTesting } from '../services/topics.js'
 import { setPdfPageDataRootForTesting } from '../services/pdf_pages.js'
 import { addToLibrary } from '../services/user_library.js'
-import { createPersonalToken } from '../services/api_tokens.js'
+import { createMcpService } from '../services/mcp_services.js'
 import type { TopicSnapshot } from '@paperland/shared'
 import { migrateResearchToTopics } from '../services/research_topic_migration.js'
 
@@ -67,8 +67,8 @@ const topic = f.db.insert(schema.topics).values({ owner_id: 1, title: snapshot.t
 f.db.insert(schema.topicMembers).values({ topic_id: topic.id, user_id: 1, role: 'owner' }).run()
 await initializeTopicRepo(topic.id, snapshot, { user_id: 1, token_id: null, display_name: 'owner' })
 await setTopicMember(topic.id, 1, 'editor', 'editor'); await setTopicMember(topic.id, 1, 'viewer', 'viewer')
-const editorToken = (await issueTopicCredential(topic.id, 2)).token
-const checkToken = createPersonalToken(1).token
+const editorToken = createMcpService(2, { name: 'Preview editor' }).secret
+const checkToken = createMcpService(1, { name: 'Preview check' }).secret
 const session = f.db.insert(schema.researchSessions).values({ user_id: 1, topic: 'Legacy research fixture', created_at: f.now, updated_at: f.now }).returning().get()
 f.db.insert(schema.researchSteps).values({ session_id: session.id, step_index: 1, kind: 'agent', status: 'done', answer: '# Legacy research\n\nHistorical research remains readable.', report: '# Legacy research\n\nHistorical research remains readable.', paper_list: JSON.stringify({ title: 'Legacy attention survey with an unnecessarily long original title', sections: [{ title: 'Background', description: 'Preserved **directory description**.', items: [{ kind: 'paper', s2_id: 'a'.repeat(40), verification: 'verified', comment: 'Preserved paper comment.' }, { kind: 'link', url: 'https://example.test/archived-project', citation: { title: 'Archived project page', author: ['Fixture Author'], year: 2025, howpublished: 'Example site', note: 'Preserved citation note' }, comment: 'Preserved link comment.' }] }] }), model_name: 'fixture', created_at: f.now, updated_at: f.now, started_at: f.now, finished_at: f.now }).run()
 const legacyImport = process.argv.includes('--migrate-legacy') ? await migrateResearchToTopics() : []

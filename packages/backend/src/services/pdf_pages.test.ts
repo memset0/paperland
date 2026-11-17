@@ -7,7 +7,7 @@ import { topicFixture } from '../testing/topic_fixture'
 import { schema } from '../db/index'
 import { loadConfig } from '../config'
 import { mcpRoutes } from '../api/mcp'
-import { createPersonalToken } from './api_tokens'
+import { createMcpService } from './mcp_services'
 import { readPdfPage, readPdfText, setPdfPageDataRootForTesting } from './pdf_pages'
 import { callAgentTool } from './agent_tools'
 import { getConfig } from '../config'
@@ -32,7 +32,7 @@ beforeEach(async () => {
   const config = join(f.root, 'config.yml'); writeFileSync(config, readFileSync(config, 'utf8') + extra); loadConfig(config)
   setPdfPageDataRootForTesting(data)
   process.env.PDF_FAKE_ROOT = f.root
-  token = createPersonalToken(1).token
+  token = createMcpService(1, { name: 'Test client' }).secret
   app = Fastify(); await app.register(mcpRoutes)
 })
 afterEach(async () => { setPdfPageDataRootForTesting(); await app.close(); f.close() })

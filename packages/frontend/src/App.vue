@@ -117,7 +117,7 @@ interface NavItem { path: string; label: string; icon: any; requiresAuth?: boole
 const navItems: NavItem[] = [
   { path: '/', label: 'Home', icon: House },
   { path: '/papers', label: 'Papers', icon: FileText },
-  { path: '/research', label: 'Topics', icon: Telescope, requiresAuth: true },
+  { path: '/topics', label: 'Topics', icon: Telescope, requiresAuth: true },
   { path: '/tags', label: 'Tags', icon: Tag, requiresAuth: true },
   { path: '/qa', label: 'Q&A', icon: MessageSquare, requiresAuth: true },
   { path: '/notes', label: 'Notes', icon: NotebookPen, requiresAuth: true },
@@ -130,7 +130,7 @@ const navItems: NavItem[] = [
 
 function isActive(path: string) {
   if (path === '/') return route.path === '/'
-  if (path === '/research' && route.path.startsWith('/topics')) return true
+  if (path === '/topics' && route.path.startsWith('/research')) return true
   return route.path.startsWith(path)
 }
 

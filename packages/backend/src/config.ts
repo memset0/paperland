@@ -191,6 +191,9 @@ const IMAGE_HOST_DEFAULTS = {
   allowed_types: ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'],
   download_timeout: 60,
   public_base_url: '',
+  thumb_size: 480,
+  thumb_concurrency: 2,
+  ffmpeg_path: 'ffmpeg',
 }
 
 const imageHostSchema = z.object({
@@ -202,6 +205,10 @@ const imageHostSchema = z.object({
   // Seconds per server-side download of a remote image/video (`?url=` / upload_image url).
   download_timeout: z.number().positive().default(IMAGE_HOST_DEFAULTS.download_timeout),
   public_base_url: z.string().default(IMAGE_HOST_DEFAULTS.public_base_url),
+  // Grid thumbnails (/image-thumb/<hash>.webp): longest side in px, parallel ffmpeg runs, binary.
+  thumb_size: z.number().int().min(64).max(2048).default(IMAGE_HOST_DEFAULTS.thumb_size),
+  thumb_concurrency: z.number().int().min(1).max(16).default(IMAGE_HOST_DEFAULTS.thumb_concurrency),
+  ffmpeg_path: z.string().min(1).default(IMAGE_HOST_DEFAULTS.ffmpeg_path),
 })
 
 const pdfUploadSchema = z.object({

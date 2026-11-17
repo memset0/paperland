@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { desc, eq, isNotNull } from 'drizzle-orm'
+import { count, desc, eq, isNotNull } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { getConfig } from '../config.js'
 import { requireUser } from '../auth/guards.js'
@@ -50,15 +50,22 @@ export async function imagesRoutes(app: FastifyInstance): Promise<void> {
   // gets every image. Each carries the uploader's display name, a reference_count computed by
   // scanning every note body for the image's hash (works for relative or absolute URLs), and a
   // qa_reference_count of Q&A image inputs that use it. Image URLs stay public; only the list is scoped.
-  app.get('/api/images', { preHandler: requireUser }, async (request) => {
+  // Optional `limit` (1–200) + `offset` page the list and add `total` / `next_offset`; reference
+  // counts are computed only for the returned page. Without `limit` every visible image is returned.
+  app.get<{ Querystring: { limit?: string; offset?: string } }>('/api/images', { preHandler: requireUser }, async (request, reply) => {
     const db = getDatabase()
     const user = request.user!
-    const rows = db.select({ image: schema.images, nickname: schema.users.nickname, username: schema.users.username })
+    const paged = request.query.limit !== undefined
+    const limit = Number(request.query.limit), offset = request.query.offset === undefined ? 0 : Number(request.query.offset)
+    if (paged && (!Number.isInteger(limit) || limit < 1 || limit > 200)) return reply.code(400).send({ error: { message: 'limit must be an integer between 1 and 200' } })
+    if (!Number.isInteger(offset) || offset < 0) return reply.code(400).send({ error: { message: 'offset must be a non-negative integer' } })
+    const visible = user.role === 'admin' ? undefined : eq(schema.images.uploaded_by, user.id)
+    const query = db.select({ image: schema.images, nickname: schema.users.nickname, username: schema.users.username })
       .from(schema.images)
       .leftJoin(schema.users, eq(schema.users.id, schema.images.uploaded_by))
-      .where(user.role === 'admin' ? undefined : eq(schema.images.uploaded_by, user.id))
-      .orderBy(desc(schema.images.created_at))
-      .all()
+      .where(visible)
+      .orderBy(desc(schema.images.created_at), desc(schema.images.hash))
+    const rows = paged ? query.limit(limit).offset(offset).all() : query.all()
     const images = rows.map((r) => ({ ...r.image, uploaded_by_name: displayName(r.username != null ? { username: r.username, nickname: r.nickname } : null) }))
     const bodies = db.select({ body: schema.notes.body }).from(schema.notes).all()
     const qaReferences = new Map<string, number>()
@@ -75,7 +82,10 @@ export async function imagesRoutes(app: FastifyInstance): Promise<void> {
       qa_reference_count: qaReferences.get(img.hash) || 0,
     }))
     // public_base_url lets the client build absolute "copy link" URLs; blank ⇒ use origin.
-    return { data, public_base_url: getConfig().image_host.public_base_url }
+    const public_base_url = getConfig().image_host.public_base_url
+    if (!paged) return { data, public_base_url }
+    const total = db.select({ n: count() }).from(schema.images).where(visible).get()?.n ?? 0
+    return { data, public_base_url, total, next_offset: offset + data.length < total ? offset + data.length : null }
   })
   // Images are intentionally not deletable: notes and Q&A inputs (screenshots that follow-ups and
   // regenerations still send to models) must keep resolving.

@@ -8,7 +8,8 @@ import { loadConfig } from '../config.js'
 import * as schema from '../db/schema.js'
 import { getDatabase, setDatabaseForTesting } from '../db/index.js'
 import { eq } from 'drizzle-orm'
-import { createPersonalToken, ensureAgentToken, resetAgentToken } from '../services/api_tokens.js'
+import { ensureAgentToken, resetAgentToken } from '../services/api_tokens.js'
+import { createMcpService, revokeMcpService, convertLegacyTokens } from '../services/mcp_services.js'
 import { mcpRoutes } from './mcp.js'
 import { serviceRunner } from '../services/service_runner.js'
 import { mkdtempSync, rmSync } from 'fs'
@@ -21,6 +22,7 @@ import { AGENT_NON_WRITE_TOOL_NAMES } from '../services/agent_tools.js'
 
 let app: FastifyInstance
 let token = ''
+let serviceId = 0
 let agentToken = ''
 const now = new Date().toISOString()
 
@@ -44,7 +46,9 @@ beforeEach(() => {
   setDatabaseForTesting(db)
   db.insert(schema.users).values({ id: 1, username: 'owner', password_hash: 'x', role: 'user', created_at: now }).run()
   db.insert(schema.papers).values({ id: 5, title: 'Paper Five', authors: '[]', listed: 1, created_at: now, updated_at: now }).run()
-  token = createPersonalToken(1).token
+  // Bearer service key with every permission (write and both deletes).
+  const service = createMcpService(1, { name: 'Test client', permissions: { delete_papers: true, delete_answers: true } })
+  token = service.secret; serviceId = service.id
   agentToken = ensureAgentToken(1).token
 })
 
@@ -61,11 +65,11 @@ describe('POST /mcp', () => {
     const msg = { jsonrpc: '2.0', id: 1, method: 'ping' }
     expect((await post(msg, null)).statusCode).toBe(401)
     expect((await post(msg, 'Bearer nope')).statusCode).toBe(401)
-    getDatabase().update(schema.apiTokens).set({ revoked_at: now }).where(eq(schema.apiTokens.token, token)).run()
+    revokeMcpService(1, serviceId)
     expect((await post(msg)).statusCode).toBe(401)
   })
 
-  it('accepts both personal and agent tokens, from any origin', async () => {
+  it('accepts both service keys and agent tokens, from any origin', async () => {
     const msg = { jsonrpc: '2.0', id: 1, method: 'ping' }
     expect((await post(msg)).json()).toEqual({ jsonrpc: '2.0', id: 1, result: {} })
     expect((await post(msg, `Bearer ${agentToken}`)).statusCode).toBe(200)
@@ -98,7 +102,7 @@ describe('POST /mcp', () => {
     expect(AGENT_NON_WRITE_TOOL_NAMES).not.toContain('read_pdf_page')
     expect(names).toEqual(expect.arrayContaining(['search_papers', 'read_paper', 's2_search', 's2_match', 's2_get']))
     expect(list.result.tools.filter((t: any) => t.annotations.readOnlyHint !== true).map((t: any) => t.name))
-      .toEqual(['create_topic', 'set_topic_sharing', 'set_topic_member', 'create_topic_token', 'rotate_topic_token', 'revoke_topic_token', 'import_topic_paper', 'upload_image', 'add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper', 'add_paper_qa', 'delete_paper', 'delete_qa_answer'])
+      .toEqual(['create_topic', 'set_topic_sharing', 'set_topic_archived', 'set_topic_member', 'import_topic_paper', 'upload_image', 'add_paper', 'update_paper', 'upload_paper_pdf', 'refresh_paper', 'add_paper_qa', 'delete_paper', 'delete_qa_answer'])
     const ann = (name: string) => list.result.tools.find((t: any) => t.name === name).annotations
     expect(ann('add_paper')).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: true })
     expect(ann('update_paper')).toMatchObject({ readOnlyHint: false, destructiveHint: true })
@@ -211,7 +215,7 @@ describe('MCP paper write tools', () => {
   it('refuses agent tokens and changes nothing', async () => {
     const res = await call('add_paper', { title: 'Nope' }, `Bearer ${agentToken}`)
     expect(res.isError).toBe(true)
-    expect(res.content[0].text).toContain('personal API token')
+    expect(res.content[0].text).toContain('Plugins service key')
     expect(getDatabase().select().from(schema.papers).all().map((p) => p.title)).toEqual(['Paper Five'])
   })
 })
@@ -247,9 +251,39 @@ describe('POST /mcp/s/:secret (MCP service URLs)', () => {
     expect((await svcPost(rotated.secret, { jsonrpc: '2.0', id: 1, method: 'ping' })).statusCode).toBe(404)
     expect(listMcpServices(1).some((s) => s.id === svc.id)).toBe(false)
     expect((await app.inject({ method: 'GET', url: `/mcp/s/${rotated.secret}` })).statusCode).toBe(405)
-    // The stored value is a verifier, never the secret; Bearer use of a service secret is refused.
+    // The stored value is a verifier, never the secret; the revoked key is refused in the header form too.
     expect(JSON.stringify(getDatabase().select().from(schema.apiTokens).all())).not.toContain(rotated.secret)
     expect((await post({ jsonrpc: '2.0', id: 1, method: 'ping' }, `Bearer ${rotated.secret}`)).statusCode).toBe(401)
+  })
+  it('serves the same service through the Bearer header with the same tool list', async () => {
+    const readonly = createMcpService(1, { name: 'Reader', permissions: { write: false } })
+    const list = (res: any) => res.json().result.tools.map((t: any) => t.name)
+    const viaUrl = list(await svcPost(readonly.secret, { jsonrpc: '2.0', id: 1, method: 'tools/list' }))
+    const viaHeader = list(await post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, `Bearer ${readonly.secret}`))
+    expect(viaHeader).toEqual(viaUrl)
+    expect(viaHeader).not.toContain('add_paper')
+    const refused = (await post({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'add_paper', arguments: { title: 'x' } } }, `Bearer ${readonly.secret}`)).json()
+    expect(refused.result.isError).toBe(true)
+  })
+  it('converts legacy personal and Topic tokens into services that keep their key', async () => {
+    const db = getDatabase()
+    const { topicTokenVerifier } = await import('../services/topic_access.js')
+    const personal = 'sk-' + 'a'.repeat(64), topicKey = 'plt_' + 'b'.repeat(64), revoked = 'sk-' + 'c'.repeat(64)
+    db.insert(schema.apiTokens).values([
+      { token: personal, kind: 'personal', user_id: 1, created_at: now },
+      { token: topicTokenVerifier(topicKey), kind: 'topic', user_id: 1, created_at: now },
+      { token: revoked, kind: 'personal', user_id: 1, created_at: now, revoked_at: now },
+    ]).run()
+    expect(convertLegacyTokens()).toEqual({ personal: 1, topic: 1 })
+    expect(convertLegacyTokens()).toEqual({ personal: 0, topic: 0 })
+    const ping = { jsonrpc: '2.0', id: 1, method: 'ping' }
+    expect((await post(ping, `Bearer ${personal}`)).statusCode).toBe(200)
+    expect((await post(ping, `Bearer ${topicKey}`)).statusCode).toBe(200)
+    expect((await svcPost(personal, ping)).statusCode).toBe(200)
+    expect((await post(ping, `Bearer ${revoked}`)).statusCode).toBe(401)
+    expect(JSON.stringify(db.select().from(schema.apiTokens).all())).not.toContain(personal)
+    const names = db.select().from(schema.apiTokens).all().filter((t) => t.kind === 'service').map((t) => t.name)
+    expect(names).toEqual(expect.arrayContaining([expect.stringMatching(/^API token \d+$/), expect.stringMatching(/^Topic token \d+$/)]))
   })
   it('redacts the secret for logs', async () => {
     const { redactServiceUrl } = await import('../services/mcp_services.js')

@@ -201,7 +201,7 @@ export async function initializeTopicRepo(topicId: number, snapshot: TopicSnapsh
   mkdirSync(root, { recursive: true, mode: 0o700 })
   const repo = topicRepoPath(topicId)
   await git(null, ['init', '--bare', '--template=', '--initial-branch=main', repo])
-  const files = { ...topicFiles(snapshot), 'README.md': '# Topic repository\n\nResearch documents live under pages/. Read AGENTS.md for maintenance instructions and use your own Topic token for MCP and Git.\nOther repository files can be agent workspace content; the website does not execute them. Keep credentials and large media outside Git.\n' }
+  const files = { ...topicFiles(snapshot), 'README.md': '# Topic repository\n\nResearch documents live under pages/. Read AGENTS.md for maintenance instructions and use a Paperland Plugins service key for MCP and as the Git password.\nOther repository files can be agent workspace content; the website does not execute them. Keep credentials and large media outside Git.\n' }
   const tree = new Map<string, TreeBlob>()
   for (const [name, text] of Object.entries(files)) {
     const oid = (await git(repo, ['hash-object', '-w', '--stdin'], text)).output.toString().trim()

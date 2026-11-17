@@ -11,7 +11,7 @@ import { withTopicLock } from './topic_lock.js'
 
 export const TOPIC_AGENT_GUIDE = `# Topic agent guide
 
-Use your own user-bound Topic token for MCP and Git. Never commit credentials or large media.
+Use a Paperland Plugins service key (create one on the Plugins page) for MCP and as the Git password. Never commit credentials or large media.
 
 - Before editing, call get_topic_schema and inspect get_topic.repository_schema for required migrations. The current repository contract is schema v1, declared as schema_version: 1 in topic.json.
 - Root reports.yml is the ordered page/group index. List every published page exactly once; page groups may have children. Update the manifest when adding or moving pages.

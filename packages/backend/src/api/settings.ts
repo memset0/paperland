@@ -2,39 +2,25 @@ import type { FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
 import { requireAdmin } from '../auth/guards.js'
-import { createPersonalToken, maskToken } from '../services/api_tokens.js'
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
-  // Token management is admin-only.
+  // Credential oversight is admin-only (users manage their own services on the Plugins page).
   app.addHook('preHandler', requireAdmin)
 
-  // List tokens (with owning user and kind). Agent tokens never expose their value, not even masked.
+  // List credentials: agent tokens and Plugins services, with owner, never a value (not even masked).
   app.get('/api/settings/tokens', async () => {
-    const db = getDatabase()
-    const tokens = db.select().from(schema.apiTokens).all().filter((token) => token.kind !== 'topic' && token.kind !== 'service')
-
+    const tokens = getDatabase().select().from(schema.apiTokens).all().filter((token) => token.kind === 'agent' || token.kind === 'service')
     return {
       data: tokens.map((t) => ({
         id: t.id,
         kind: t.kind,
-        token: t.kind === 'agent' ? null : maskToken(t.token),
+        name: t.kind === 'service' ? t.name : null,
+        token: null,
         user_id: t.user_id,
         created_at: t.created_at,
         rotated_at: t.rotated_at,
         revoked_at: t.revoked_at,
       })),
-    }
-  })
-
-  // Issue new token (owned by the issuing admin so External-API data is attributed to them)
-  app.post('/api/settings/tokens', async (request) => {
-    const result = createPersonalToken(request.user!.id)
-
-    return {
-      id: result.id,
-      token: result.token, // Full token shown only on creation
-      user_id: result.user_id,
-      created_at: result.created_at,
     }
   })
 
@@ -45,7 +31,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const now = new Date().toISOString()
 
     const existing = db.select().from(schema.apiTokens).where(eq(schema.apiTokens.id, id)).get()
-    if (!existing || existing.kind === 'topic' || existing.kind === 'service') {
+    if (!existing || (existing.kind !== 'service' && existing.kind !== 'agent')) {
       reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Token not found' } })
       return
     }

@@ -89,9 +89,9 @@ PDF 按页工具依赖本机 Poppler（Ubuntu 的 `poppler-utils`），只在显
 
 ## 权限和计数
 
-所有者管理逐 Topic default_access（none=Private、viewer/editor=Public）及个人 viewer/editor grant；个人与默认按 none < viewer < editor 取高，移除 grant 回到默认，不能把某个用户降到默认以下。Public 只授予 active 登录用户，不对匿名开放，也不继承旧全局 Research 开关。Share 管权限，Connect 管个人凭证与连接。成员各自签发绑定自己与 Topic 的凭证，供 MCP/Git 使用。凭证轮换和撤销不重置调用次数。Topic 凭证只提供该专题和允许的共享论文工具权限，不提供所有者的私有标签、笔记或问答。
+所有者管理逐 Topic default_access（none=Private、viewer/editor=Public）及个人 viewer/editor grant；个人与默认按 none < viewer < editor 取高，移除 grant 回到默认，不能把某个用户降到默认以下。Public 只授予 active 登录用户，不对匿名开放，也不继承旧全局 Research 开关。Share 管权限；连接外部应用统一在 Plugins 页（Topic 页不再有 Connect）。每个成员用自己的 Plugins 服务密钥访问 MCP/Git，服务不限定 Topic，按属主在每个 Topic 的角色执行（只读服务不能推送）。凭证换新和撤销不重置调用次数。
 
-Topic token 不适用于普通 External API。即便知道数据库中的 token verifier，也不能把它作为认证凭证使用。全站管理员 token 列表/撤销端点只管理既有 personal/agent 类型；Topic 凭证通过成员自己的专题接口管理。
+Topic 专属凭证已取消：升级时仍有效的 Topic token 被转换为名为 "Topic token <id>" 的 Plugins 服务（原密钥继续可用于 MCP 与 Git，作用范围变为属主的整个账号）。数据库中的 verifier 不能作为凭证使用。管理员 Settings → All credentials 可查看与撤销服务（不显示密钥值）。
 
 每次已认证的已知 MCP 工具调用尝试计一次，包含失败；JSON-RPC batch 逐工具计数。初始化、列表、通知和认证失败不计为工具调用。用户总计覆盖 Q&A Codex、旧 Research、外部 agent 和 Topics；有 Topic 上下文时同时记对应用户/Topic 子计数，无记录为 0。不追补历史数据，不保存逐次请求/流量明细。
 
@@ -130,7 +130,7 @@ Topic API 响应使用 `Cache-Control: private, no-store`；MCP 响应也不允�
 
 ## Git 使用与恢复
 
-在详情页签发自己的 Topic token，然后 clone 详情给出的 URL（例如 `https://paperland.dev.mem.ac/topic-git/1.git`）。HTTPS 认证提示的密码填写该 Topic token；也可由自己的 credential helper 提供。URL 不包含凭证。服务接受 Basic 的密码 token 或 Bearer header；普通 personal/agent token 不用于 Git。
+在 Plugins 页为自己的 agent 创建服务（或复用已有服务），然后 clone `https://paperland.dev.mem.ac/topic-git/<id>.git`。HTTPS 认证提示的密码填写服务密钥（用户名任意）；也可由自己的 credential helper 提供。URL 不包含凭证。服务接受 Basic 的密码或 Bearer header；agent token 不用于 Git。push 需要该 Topic 的 editor 权限、服务的 write 权限且 Topic 未归档；推送记录所用服务，版本历史显示 "via <服务名>"。
 
 ```sh
 git clone https://paperland.dev.mem.ac/topic-git/1.git
@@ -145,6 +145,10 @@ git push origin main
 只接受 main 的 fast-forward 更新，不接受额外 refs、删除 main、force rewrite、非法文件或无效中间提交。多人冲突时先 fetch/pull 并处理合并，不能覆盖已提交内容。一次成功 push 就发布完整版本，无草稿/发布按钮。Git author/committer 是自行声明的信息，服务端另记认证用户、credential ID、服务器时间及 old/new commit。
 
 push 先进入临时 bare 仓库；所有新版本校验完成后，先写恢复日志，再推进正式 Git ref，最后在事务中发布快照/索引/审计。成功响应等待索引完成。若 Git 已推进但索引中断，网站仍展示上个完整快照，服务启动或下次 Git 访问会幂等恢复；恢复未完成时不会继续发布其他更新。不要手动删恢复日志或回退 main。
+
+## 归档
+
+owner 可归档 / 取消归档 Topic（网页 `PUT /api/topics/:id/archive {archived}`，MCP `set_topic_archived`，需有 write 的 Plugins 服务）。`topics.archived_at`（迁移 0050，可空）记录归档时间，列表与详情、`list_topics` / `get_topic` 均返回 `archived_at`。归档的 Topic 照常列出（API 顺序不变、不更新 `updated_at`；网页 Topics 列表把它们放在下方单独的折叠分区 "Archived (N)"，不与未归档的混排）并可阅读、查看历史、clone/pull、把引用论文导入自己的库；内容冻结：网页改名返回 403，Git `git-receive-pack`（advertisement 与 push）返回 403 和“已归档”提示，系统迁移脚本不受此限制。共享和成员仍可管理。
 
 ## 网页改名与旧结果迁移
 
@@ -167,11 +171,11 @@ bun run scripts/migrate-research-to-topics.ts --verify
 
 ## MCP 工具
 
-既有 personal/agent 行为保留。Topic token 对允许的论文/S2 阅读工具和自己 Topic 的读取生效，个人私有标签/Q&A 不因此暴露；普通论文 mutation 工具不接受 Topic token。原站内自动 agent 的 mutation allowlist 不扩大。
+MCP 只接受 Plugins 服务密钥（Bearer 或 `/mcp/s/<密钥>`）与站内 agent token。Topic 工具按调用者在该 Topic 的角色和服务权限执行；需要 Topic 的工具都必须传 `topic_id`。原站内自动 agent 的 mutation allowlist 不扩大。
 
-原站内 Q&A / 旧 Research 的工具 allowlist 保持原状；新增 Topic/PDF 工具供外部 MCP 客户端使用。Topic token 可用 `upload_image` 的 data/url 上传到既有图床；通过普通 External API 上传本机大文件仍需 personal token。
+原站内 Q&A / 旧 Research 的工具 allowlist 保持原状；新增 Topic/PDF 工具供外部 MCP 客户端使用。有 write 的服务可用 `upload_image` 的 data/url 上传到既有图床，也可用同一密钥通过 External API 上传本机大文件。
 
-新增 `list_topics`、`get_topic`、`get_topic_history`、`create_topic`、`get_topic_members`、`set_topic_member`、`set_topic_sharing`、`list_topic_tokens`、`create_topic_token`、`rotate_topic_token`、`revoke_topic_token`、`import_topic_paper`。管理/凭证操作需 personal token；Topic 凭证只读绑定专题并可显式导入该专题的已有条目。各工具的 JSON Schema 由 `tools/list` 给出。
+新增 `list_topics`、`get_topic`、`get_topic_history`、`create_topic`、`get_topic_members`、`set_topic_member`、`set_topic_sharing`、`set_topic_archived`、`import_topic_paper`。写入与管理操作需有 write 的 Plugins 服务；凭证管理不通过 MCP（原 `*_topic_token` 工具已移除），只在 Plugins 页进行。各工具的 JSON Schema 由 `tools/list` 给出。
 
 `read_pdf_page({paper_id,page,image?,region?,offset?,max_chars?})` 使用物理 PDF 页码，返回 `paper_id`、`page`、`page_count`、文本分段与完整 Markdown 定位引用；`image:true` 时另返回真正的 MCP PNG image block。`region` 是 `{x,y,width,height}` 归一化坐标，仅改变引用定位，截图仍是整页。默认不生成图片，不下载远程 PDF，不批量转换全文。
 

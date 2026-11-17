@@ -2,17 +2,21 @@
 
 ## Topics
 
-导航 `/research`（别名 `/topics`）为 Topics；`/topics/:id/:document_path(.*)*` 是一等文档详情。旧 `/research/history`、`/research/:id` 和 Original research 保留。默认文件是 pages/report.md，不是 README；页面顺序和分组来自 reports.yml，旧提交由 pages/ 文件夹回退生成，RQ 集中于 pages/research-questions/，原始全文可放 pages/background/。协议见 [topics.md](topics.md)。
+导航 `/topics` 为 Topics 列表（旧地址 `/research` 重定向到 `/topics` 并保留查询参数）；`/topics/:id/:document_path(.*)*` 是一等文档详情。旧 `/research/history`、`/research/:id` 和 Original research 保留。默认文件是 pages/report.md，不是 README；页面顺序和分组来自 reports.yml，旧提交由 pages/ 文件夹回退生成，RQ 集中于 pages/research-questions/，原始全文可放 pages/background/。协议见 [topics.md](topics.md)。
 
-桌面左侧 `TopicFileNav`/递归 `TopicFileBranch` 生成有序清单树（旧提交由真实目录回退），正文卡片最大约680px。当前页引用移到正文下方的 Collapsible，切换文档/版本/账号时默认收起，不再常驻右栏；手机仍用 Pages 抽屉。frontmatter title/fonticon 控制标题和 Lucide 图标（静态安全调色板，未知回退 FileText）；根 AGENTS.md 是独立 Agent guide。所有 UI 文案仍为英文，用户提供的标题/正文除外。
+代码结构：`views/TopicDetail.vue` 只做组装（约 130 行）；`composables/useTopicDetail.ts` 管路由派生的文档/版本、带用户/Topic 作用域守卫的加载、15 秒轮询、抽屉状态、归档与显式导入；`composables/useTopicReading.ts` 管阅读面基准与新增动画、引用 chip 装饰与定位、正文内链接路由。组件集中在 `components/topics/`：`TopicHeader`（面包屑、标题、History/Share 按钮、"More actions" 下拉菜单、单行元信息、归档/历史版本 Alert）、`TopicRenameDialog`、`TopicShareSheet`、`TopicHistorySheet`、`TopicReferencesSheet`、`TopicFileNav`/`TopicFileBranch`、`TopicReferenceList`、`TopicCitationCard`、`TopicAccessSelect`（shadcn Select）、`TopicCard`。界面只用 shadcn-vue 组件（Card/Tabs/DropdownMenu/Dialog/Sheet/Select/Alert/Separator/Skeleton/Breadcrumb），自定义样式仅剩引用 chip。
+
+详情页布局：头部与正文共用 `max-w-[1040px]` 容器，Separator 分隔；桌面左侧 `TopicFileNav`/递归 `TopicFileBranch` 生成有序清单树（无卡片、sticky，选中项 `bg-muted`；旧提交由真实目录回退），正文不再包卡片，最大约680px。当前页引用移到正文下方的 Collapsible，切换文档/版本/账号时默认收起，不再常驻右栏；手机在正文上方显示当前页名的整宽按钮，打开 Pages 抽屉。frontmatter title/fonticon 控制标题和 Lucide 图标（静态安全调色板，未知回退 FileText）；根 AGENTS.md 是独立 Agent guide。所有 UI 文案仍为英文，用户提供的标题/正文除外。
 
 All references 是单独入口，在右侧 Sheet 打开全局 references.json 的视图，不替换中央页面，也不进入文件树。数字 #ref 链接使用引用 chip，带完整标题，定位右栏/抽屉条目；普通链接、S2/本机 PDF 原生链接继续复用 MarkdownContent。全局编号按首次加入 Topic 排序，和发表年份无关；一项工作可用于多篇报告。S2 导入为显式按钮，工作区文件不展示/执行。
 
 干净 URL 去掉 pages/ 与 .md，目录 index.md 使用目录路径；默认报告用 /topics/:id。旧 file 查询和主页链接自动 canonicalize；目录移动仅在 basename 唯一时兼容，不猜测歧义。历史仍保留 version 查询并按对应提交解析文档。title/icon 由 frontmatter 决定，URL 由路径决定。
 
-`lib/topic-reading.ts` 以完整文档 Markdown block 和稳定条目 ID 计算纯新增，同帧开始 WA 动画并尊重 reduced motion。v2缓存按账号/Topic/文档/正文或引用面隔离；隐藏页面、未开抽屉、被阅读抽屉覆盖的正文以及历史不推进最新版基准。主页/明确的旧目录迁移可读取原缓存基准，避免把未看内容吞掉。全局资料抽屉有独立缓存。请求和渲染代次防止过期响应写错基准，存储故障降级。可见最新版每15秒刷新，名称编辑期间暂停。
+`lib/topic-reading.ts` 以完整文档 Markdown block 和稳定条目 ID 计算纯新增，同帧开始 WA 动画并尊重 reduced motion。v2缓存按账号/Topic/文档/正文或引用面隔离；隐藏页面、未开抽屉、被阅读抽屉覆盖的正文以及历史不推进最新版基准。主页/明确的旧目录迁移可读取原缓存基准，避免把未看内容吞掉。全局资料抽屉有独立缓存。请求和渲染代次防止过期响应写错基准，存储故障降级。可见最新版每15秒刷新，改名对话框打开期间暂停。
 
-Share/Connect 独立。创建与 owner Share 使用 TopicAccessSelect 选 Private/Public、默认 Viewer/Editor，实际权限为个人授权和默认的较高者；移除个人授权回到默认。Connect 只管理本人凭证、MCP/Git URL与调用次数。历史和权限由同一服务校验，旧全局 Research 开关不参与。owner/editor 改名经 stale-aware PATCH 只改 topic.json，保留所有页面及工作区 blob。
+Topic 页不再有 Connect 入口：外部应用（MCP 与 Git）统一在 Plugins 页管理。创建与 owner Share 使用 TopicAccessSelect（shadcn Select）选 Private/Public、默认 Viewer/Editor，实际权限为个人授权和默认的较高者；Share 抽屉的成员行用 Select 改权限，移除个人授权回到默认。History 抽屉为时间线，每条显示提交信息、推送人（有 `pushed_via` 时显示 "via <应用名>"）、相对时间、短 hash 与 Git 作者，点最新一条回到最新版。历史和权限由同一服务校验，旧全局 Research 开关不参与。owner/editor 在 "More actions" → Rename 对话框中改名，经 stale-aware PATCH 只改 topic.json，保留所有页面及工作区 blob。
+
+列表：`TopicsList` 顶部是 shadcn Tabs（"Active N" / "Archived N"，计数随搜索变化）加 Mine/All 与搜索（窄屏换行）；网格为 `TopicCard`（shadcn Card：标题、两行描述、owner · 相对更新时间，非 owner 时显示角色、归档时显示 "Archived"）。加载时显示 Skeleton 卡片，每个 Tab 有各自空状态。归档：`archived_at` 非空的 Topic 只出现在 Archived Tab。`TopicDetail` 的 "More actions" 对 owner 提供 Archive / Unarchive（均 `confirm`，调用 `topicsApi.archive`），归档时元信息行显示 Archived 徽标并显示 Alert，`canEdit`（非 viewer 且未归档）控制 Rename 菜单项和空报告里指向 Plugins 的提示。
 
 原共享列表类型在 lib/paper-ref-types.ts；论文默认仅显示可访问 Topic 根标签，和私有手工标签分开。legacy layout 1 历史目录保持兼容，schema v1 使用平面全局表。
 
@@ -72,7 +76,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 
 每个页面根据内容设置浏览器标签标题，统一格式 `{页面标题} · Paperland`，无标题时回退为 `Paperland`。`index.html` 的静态 `<title>Paperland</title>` 仅作首屏 / 兜底。
 
-- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Home `/`、Papers `/papers`、Research `/research`、Tags `/tags`、Q&A `/qa`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Research `/research/:id`，加载后改为会话标题）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
+- **静态标题**：在 `router/index.ts` 各路由的 `meta.title` 声明（与侧边栏语义一致）：Home `/`、Papers `/papers`、Topics `/topics`、Tags `/tags`、Q&A `/qa`、Services `/services`、Settings `/settings`；详情类路由先用占位标题（Paper Detail `/papers/:id`、Research `/research/:id`，加载后改为会话标题）。`router.afterEach` 守卫在每次导航时同步 `document.title = formatTitle(to.meta.title)`。
 - **动态标题**：内容驱动的页面在视图内用 `composables/usePageTitle.ts` 的 `usePageTitle(() => …)`（基于 `@vueuse/core` 的 `useTitle`）响应式覆盖占位——论文详情用论文标题（加载前显示「Paper Detail」）。守卫先于视图执行，故占位标题在数据就绪后被组件覆盖；离开页面时视图作用域销毁停止 watcher，由目标页守卫重置标题。
 - **格式来源**：`formatTitle(name?)` 是格式与 ` · Paperland` 后缀的唯一来源，守卫与各视图共用。新增路由只需补 `meta.title`（缺省则回退 `Paperland`）。
 
@@ -103,7 +107,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 - **前端轮询**：`composables/useCompletionNotifications.ts`，`App.vue` 在登录且非 embed 时 `start()`、登出时 `stop()`。
   - 只在标签页可见时轮询（每 5 秒）；隐藏时完全不发请求，切回时立即查一次。游标一直保留，所以后台期间完成的会在回来时补发提示。同一时间只有一个请求在途。
   - 走 `notificationsApi.completions`（静默 fetch，失败不弹错误 toast）。
-  - 每次最多 5 条提示，其余合并成一条「N more finished」（链到 `/qa` 或 `/research`）。
+  - 每次最多 5 条提示，其余合并成一条「N more finished」（链到 `/qa` 或 `/research/history`）。
 - **提示（`components/CompletionToast.vue`）**：`toast.custom`，位置 bottom-center（与「LaTeX copied」相同），10 秒后消失。整张卡片是一个链接，显示类别、完成/失败、标题，以及论文标题 · 模型。
   - 普通点击：应用内跳转并关闭提示。
   - Ctrl/⌘/Shift 点击或中键：`window.open(href, '_blank')` 新标签页打开，当前页不变。
@@ -136,7 +140,7 @@ Paperland 是一个论文管理网站。核心功能包括论文管理、数据�
 各路由归类：
 
 - **全宽（`full`）**：论文管理 `/papers`（表格需要整页宽）。
-- **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/research`、`/images`（图床画廊）、`/services`、`/settings`。
+- **收窄管理布局（`max-w-5xl`，即 1024px）**：`/tags`、`/qa`（`fill`）、`/notes`、`/topics`、`/images`（图床画廊）、`/services`、`/settings`。
 - **不使用 `AppPage`（保留自有全宽布局与 chrome）**：论文详情 `/papers/:id`、研究详情 `/research/:id`——顶部不显示管理标题栏；`PaperDetail` 的 embed / 窄屏宽度（见 embed-mode）保持不变。
 
 - **版本 footer**：`AppPage` 两种模式都以 `components/AppVersion.vue` 结尾（normal 模式在内容之后、内容不满一屏时贴底，`fill` 模式固定在底部一行），显示 `Paperland v<version> · <hash>`，hash 链接到 GitHub 对应 commit（`unknown` 时无链接）；移动端抽屉底部也显示。值来自 Vite `define` 注入的 `__APP_VERSION__` / `__GIT_HASH__`（见 tech-stack.md「版本号」）。论文详情不显示。
@@ -345,7 +349,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 
 - 详情页两处 header 在创建日期 badge 后显示 "Published <date>"（`metadata.published_at`）与 "Updated <date>"（`metadata.modified_at`，与发布日不同时才显示）；按日期字符串的年月日构造本地日期显示，不做时区换算（`2026-10-12` 不会显示成 11 日）。编辑表单有 "Published" / "Last updated" 两个文本框（`YYYY-MM-DD` 或完整 ISO 时间，空 = 清空，服务端校验 `INVALID_DATE`）。
 - `lib/markdown-renderer.ts` 覆写 markdown-it 的 image 规则：URL 路径以 `.mp4` / `.webm` 结尾（忽略 query / hash）时输出 `<video controls preload="metadata" playsinline aria-label data-alt>`，`html: false` 不变。`MarkdownContent` 的 `w=` 宽度指令同时作用于 `img` 与 `video[data-alt]`。
-- 图床页（`ImageHostPage.vue`）接受 MP4 / WebM，视频卡片用静音 `<video>` 预览（悬停播放）。
+- 图床页（`ImageHostPage.vue`）接受 MP4 / WebM。网格分页加载（`stores/images.ts` 每页 48 条，`imagesApi.page`；网格下方的 sentinel 进入视口前 600px 时由 `IntersectionObserver` 自动加载下一页，另有 "Load more" 按钮兜底，并显示 "Showing N of M"；上传的新图插到最前，`total` / `next_offset` 同步 +1）。卡片显示 `/image-thumb/<hash>.webp` 缩略图（`loading="lazy"`），不再加载原图；视频卡片先显示封面缩略图加播放图标，指针移入或点击后才换成静音自动播放的 `<video preload="none" controls>`。
 
 - 博客详情页：「Full text」（`PaperFullTextCopy`）对 article 显示 "Copy full text"（复制 `contents.user_input`），PDF 解析的两个按钮只在存在时出现；「Reference links」（`ReferenceLinksSection` 的 `source-link` prop）把原文链接作为第一条 "Original post" 固定显示（由 `papers.link` 派生、不入库、不可编辑删除，Mine / All 都显示）。
 
@@ -1013,9 +1017,9 @@ models:
 2. **Account 区**（`components/settings/AccountSettings.vue`，由原 `AccountDialog.vue` 迁移，挂载时加载数据）四张卡片：
    - **Account**：用户名 / 昵称 / 当前密码 / 新密码，`PATCH /api/auth/me`（`auth.updateAccount`）；保存成功后 toast，清空密码框并按新用户信息重填，停留在本页。
    - **Sharing**：五个共享开关（见 5.3）。
-   - **API Tokens**：MCP URL、personal token 列表 / 新建 / 撤销、Codex agent token 重置（见 5.4）。
+   - **Connections**：说明外部应用在 Plugins 页连接（链接到 `/plugins`），以及 Codex agent token 重置（见 5.4）。
    - **Browser Extension**：Site URL + quick-open token（复制 / 重新生成）。
-3. **Administration**（`v-if="auth.isAdmin"`，标题行带 ShieldCheck）：用户管理表（新增 / 审核 / 角色 / 昵称 / 重置密码）、**All API Tokens**（全站 token 列表，`/api/settings/tokens*`）与 **Recalculate costs**（`components/settings/UsageRecalculate.vue`：From / To 两个日期输入（UTC、含两端、留空为开区间）+ 按钮，`confirm` 后调 `usageApi.recalculate` → `POST /api/usage/recalculate`，按 config.yml 当前 pricing 从已存 token 重算估算费用，显示更新条数和因无 pricing 跳过的模型）。仅管理员挂载时才请求 `/api/users`、`/api/settings/tokens`，普通用户不会触发 403。
+3. **Administration**（`v-if="auth.isAdmin"`，标题行带 ShieldCheck）：用户管理表（新增 / 审核 / 角色 / 昵称 / 重置密码）、**All credentials**（全站 Plugins 服务与 agent token 列表：名称、属主、创建时间、状态，不显示值；可撤销服务，`/api/settings/tokens*`）与 **Recalculate costs**（`components/settings/UsageRecalculate.vue`：From / To 两个日期输入（UTC、含两端、留空为开区间）+ 按钮，`confirm` 后调 `usageApi.recalculate` → `POST /api/usage/recalculate`，按 config.yml 当前 pricing 从已存 token 重算估算费用，显示更新条数和因无 pricing 跳过的模型）。仅管理员挂载时才请求 `/api/users`、`/api/settings/tokens`，普通用户不会触发 403。
 
 模型用量（本人用量与排行榜）不在 Settings，见「首页（Home）」。
 
@@ -1097,13 +1101,13 @@ models:
 - **free Q&A**：默认只看自己的，登录用户可切换 all（按上述共享规则）；写操作仍 owner/admin。**QA 背景 preference 与两类阅读计数**始终只属于当前 viewer。模板问答（template）为公开共享（`user_id` 为空）。
 - **迁移**：升级时把库中已有的标签、free Q&A、高亮、API token 一次性归属到新建的 admin。
 
-### 5.4 External API Token
+### 5.4 外部应用凭证（Plugins）
 
-- 每个用户在 Settings 页（`components/settings/AccountSettings.vue` 的 **API Tokens** 卡片，`myTokensApi` → `/api/auth/me/tokens*`）管理自己的 personal token：列表掩码、「New token」后完整值只显示一次（黄色提示框 + 复制）、撤销前 `confirm`；同时显示 MCP URL（`<origin>/mcp`）。下方一行 **Codex agent token**：只显示创建 / 重置时间和「Reset」按钮（`confirm` 提示旧值立即失效、进行中回合后续工具调用会失败），不提供查看。
-- 管理员在 "Settings" 页面查看全站 Token、签发 / 撤销自己的 personal token；agent token 行显示 "Hidden" + `Codex agent` 标记，不提供撤销（只能由本人重置）。
-- 两种 token（`api_tokens.kind`）：personal 可用于 External API 与 `/mcp`，agent 只用于 `/mcp`（Deep Research 回合自动注入会话所有者的 agent token）。
-- 每个 Token 归属一个用户（`api_tokens.user_id`）；以该 Token 调用 External API 时按其归属用户操作，故 Zotero 等创建 / 同步的标签归该用户所有。已有 Token 迁移归属 admin。
-- Token 无细粒度权限，持有即可访问全部 External API 端点。
+- 外部应用（ChatGPT、Claude、Codex、Zotero 插件、脚本）只用 **Plugins 页**（`views/PluginsPage.vue`，`mcpServicesApi`）为每个应用创建的服务。创建或「New key」后，页面一次性显示四个可复制项：服务地址 `<origin>/mcp/s/<key>`、MCP endpoint `<origin>/mcp`、`Authorization: Bearer <key>` 与密钥本身（Topic Git 密码），并说明 `git clone <origin>/topic-git/<id>.git`。服务不限定 Topic；权限 Write（默认开）、Delete papers、Delete answers（默认关，打开前 `confirm`）。
+- Settings 页的 **Connections** 卡片（`AccountSettings.vue`，`myTokensApi.agent/resetAgent` → `/api/auth/me/agent-token*`）只说明去 Plugins 连接应用，并保留 **Codex agent token** 一行：只显示创建 / 重置时间和「Reset」按钮（`confirm`），不提供查看。
+- 管理员的 **All credentials** 表列出服务与 agent token（名称、属主、无值），可撤销服务（`confirm`），agent token 不可撤销（只能由本人重置）；不再提供签发。
+- 两种 `api_tokens.kind`：service（External API、`/mcp`、Topic Git）与 agent（只用于 `/mcp`，站内 Codex 回合自动注入）。旧 personal / Topic token 已转换为服务，原密钥继续可用。
+- 以服务密钥调用 External API 时按其属主操作，故 Zotero 等创建 / 同步的标签归该用户所有；只读服务（未开 Write）的非 GET 请求返回 403。
 
 ### 5.5 认证架构
 
@@ -1539,8 +1543,8 @@ paperland://paper/<id>?qa=<entryId>[&result=<resultId>] // 某条 QA（及其某
 
 ### 页面
 
-- **`/research/history`**（`views/ResearchList.vue`，`AppPage`）：旧会话卡片保留标题、topic 摘要、步骤/版本数、状态与更新时间；All 视图显示属主。右上是 ScopeToggle 和返回 Topics 的按钮，新专题从 `/research` 的 Topics 页创建。
-- **从 QA 回答起步**：`QAResultBody` 的 "Create a topic from this answer" 链接进入 `/research?new=1&seed_result=<resultId>`，Topics 页调用 `/api/topics/seed-preview`；创建时再次检查回答可见性，把问题/回答复制进初始 Git 报告，不运行模型。旧会话已有 seed 保持不变。
+- **`/research/history`**（`views/ResearchList.vue`，`AppPage`）：旧会话卡片保留标题、topic 摘要、步骤/版本数、状态与更新时间；All 视图显示属主。右上是 ScopeToggle 和返回 Topics 的按钮，新专题从 `/topics` 的 Topics 页创建。
+- **从 QA 回答起步**：`QAResultBody` 的 "Create a topic from this answer" 链接进入 `/topics?new=1&seed_result=<resultId>`（旧的 `/research?…` 链接会重定向过来），Topics 页调用 `/api/topics/seed-preview`；创建时再次检查回答可见性，把问题/回答复制进初始 Git 报告，不运行模型。旧会话已有 seed 保持不变。
 - **`/research/:id`**（`views/ResearchDetail.vue`，自管布局，标题经 `usePageTitle` 设为会话标题）：
   - 桌面（≥900px）两栏：左侧自上而下为下一轮输入框（owner 可见）和**步骤时间线（最新一轮在最上，越往下越旧；起步 QA 卡片在最底）**，每个结束的回合显示用时（`started_at` → `finished_at`，如 `3m 12s`）。输入框（`DefineComposer` 复用模板）：Textarea + Codex 模型下拉，默认沿用最近一轮的模型，⌘/Ctrl+Enter 发送；有进行中回合时仍可输入，按钮变成 **Queue**：消息进入服务端队列（`POST /api/research/:id/steps` 返回 202、`queued: true`），输入框上方列出排队中的消息（虚线框，可逐条 × 移除 → `DELETE /api/research/:id/queue/:messageId`），提示「当前回合结束后合并成一条一起发送」。回合结束后服务端立即派发队列，`stores/research.ts` 在终止事件后刷新会话，若仍有排队消息而新回合还没出现，会每 400ms 再刷新一次（最多 5 次）以接上新回合的流），右侧为**版本视图**。
   - 窄屏（< 900px）：mobile bottom bar 三个分区 **Instruct**（时间线从旧到新，owner 的输入框固定在屏幕底部、底部栏上方（`data-docked-composer`，排队列表最高 8rem 可滚动，"Add to queue" 只显示图标），切换分区时重置滚动：切到 Instruct 滚到底部（最新一轮；新回合出现或底部输入框高度变化后再次贴底），切到 Report / Papers 滚到顶部；回合进行中图标转圈、排队数显示为角标）/ **Report** / **Papers**（版本选择器在上，内部的 Report/Papers 标签隐藏、由底部栏驱动）。打开会话时有版本默认 Report，否则 Instruct。

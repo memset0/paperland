@@ -6,8 +6,9 @@ import { schema } from '../db/index'
 import { topicRoutes } from './topics'
 import { mcpRoutes } from './mcp'
 import { createTopic, getTopic, listTopics, setTopicImporterForTesting, topicHistory } from '../services/topics'
-import { issueTopicCredential, setTopicMember } from '../services/topic_access'
-import { createPersonalToken, ensureAgentToken } from '../services/api_tokens'
+import { setTopicMember } from '../services/topic_access'
+import { ensureAgentToken } from '../services/api_tokens'
+import { createMcpService } from '../services/mcp_services'
 import { commitTopicFiles, initializeTopicRepo } from '../services/topic_git'
 import { topicFiles } from '../services/topic_format'
 import { rebuildTopicIndex, topicTagsByPapers } from '../services/topic_index'
@@ -22,6 +23,8 @@ beforeEach(async () => {
   await app.register(topicRoutes); await app.register(mcpRoutes)
 })
 afterEach(async () => { setTopicImporterForTesting(); await app.close(); f.close() })
+/** A Plugins service key for the user (write on unless overridden). */
+const key = (userId: number, permissions?: Record<string, boolean>) => createMcpService(userId, { name: 'Test client', permissions }).secret
 const call = async (token: string, name: string, args: unknown = {}) => (await app.inject({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${token}` }, payload: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } })).json().result
 
 describe('Topic web and MCP operations (offline)', () => {
@@ -69,15 +72,15 @@ describe('Topic web and MCP operations (offline)', () => {
     expect((await app.inject({ url: `/api/topics/${topic.id}/history` })).statusCode).toBe(200)
     expect(topicTagsByPapers([10], 4).get(10)?.[0].topic_id).toBe(topic.id)
     expect((await app.inject({ method: 'PUT', url: `/api/topics/${topic.id}/sharing`, payload: { default_access: 'none' } })).statusCode).toBe(403)
-    const token = (await issueTopicCredential(topic.id, 4)).token
-    expect((await call(token, 'get_topic')).isError).toBe(false)
+    const token = key(4)
+    expect((await call(token, 'get_topic', { topic_id: topic.id })).isError).toBe(false)
     viewer = 1
     expect((await app.inject({ method: 'PUT', url: `/api/topics/${topic.id}/sharing`, payload: { default_access: 'none' } })).statusCode).toBe(200)
     viewer = 4
     expect(listTopics(4)).toEqual([])
     expect(topicTagsByPapers([10], 4).size).toBe(0)
     expect((await app.inject({ url: `/api/topics/${topic.id}` })).statusCode).toBe(404)
-    expect((await app.inject({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${token}` }, payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })).statusCode).toBe(401)
+    expect((await call(token, 'get_topic', { topic_id: topic.id })).isError).toBe(true)
     viewer = 0
     expect((await app.inject({ url: '/api/topics' })).statusCode).toBe(401)
   })
@@ -94,6 +97,31 @@ describe('Topic web and MCP operations (offline)', () => {
     viewer = 3
     expect((await app.inject({ method: 'PATCH', url: `/api/topics/${topic.id}`, payload: { title: 'Viewer rename', base_commit: renamed.json().data.commit } })).statusCode).toBe(403)
     expect(topicHistory(topic.id, 1).versions).toHaveLength(2)
+  })
+  test('owners archive and unarchive; archived Topics stay listed, refuse rename and keep sharing editable', async () => {
+    const topic = await createTopic(1, { title: 'Finished research' })
+    await setTopicMember(topic.id, 1, 'editor', 'editor')
+    viewer = 2
+    expect((await app.inject({ method: 'PUT', url: `/api/topics/${topic.id}/archive`, payload: { archived: true } })).statusCode).toBe(403)
+    viewer = 1
+    const archived = await app.inject({ method: 'PUT', url: `/api/topics/${topic.id}/archive`, payload: { archived: true } })
+    expect(archived.statusCode).toBe(200)
+    expect(archived.json().data.archived_at).toBeTruthy()
+    viewer = 2
+    const listed = (await app.inject({ url: '/api/topics' })).json().data.find((t: any) => t.id === topic.id)
+    expect(listed.archived_at).toBeTruthy()
+    expect((await app.inject({ url: `/api/topics/${topic.id}` })).json().data.archived_at).toBeTruthy()
+    const rename = await app.inject({ method: 'PATCH', url: `/api/topics/${topic.id}`, payload: { title: 'Changed', base_commit: topic.commit } })
+    expect(rename.statusCode).toBe(403)
+    expect(rename.json().error.message).toContain('archived')
+    viewer = 1
+    expect((await app.inject({ method: 'PUT', url: `/api/topics/${topic.id}/sharing`, payload: { default_access: 'viewer' } })).statusCode).toBe(200)
+    // MCP: a read-only service cannot change the state; the owner's writable service can.
+    expect((await call(key(1, { write: false }), 'set_topic_archived', { topic_id: topic.id, archived: false })).isError).toBe(true)
+    expect((await call(key(1), 'set_topic_archived', { topic_id: topic.id, archived: false })).isError).toBe(false)
+    expect(listTopics(1).find((t) => t.id === topic.id)!.archived_at).toBeNull()
+    viewer = 2
+    expect((await app.inject({ method: 'PATCH', url: `/api/topics/${topic.id}`, payload: { title: 'Changed', base_commit: topic.commit } })).statusCode).toBe(200)
   })
   test('creates an initialized Topic at the website and keeps other users and legacy records isolated', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/topics', payload: { title: 'My Topic' } })
@@ -120,45 +148,38 @@ describe('Topic web and MCP operations (offline)', () => {
     expect((await getTopic(topic.id, 1)).snapshot.report).toContain('Snapshot answer')
     await expect(createTopic(2, { title: 'Forbidden seed', seed_result_id: result.id })).rejects.toThrow('not found')
   })
-  test('Topic credentials are bound, count separately and cannot manage memberships or unrelated paper data', async () => {
+  test('service keys act as their owner across Topics, count Topic calls by topic_id and cannot exceed Topic permissions', async () => {
     const a = await createTopic(1, { title: 'A' }), b = await createTopic(1, { title: 'B' })
     await setTopicMember(a.id, 1, 'editor', 'editor')
-    const token = (await issueTopicCredential(a.id, 2)).token
+    const token = key(2)
     expect(JSON.parse((await call(token, 'list_topics')).content[0].text).topics.map((t: any) => t.id)).toEqual([a.id])
     expect((await call(token, 'get_topic', { topic_id: b.id })).isError).toBe(true)
     expect((await call(token, 'set_topic_member', { topic_id: a.id, username: 'outsider', role: 'editor' })).isError).toBe(true)
-    expect((await call(token, 'update_paper', { paper_id: 10, title: 'Forbidden' })).isError).toBe(true)
     const tag = f.db.insert(schema.tags).values({ user_id: 2, name: 'Private' }).returning().get()
     f.db.insert(schema.paperTags).values({ paper_id: 10, tag_id: tag.id }).run()
-    expect(JSON.parse((await call(token, 'get_paper', { paper_id: 10 })).content[0].text).my_tags).toEqual([])
-    const privateEntry = f.db.insert(schema.qaEntries).values({ paper_id: 10, type: 'free', user_id: 2, prompt: 'Private question', created_at: f.now }).returning().get()
-    f.db.insert(schema.userSharingSettings).values({ user_id: 2, data_type: 'qa', shared: 0, updated_at: f.now }).run()
-    f.db.insert(schema.qaResults).values({ qa_entry_id: privateEntry.id, prompt: 'Private question', answer: 'Private answer', model_name: 'fixture', completed_at: f.now }).run()
-    const scopedQA = await call(token, 'get_paper_qa', { paper_id: 10 })
-    expect(scopedQA.isError).toBe(false)
-    expect(scopedQA.content[0].text).not.toContain('Private answer')
+    expect(JSON.parse((await call(token, 'get_paper', { paper_id: 10 })).content[0].text).my_tags).toEqual(['Private'])
+    expect((await call(token, 'get_topic', { topic_id: a.id, metadata_only: true })).isError).toBe(false)
     const member = f.db.select().from(schema.topicMembers).all().find((m) => m.topic_id === a.id && m.user_id === 2)!
-    expect(parseCallCounts(member.mcp_call_counts).get_paper).toBe(1)
-    const personal = createPersonalToken(2).token
-    expect(JSON.parse((await call(personal, 'get_paper', { paper_id: 10 })).content[0].text).my_tags).toEqual(['Private'])
-    expect(listTopics(2)).toHaveLength(1)
+    expect(parseCallCounts(member.mcp_call_counts)).toMatchObject({ get_topic: 1 })
+    expect(parseCallCounts(member.mcp_call_counts).get_paper ?? 0).toBe(0)
     expect((await call(ensureAgentToken(2).token, 'create_topic', { title: 'No automatic Topic' })).isError).toBe(true)
+    for (const name of ['list_topic_tokens', 'create_topic_token']) expect((await call(token, name, { topic_id: a.id })).isError).toBe(true)
   })
   test('MCP reads a selected document or metadata without repeating every page body', async () => {
     const topic = await createTopic(1, { title: 'Pages' })
-    const token = (await issueTopicCredential(topic.id, 1)).token
-    const full = JSON.parse((await call(token, 'get_topic')).content[0].text)
+    const token = key(1), t = { topic_id: topic.id }
+    const full = JSON.parse((await call(token, 'get_topic', t)).content[0].text)
     expect(full.snapshot).toBeDefined()
-    const metadata = JSON.parse((await call(token, 'get_topic', { metadata_only: true })).content[0].text)
+    const metadata = JSON.parse((await call(token, 'get_topic', { ...t, metadata_only: true })).content[0].text)
     expect(metadata.snapshot).toBeUndefined()
     expect(metadata.documents.every((p: any) => p.body === undefined)).toBe(true)
     expect(metadata.next_reference_number).toBe(1)
-    const page = JSON.parse((await call(token, 'get_topic', { document: 'pages/questions.md' })).content[0].text)
+    const page = JSON.parse((await call(token, 'get_topic', { ...t, document: 'pages/questions.md' })).content[0].text)
     expect(page.document.body).toContain('# Research questions')
     expect(page.references).toEqual([])
     expect(page.snapshot).toBeUndefined()
-    expect((await call(token, 'get_topic', { document: '../config.yml' })).isError).toBe(true)
-    expect((await call(token, 'get_topic', { metadata_only: 'yes' })).isError).toBe(true)
+    expect((await call(token, 'get_topic', { ...t, document: '../config.yml' })).isError).toBe(true)
+    expect((await call(token, 'get_topic', { ...t, metadata_only: 'yes' })).isError).toBe(true)
   })
   test('external entries do not ingest on read; one click explicitly imports into the acting reader library', async () => {
     const snapshot = { topic: { format_version: 1 as const, title: 'External', description: '' }, report: '', list: { format_version: 1 as const, directories: [] as any[], papers: [] as any[] } }
@@ -190,19 +211,19 @@ describe('Topic web and MCP operations (offline)', () => {
   })
 })
 
-test('MCP teaches schema v1, detects old encodings, keeps Topic scope and counts schema calls', async () => {
+test('MCP teaches schema v1, detects old encodings and counts Topic calls', async () => {
   const topic = await createTopic(1, { title: 'Schema discovery' })
-  const other = await createTopic(1, { title: 'Other private Topic' })
-  const token = (await issueTopicCredential(topic.id, 1)).token
+  const other = await createTopic(2, { title: 'Other private Topic' })
+  const token = key(1)
   const contract = JSON.parse((await call(token, 'get_topic_schema')).content[0].text)
   expect(contract.schema_version).toBe(1)
   expect(contract.required_files).toContain('reports.yml')
   expect(contract.migrations.map((m: any) => m.from)).toEqual(['legacy_format_2', 'legacy_format_1'])
-  const detail = JSON.parse((await call(token, 'get_topic', { metadata_only: true })).content[0].text)
+  const detail = JSON.parse((await call(token, 'get_topic', { topic_id: topic.id, metadata_only: true })).content[0].text)
   expect(detail.repository_schema).toMatchObject({ encoding: 'schema_v1', schema_version: 1, migration_required: false })
   expect(detail.navigation.default_page).toBe('pages/report.md')
   expect((await call(token, 'get_topic', { topic_id: other.id })).isError).toBe(true)
   expect((await call(token, 'get_topic_schema', { schema_version: 2 })).isError).toBe(true)
   const after = await getTopic(topic.id, 1)
-  expect(after.my_mcp_call_counts.get_topic_schema).toBe(2)
+  expect(after.my_mcp_call_counts.get_topic).toBe(1)
 })

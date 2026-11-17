@@ -5,11 +5,10 @@ import { useAuthStore } from '@/stores/auth'
 import { usersApi } from '@/api/client'
 import type { User, UserRole } from '@paperland/shared'
 import { toast } from 'vue-sonner'
-import { Key, Plus, Trash2, Copy, Check, Users, ShieldCheck, Shield, KeyRound, Pencil, UserCheck, UserX } from '@lucide/vue'
+import { Key, Plus, Trash2, Users, ShieldCheck, Shield, KeyRound, Pencil, UserCheck, UserX } from '@lucide/vue'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -22,9 +21,6 @@ import { usePendingRegistrations } from '@/composables/usePendingRegistrations'
 
 const store = useSettingsStore()
 const auth = useAuthStore()
-const newToken = ref<string | null>(null)
-const issuing = ref(false)
-const copied = ref(false)
 
 // ── Users ──
 const users = ref<User[]>([])
@@ -112,21 +108,14 @@ async function saveNickname() {
 // Admin-only data: never request it for regular users (the endpoints would answer 403).
 onMounted(() => { if (auth.isAdmin) { store.fetchTokens(); fetchUsers() } })
 
-async function issueNew() {
-  issuing.value = true
-  try {
-    newToken.value = await store.issueToken()
-  } finally {
-    issuing.value = false
-  }
+function ownerName(userId: number | null) {
+  const user = users.value.find((u) => u.id === userId)
+  return user ? (user.nickname || user.username) : userId == null ? '—' : `User ${userId}`
 }
 
-function copyToken() {
-  if (newToken.value) {
-    navigator.clipboard.writeText(newToken.value)
-    copied.value = true
-    setTimeout(() => copied.value = false, 2000)
-  }
+async function revokeService(t: { id: number; name: string | null }) {
+  if (!confirm(`Revoke the Plugins service "${t.name ?? t.id}"? Apps using its key will lose access immediately.`)) return
+  await store.revokeToken(t.id)
 }
 </script>
 
@@ -199,36 +188,18 @@ function copyToken() {
       <div v-if="!users.length" class="text-center py-10 text-sm text-muted-foreground">No users</div>
     </Card>
 
-    <!-- ── API Token ── -->
+    <!-- ── Credentials (admin oversight; users manage their own on the Plugins page) ── -->
     <Card class="overflow-hidden gap-0 py-0">
-      <div class="flex items-center justify-between border-b px-5 py-3">
-        <div class="flex items-center gap-2">
-          <Key class="h-4 w-4 text-muted-foreground" />
-          <h3 class="text-sm font-semibold">All API Tokens</h3>
-        </div>
-        <Button size="sm" :disabled="issuing" @click="issueNew">
-          <Plus />Issue token
-        </Button>
+      <div class="flex items-center gap-2 border-b px-5 py-3">
+        <Key class="h-4 w-4 text-muted-foreground" />
+        <h3 class="text-sm font-semibold">All credentials</h3>
+        <span class="text-xs text-muted-foreground">Plugins services and Codex agent tokens. Values are never shown.</span>
       </div>
-
-      <Alert v-if="newToken" class="m-5">
-        <Check />
-        <AlertTitle>New token created (shown only once)</AlertTitle>
-        <AlertDescription>
-          <div class="flex items-center gap-2 w-full">
-            <code class="flex-1 rounded-md bg-muted px-3 py-1.5 text-xs font-mono break-all select-all">{{ newToken }}</code>
-            <Button variant="ghost" size="icon-sm" @click="copyToken">
-              <Check v-if="copied" class="text-emerald-500" />
-              <Copy v-else />
-            </Button>
-          </div>
-        </AlertDescription>
-      </Alert>
-
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Token</TableHead>
+            <TableHead>Name</TableHead>
+            <TableHead>Owner</TableHead>
             <TableHead class="w-40">Created</TableHead>
             <TableHead class="w-24">Status</TableHead>
             <TableHead class="w-20 text-right">Actions</TableHead>
@@ -237,10 +208,10 @@ function copyToken() {
         <TableBody>
           <TableRow v-for="t in store.tokens" :key="t.id">
             <TableCell>
-              <code v-if="t.token" class="text-xs font-mono bg-muted rounded px-1.5 py-0.5">{{ t.token }}</code>
-              <span v-else class="text-xs text-muted-foreground">Hidden</span>
-              <Badge v-if="t.kind === 'agent'" variant="outline" class="ml-2" title="One per user, used by Codex in Deep Research; only its owner can reset it">Codex agent</Badge>
+              <span v-if="t.kind === 'service'" class="text-sm">{{ t.name }}</span>
+              <Badge v-else variant="outline" title="One per user, used by Codex in Q&A; only its owner can reset it">Codex agent</Badge>
             </TableCell>
+            <TableCell class="text-xs text-muted-foreground">{{ ownerName(t.user_id) }}</TableCell>
             <TableCell class="text-xs text-muted-foreground">{{ new Date(t.created_at).toLocaleString() }}</TableCell>
             <TableCell>
               <Badge :variant="t.revoked_at ? 'destructive' : 'secondary'">
@@ -248,14 +219,14 @@ function copyToken() {
               </Badge>
             </TableCell>
             <TableCell class="text-right">
-              <Button v-if="!t.revoked_at && t.kind !== 'agent'" variant="ghost" size="xs" class="text-destructive" @click="store.revokeToken(t.id)">
+              <Button v-if="!t.revoked_at && t.kind === 'service'" variant="ghost" size="xs" class="text-destructive" @click="revokeService(t)">
                 <Trash2 />Revoke
               </Button>
             </TableCell>
           </TableRow>
         </TableBody>
       </Table>
-      <div v-if="!store.tokens.length" class="text-center py-10 text-sm text-muted-foreground">No tokens</div>
+      <div v-if="!store.tokens.length" class="text-center py-10 text-sm text-muted-foreground">No credentials</div>
     </Card>
 
     <UsageRecalculate />

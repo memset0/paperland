@@ -183,7 +183,7 @@ function timeAgo(iso: string): string {
       <Tooltip v-if="auth.isAuthenticated && result.status === 'done'">
         <TooltipTrigger as-child>
           <Button variant="ghost" size="icon-xs" as-child>
-            <RouterLink :to="{ path: '/research', query: { new: '1', seed_result: String(result.id) } }">
+            <RouterLink :to="{ path: '/topics', query: { new: '1', seed_result: String(result.id) } }">
               <Telescope />
             </RouterLink>
           </Button>

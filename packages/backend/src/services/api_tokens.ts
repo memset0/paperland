@@ -1,18 +1,17 @@
 import { randomBytes } from 'crypto'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { getDatabase, schema } from '../db/index.js'
-import { topicTokenVerifier, requireTopicAccess } from './topic_access.js'
+import { resolveServiceKey, type McpServicePermissions } from './mcp_services.js'
 
 /**
- * Bearer tokens (`api_tokens`). Two kinds share the table:
- * - `personal`: managed by the user (or an admin), usable for the External API and `/mcp`; the
- *   full value is returned once, at creation.
+ * Credentials (`api_tokens`). Two kinds remain:
+ * - `service`: Plugins services, one per external app (see mcp_services.ts).
  * - `agent`: exactly one per user (partial unique index), created automatically and injected into
  *   the Codex agents Paperland runs on the user's behalf. Only `/mcp` accepts it; no API ever
  *   returns its value, and it can only be reset in place (the old value stops working at once).
  */
 
-export type TokenKind = 'personal' | 'agent' | 'topic' | 'service'
+export type TokenKind = 'agent' | 'service'
 export type TokenRow = typeof schema.apiTokens.$inferSelect
 type UserRow = typeof schema.users.$inferSelect
 
@@ -47,55 +46,30 @@ export function resetAgentToken(userId: number): TokenRow {
     .get()!
 }
 
-export function createPersonalToken(userId: number): TokenRow {
-  return getDatabase().insert(schema.apiTokens)
-    .values({ token: newTokenValue(), user_id: userId, kind: 'personal', created_at: new Date().toISOString() })
-    .returning()
-    .get()
-}
-
-/** Revoke one of the user's own personal tokens. Returns false when it is not theirs / not personal. */
-export function revokeOwnPersonalToken(userId: number, tokenId: number): boolean {
-  const revoked = getDatabase().update(schema.apiTokens)
-    .set({ revoked_at: new Date().toISOString() })
-    .where(and(
-      eq(schema.apiTokens.id, tokenId),
-      eq(schema.apiTokens.user_id, userId),
-      eq(schema.apiTokens.kind, 'personal'),
-      isNull(schema.apiTokens.revoked_at),
-    ))
-    .returning()
-    .get()
-  return !!revoked
-}
-
 export type TokenCheck =
-  | { ok: true; token: TokenRow; user: UserRow }
+  | { ok: true; token: TokenRow; user: UserRow; permissions?: McpServicePermissions }
   | { ok: false; message: string }
 
 /**
- * Resolve a bearer token to its active owner. `kinds` lists the token kinds the caller accepts
- * (the External API takes only personal tokens; `/mcp` takes both).
+ * Resolve a bearer value to its active owner. `kinds` lists what the caller accepts: `service`
+ * (Plugins service keys — MCP, External API, Topic Git) and/or `agent` (Paperland's own Codex runs,
+ * `/mcp` only). Service results carry the service's permissions.
  */
 export function checkBearerToken(raw: string | null | undefined, kinds: TokenKind[]): TokenCheck {
   if (!raw) return { ok: false, message: 'Bearer token required' }
+  const service = resolveServiceKey(raw)
+  if (service) {
+    if (!kinds.includes('service')) return { ok: false, message: 'Token kind not accepted here' }
+    return { ok: true, token: service.token, user: service.user, permissions: service.permissions }
+  }
   const db = getDatabase()
-  const lookup = raw.startsWith('plt_') ? topicTokenVerifier(raw) : raw
-  const token = db.select().from(schema.apiTokens).where(eq(schema.apiTokens.token, lookup)).get()
+  const token = db.select().from(schema.apiTokens).where(and(eq(schema.apiTokens.token, raw), eq(schema.apiTokens.kind, 'agent'))).get()
   if (!token) return { ok: false, message: 'Invalid token' }
   if (token.revoked_at !== null) return { ok: false, message: 'Token has been revoked' }
-  if (token.kind === 'topic' && !raw.startsWith('plt_')) return { ok: false, message: 'Invalid token' }
-  if (!kinds.includes(token.kind as TokenKind)) {
-    return { ok: false, message: token.kind === 'agent' ? 'Agent tokens are only accepted by /mcp' : 'Token kind not accepted here' }
-  }
+  if (!kinds.includes('agent')) return { ok: false, message: 'Agent tokens are only accepted by /mcp' }
   const user = token.user_id != null ? db.select().from(schema.users).where(eq(schema.users.id, token.user_id)).get() : undefined
   if (!user) return { ok: false, message: 'Token has no owner' }
   if (user.status !== 'active') return { ok: false, message: 'Account is not active' }
-  if (token.kind === 'topic') {
-    if (token.topic_id == null) return { ok: false, message: 'Topic credential has no Topic' }
-    try { requireTopicAccess(token.topic_id, user.id) }
-    catch { return { ok: false, message: 'Topic access has been revoked' } }
-  }
   return { ok: true, token, user }
 }
 

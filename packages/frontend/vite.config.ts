@@ -82,6 +82,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
+      // Grid thumbnails (/image-thumb/{hash}.webp).
+      '/image-thumb/': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
     },
   },
 })

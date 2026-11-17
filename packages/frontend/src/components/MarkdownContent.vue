@@ -775,9 +775,9 @@ onBeforeUnmount(() => {
 }
 .markdown-content :deep(table) { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
 .markdown-content :deep(th), .markdown-content :deep(td) {
-  border: 1px solid #e5e7eb; padding: 0.4em 0.6em; text-align: left; font-size: 0.85em;
+  border: 1px solid var(--border); padding: 0.4em 0.6em; text-align: left; font-size: 0.85em;
 }
-.markdown-content :deep(th) { background: #f9fafb; font-weight: 600; }
+.markdown-content :deep(th) { background: var(--muted); font-weight: 600; }
 .markdown-content :deep(strong) { font-weight: 600; }
 .markdown-content :deep(a) { color: var(--primary); text-decoration: underline; word-break: break-all; }
 .markdown-content :deep(img) { max-width: 100%; height: auto; border-radius: 0.375rem; margin: 0.5em 0; }

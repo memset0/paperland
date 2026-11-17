@@ -4,6 +4,7 @@ import { requireTopicAccess } from '../services/topic_access.js'
 import { withTopicLock } from '../services/topic_lock.js'
 import { reconcileTopic, topicGitAdvertisement, topicGitRpc } from '../services/topic_git.js'
 import { TopicError } from '../services/topic_format.js'
+import { requireTopicWritable } from '../services/topics.js'
 import { getConfig } from '../config.js'
 
 function gitSecret(request: FastifyRequest): string | null {
@@ -16,10 +17,12 @@ function gitSecret(request: FastifyRequest): string | null {
   return colon >= 0 ? decoded.slice(colon + 1) : null
 }
 function authenticate(request: FastifyRequest, topicId: number, writing: boolean) {
-  const check = checkBearerToken(gitSecret(request), ['topic'])
+  // HTTPS password = a Plugins service key; acts as its owner in any Topic they can access.
+  const check = checkBearerToken(gitSecret(request), ['service'])
   if (!check.ok) throw new TopicError(401, check.message)
-  if (check.token.topic_id !== topicId) throw new TopicError(404, 'Topic not found')
-  requireTopicAccess(topicId, check.user.id, writing ? 'editor' : 'viewer')
+  const { topic } = requireTopicAccess(topicId, check.user.id, writing ? 'editor' : 'viewer')
+  if (writing && !check.permissions?.write) throw new TopicError(403, 'This Plugins service is read-only; enable write on the Plugins page to push')
+  if (writing) requireTopicWritable(topic)
   return check
 }
 

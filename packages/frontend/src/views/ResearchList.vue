@@ -22,7 +22,7 @@ function formatTime(iso: string): string { return new Date(iso).toLocaleString()
   <AppPage>
     <template #actions>
       <ScopeToggle v-model="store.scope" />
-      <Button variant="outline" @click="router.push('/research')"><ArrowLeft />Topics</Button>
+      <Button variant="outline" @click="router.push('/topics')"><ArrowLeft />Topics</Button>
     </template>
 
     <div v-if="store.listLoading && !store.sessions.length" class="flex items-center justify-center py-16">

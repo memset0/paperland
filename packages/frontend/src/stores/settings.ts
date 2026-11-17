@@ -13,16 +13,10 @@ export const useSettingsStore = defineStore('settings', () => {
     tokens.value = res.data
   }
 
-  async function issueToken() {
-    const res = await api.post<{ id: number; token: string; created_at: string }>('/api/settings/tokens')
-    await fetchTokens()
-    return res.token
-  }
-
   async function revokeToken(id: number) {
     await api.delete(`/api/settings/tokens/${id}`)
     await fetchTokens()
   }
 
-  return { tokens, fetchTokens, issueToken, revokeToken }
+  return { tokens, fetchTokens, revokeToken }
 })

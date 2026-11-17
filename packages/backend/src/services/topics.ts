@@ -24,11 +24,6 @@ export function topicId(value: unknown): number {
   if ((typeof value !== 'string' && typeof value !== 'number') || !/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw new TopicError(404, 'Topic not found')
   return Number(value)
 }
-export function scopedTopicId(value: unknown, credentialTopicId?: number): number {
-  const id = topicId(value ?? credentialTopicId)
-  if (credentialTopicId != null && id !== credentialTopicId) throw new TopicError(404, 'Topic not found')
-  return id
-}
 function activeUser(userId: number) {
   const user = getDatabase().select().from(schema.users).where(and(eq(schema.users.id, userId), eq(schema.users.status, 'active'))).get()
   if (!user) throw new TopicError(401, 'Active user required')
@@ -36,13 +31,13 @@ function activeUser(userId: number) {
 }
 function summary(topic: typeof schema.topics.$inferSelect, permission: string): TopicSummary {
   const owner = getDatabase().select({ username: schema.users.username, nickname: schema.users.nickname }).from(schema.users).where(eq(schema.users.id, topic.owner_id)).get()
-  return { id: topic.id, owner_id: topic.owner_id, owner_display_name: owner?.nickname || owner?.username || 'Former user', title: topic.title, description: topic.description, permission: permission as TopicRole, default_access: topic.default_access as TopicDefaultAccess, published_commit: topic.published_commit, created_at: topic.created_at, updated_at: topic.updated_at, legacy_research_session_id: topic.legacy_research_session_id }
+  return { id: topic.id, owner_id: topic.owner_id, owner_display_name: owner?.nickname || owner?.username || 'Former user', title: topic.title, description: topic.description, permission: permission as TopicRole, default_access: topic.default_access as TopicDefaultAccess, published_commit: topic.published_commit, created_at: topic.created_at, updated_at: topic.updated_at, legacy_research_session_id: topic.legacy_research_session_id, archived_at: topic.archived_at ?? null }
 }
 
-export function listTopics(userId: number, scope = 'all', credentialTopicId?: number): TopicSummary[] {
+export function listTopics(userId: number, scope = 'all'): TopicSummary[] {
   activeUser(userId)
   return getDatabase().select({ topic: schema.topics, role: topicAccessRole(userId) }).from(schema.topics)
-    .where(and(isNotNull(topicAccessRole(userId)), isNotNull(schema.topics.published_commit), sql`(${schema.topics.legacy_migration_state} is null or ${schema.topics.legacy_migration_state} = 'complete')`, scope === 'mine' ? eq(schema.topics.owner_id, userId) : undefined, credentialTopicId != null ? eq(schema.topics.id, credentialTopicId) : undefined))
+    .where(and(isNotNull(topicAccessRole(userId)), isNotNull(schema.topics.published_commit), sql`(${schema.topics.legacy_migration_state} is null or ${schema.topics.legacy_migration_state} = 'complete')`, scope === 'mine' ? eq(schema.topics.owner_id, userId) : undefined))
     .orderBy(desc(schema.topics.updated_at), desc(schema.topics.id)).all().map((r) => summary(r.topic, r.role!))
 }
 
@@ -107,12 +102,29 @@ export async function getTopic(id: number, userId: number, commit?: string, orig
   }
 }
 
+/** Content of an archived Topic is frozen until its owner unarchives it. */
+export function requireTopicWritable(topic: Pick<typeof schema.topics.$inferSelect, 'archived_at'>): void {
+  if (topic.archived_at) throw new TopicError(403, 'This Topic is archived; its owner must unarchive it before it can be changed')
+}
+
+/** Owner-only: archive (freeze content, keep listed and readable) or unarchive. Does not bump updated_at. */
+export async function setTopicArchived(id: number, userId: number, archived: boolean): Promise<TopicSummary> {
+  if (typeof archived !== 'boolean') throw new TopicError(422, 'archived must be a boolean')
+  return withTopicLock(id, async () => {
+    const { topic } = requireTopicAccess(id, userId, 'owner')
+    const archived_at = archived ? topic.archived_at ?? new Date().toISOString() : null
+    const updated = getDatabase().update(schema.topics).set({ archived_at }).where(eq(schema.topics.id, id)).returning().get()
+    return summary(updated, 'owner')
+  })
+}
+
 export async function renameTopic(id: number, userId: number, title: string, baseCommit: string): Promise<TopicDetail> {
-  requireTopicAccess(id, userId, 'editor')
+  requireTopicWritable(requireTopicAccess(id, userId, 'editor').topic)
   if (typeof title !== 'string' || !title.trim() || title.trim().length > 500) throw new TopicError(422, 'Topic name must contain 1 to 500 characters')
   await withTopicLock(id, async () => {
     await reconcileTopic(id)
     const { topic, user } = requireTopicAccess(id, userId, 'editor')
+    requireTopicWritable(topic)
     if (baseCommit !== topic.published_commit) throw new TopicError(409, 'This Topic changed while you were editing. Refresh before saving the name again.')
     if (topic.title === title.trim()) return
     const snapshot: TopicSnapshot = JSON.parse(topic.snapshot!)
@@ -126,10 +138,13 @@ export function topicHistory(id: number, userId: number, offset = 0, limit = 50)
   if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new TopicError(422, 'Invalid history pagination')
   const db = getDatabase()
   const total = db.select({ count: sql<number>`count(*)` }).from(schema.topicVersions).where(eq(schema.topicVersions.topic_id, id)).get()!.count
-  const rows = db.select({ version: schema.topicVersions, push: schema.topicPushes }).from(schema.topicVersions)
-    .innerJoin(schema.topicPushes, eq(schema.topicPushes.id, schema.topicVersions.push_id)).where(eq(schema.topicVersions.topic_id, id))
+  // pushed_via: the Plugins service the push authenticated with (its current name), if any.
+  const rows = db.select({ version: schema.topicVersions, push: schema.topicPushes, via: schema.apiTokens.name }).from(schema.topicVersions)
+    .innerJoin(schema.topicPushes, eq(schema.topicPushes.id, schema.topicVersions.push_id))
+    .leftJoin(schema.apiTokens, and(eq(schema.apiTokens.id, schema.topicPushes.token_id), eq(schema.apiTokens.kind, 'service')))
+    .where(eq(schema.topicVersions.topic_id, id))
     .orderBy(desc(schema.topicVersions.sequence)).limit(limit).offset(offset).all()
-  const versions: TopicVersion[] = rows.map(({ version: v, push: p }) => ({ commit: v.commit, parent_commit: v.parent_commit, message: v.message, author_name: v.author_name, author_email: v.author_email, committer_name: v.committer_name, committer_email: v.committer_email, committed_at: v.committed_at, pushed_at: p.pushed_at, pushed_by_user_id: p.uploader_user_id || p.user_id, pushed_by_display_name: p.uploader_name }))
+  const versions: TopicVersion[] = rows.map(({ version: v, push: p, via }) => ({ commit: v.commit, parent_commit: v.parent_commit, message: v.message, author_name: v.author_name, author_email: v.author_email, committer_name: v.committer_name, committer_email: v.committer_email, committed_at: v.committed_at, pushed_at: p.pushed_at, pushed_by_user_id: p.uploader_user_id || p.user_id, pushed_by_display_name: p.uploader_name, pushed_via: via ?? null }))
   return { versions, total, next_offset: offset + rows.length < total ? offset + rows.length : null }
 }
 

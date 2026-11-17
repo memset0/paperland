@@ -3,13 +3,13 @@ import { requireUser } from '../auth/guards.js'
 import { createMcpService, listMcpServices, McpServiceError, revokeMcpService, rotateMcpService, updateMcpService } from '../services/mcp_services.js'
 
 // The signed-in user's own MCP services (Plugins page). Every route acts on `request.user` only.
-// The secret URL path is returned only by create and rotate.
+// The key (and its service URL path) is returned only by create and rotate.
 
 function fail(reply: FastifyReply, error: unknown) {
   if (error instanceof McpServiceError) return reply.code(error.status).send({ error: { code: error.status === 404 ? 'NOT_FOUND' : 'VALIDATION_ERROR', message: error.message } })
   throw error
 }
-const withUrl = <T extends { secret: string }>({ secret, ...service }: T) => ({ ...service, url_path: `/mcp/s/${secret}` })
+const withUrl = <T extends { secret: string }>({ secret, ...service }: T) => ({ ...service, key: secret, url_path: `/mcp/s/${secret}` })
 const serviceId = (raw: string) => { const id = Number(raw); if (!Number.isInteger(id) || id < 1) throw new McpServiceError(404, 'Service not found'); return id }
 
 export async function mcpServiceRoutes(app: FastifyInstance): Promise<void> {

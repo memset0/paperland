@@ -184,3 +184,28 @@ describe('image list scope', () => {
     expect(forAdmin.find((i: any) => i.hash === a.hash).uploaded_by_name).toBe('alice')
   })
 })
+
+describe('image list pagination', () => {
+  it('pages newest first with total and next_offset, and keeps the full list without limit', async () => {
+    const alice = makeUser(db, 'alice')
+    currentUser = alice
+    const now = Date.now()
+    for (let i = 0; i < 5; i++) {
+      const hash = `aaaa0${i}`
+      db.insert(schema.images).values({ hash, ext: 'png', mime: 'image/png', size: 1, width: 1, height: 1, path: `2026/01/01/${hash}.png`, uploaded_by: alice.id, created_at: new Date(now + i * 1000).toISOString() }).run()
+    }
+    const first = (await app.inject({ method: 'GET', url: '/api/images?limit=2&offset=0' })).json()
+    expect(first.data.map((i: any) => i.hash)).toEqual(['aaaa04', 'aaaa03'])
+    expect(first.total).toBe(5)
+    expect(first.next_offset).toBe(2)
+    const last = (await app.inject({ method: 'GET', url: '/api/images?limit=2&offset=4' })).json()
+    expect(last.data.map((i: any) => i.hash)).toEqual(['aaaa00'])
+    expect(last.next_offset).toBeNull()
+    const all = (await app.inject({ method: 'GET', url: '/api/images' })).json()
+    expect(all.data.length).toBe(5)
+    expect(all.total).toBeUndefined()
+    expect((await app.inject({ method: 'GET', url: '/api/images?limit=0' })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'GET', url: '/api/images?limit=201' })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'GET', url: '/api/images?limit=2&offset=-1' })).statusCode).toBe(400)
+  })
+})

@@ -1,27 +1,50 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
-import { Upload, Copy, Link2 } from '@lucide/vue'
+import { Upload, Copy, Link2, Loader2, Play } from '@lucide/vue'
 import { useImagesStore } from '@/stores/images'
 import { useAuthStore } from '@/stores/auth'
 import { imageFromClipboard } from '@/utils/uploadImage'
 import AppPage from '@/components/AppPage.vue'
+import { Button } from '@/components/ui/button'
+import { imagesApi } from '@/api/client'
 import type { ImageWithUrl } from '@paperland/shared'
 
 const store = useImagesStore()
 const auth = useAuthStore()
-const { images, loading } = storeToRefs(store)
+const { images, loading, loadingMore, total, nextOffset } = storeToRefs(store)
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 
+// Infinite scroll: load the next page when the sentinel below the grid nears the viewport.
+const sentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+watch(sentinel, (el, old) => {
+  if (old) observer?.unobserve(old)
+  if (el) observer?.observe(el)
+})
+
+// Videos show their poster thumbnail and load only once the user hovers or clicks the card.
+const activeVideos = ref(new Set<string>())
+function activateVideo(hash: string) {
+  if (!activeVideos.value.has(hash)) activeVideos.value = new Set([...activeVideos.value, hash])
+}
+
 onMounted(() => {
   store.fetchImages()
   window.addEventListener('paste', onPaste)
+  if ('IntersectionObserver' in window) {
+    observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) store.fetchMore()
+    }, { rootMargin: '600px 0px' })
+    if (sentinel.value) observer.observe(sentinel.value)
+  }
 })
 onUnmounted(() => {
   window.removeEventListener('paste', onPaste)
+  observer?.disconnect()
 })
 
 /** Upload one or more files (from the picker, drop, or paste). */
@@ -123,11 +146,17 @@ function formatDate(iso: string): string {
     </div>
     <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
       <div v-for="img in images" :key="img.hash" class="bg-card border rounded-lg overflow-hidden flex flex-col">
-        <a :href="img.url" target="_blank" rel="noopener noreferrer" class="block aspect-square bg-muted/40">
-          <video v-if="img.mime.startsWith('video/')" :src="img.url" muted loop playsinline preload="metadata"
-            class="w-full h-full object-contain bg-black" @mouseenter="($event.target as HTMLVideoElement).play()"
-            @mouseleave="($event.target as HTMLVideoElement).pause()" />
-          <img v-else :src="img.url" :alt="img.original_name ?? img.hash" loading="lazy" class="w-full h-full object-contain" />
+        <div v-if="img.mime.startsWith('video/')" class="relative block aspect-square bg-black"
+          @pointerenter="activateVideo(img.hash)">
+          <video v-if="activeVideos.has(img.hash)" :src="img.url" :poster="imagesApi.thumbUrl(img.hash)" muted loop playsinline autoplay
+            preload="none" controls class="w-full h-full object-contain" />
+          <button v-else type="button" class="group block w-full h-full" :aria-label="`Play ${img.original_name ?? 'video'}`" @click="activateVideo(img.hash)">
+            <img :src="imagesApi.thumbUrl(img.hash)" :alt="img.original_name ?? img.hash" loading="lazy" decoding="async" class="w-full h-full object-contain" />
+            <span class="absolute inset-0 flex items-center justify-center"><Play class="size-10 rounded-full bg-black/50 p-2 text-white group-hover:bg-black/70" /></span>
+          </button>
+        </div>
+        <a v-else :href="img.url" target="_blank" rel="noopener noreferrer" class="block aspect-square bg-muted/40">
+          <img :src="imagesApi.thumbUrl(img.hash)" :alt="img.original_name ?? img.hash" loading="lazy" decoding="async" class="w-full h-full object-contain" />
         </a>
         <div class="p-3 flex flex-col gap-1 text-xs">
           <div class="font-medium truncate" :title="img.original_name ?? ''">
@@ -173,6 +202,12 @@ function formatDate(iso: string): string {
           </div>
         </div>
       </div>
+    </div>
+    <div v-if="!loading && images.length" ref="sentinel" class="flex flex-col items-center gap-2 py-8 text-xs text-muted-foreground">
+      <span>Showing {{ images.length }} of {{ total }}</span>
+      <Button v-if="nextOffset !== null" variant="outline" size="sm" :disabled="loadingMore" @click="store.fetchMore()">
+        <Loader2 v-if="loadingMore" class="animate-spin" />{{ loadingMore ? 'Loading…' : 'Load more' }}
+      </Button>
     </div>
   </AppPage>
 </template>

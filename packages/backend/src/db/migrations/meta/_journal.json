@@ -351,6 +351,13 @@
       "when": 1794861173909,
       "tag": "0049_odd_chamber",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1794861787546,
+      "tag": "0050_rainy_king_cobra",
+      "breakpoints": true
     }
   ]
 }

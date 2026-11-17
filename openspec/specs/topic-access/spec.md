@@ -39,27 +39,8 @@ Creation SHALL offer Private/Public and a default Viewer/Editor role for Public.
 - **THEN** that row SHALL follow current general access and not become an individual grant
 - **AND** removed grants SHALL preserve counts and fall back to general access
 
-### Requirement: User-bound Topic credentials
-Each member SHALL issue, list metadata for, rotate and revoke their own Topic credentials. Each credential SHALL bind one actual user and one Topic, work for both MCP and Git, and require a currently active user and valid membership on every request. The secret SHALL be shown only at issuance and SHALL NOT appear in logs or clone URLs.
-
-#### Scenario: Editor uses their own agent
-- **WHEN** an editor authenticates with their own Topic credential
-- **THEN** MCP and Git SHALL act as the editor within that Topic's permission scope
-- **AND** the owner's credentials SHALL NOT be required
-
-#### Scenario: Membership or credential revoked
-- **WHEN** a credential is revoked/rotated, its user becomes inactive, or effective Topic access is lost
-- **THEN** subsequent MCP/Git requests using the old authorization SHALL fail
-
-### Requirement: Topic scope does not expand personal access
-Topic credentials SHALL access only their bound Topic and allowed research tools over shared paper data. They SHALL NOT manage unrelated Topics, expose private owner/member tags, notes, Q&A or credentials, or invoke unrestricted paper mutation tools. Explicit entry import SHALL act on the credential user's own library, including recognized arXiv-paper URL entries without broadening generic link scraping.
-
-#### Scenario: Cross-Topic or private-data access
-- **WHEN** a Topic credential requests another Topic or unrelated private data
-- **THEN** the operation SHALL be refused without disclosing that data
-
 ### Requirement: Authenticated push audit
-Every published push SHALL persist the actual Paperland user, authentication credential identifier, server time, old commit and new commit. Git author/committer declarations SHALL remain separately viewable and SHALL NOT determine upload ownership. Recovering an interrupted publication SHALL preserve the original uploader identity and time.
+Every published push SHALL persist the actual Paperland user, authentication credential identifier, server time, old commit and new commit. Topic version history SHALL show the uploader and, when the credential is a Plugins service, the service name as the app the push came through. Git author/committer declarations SHALL remain separately viewable and SHALL NOT determine upload ownership. Recovering an interrupted publication SHALL preserve the original uploader identity and time.
 
 #### Scenario: Forged Git author
 - **WHEN** an editor pushes a commit naming someone else as Git author
@@ -69,8 +50,12 @@ Every published push SHALL persist the actual Paperland user, authentication cre
 - **WHEN** the uploader's account is deleted before publication recovery completes
 - **THEN** recovery SHALL preserve their immutable authenticated user ID and recorded name/time without requiring that account to be recreated
 
+#### Scenario: Pushed through an app
+- **WHEN** an editor pushes with the key of their service named "Codex"
+- **THEN** the history entry SHALL show the editor as the pusher and "Codex" as the app
+
 ### Requirement: Topic management through MCP
-Personal credentials SHALL support Topic listing/creation and permitted member/credential management. Topic credentials SHALL read their bound Topic, history, repository instructions and member-visible metadata, and support explicitly permitted Topic actions. MCP SHALL return usable repository and native application links without embedding secrets.
+Service keys and personal access through MCP SHALL support Topic listing/creation, reading, history, repository instructions, member management where permitted, and explicitly permitted Topic actions, all subject to the owner's permission in each Topic. MCP SHALL return usable repository and native application links without embedding secrets.
 
 #### Scenario: Agent discovers the repository contract
 - **WHEN** an authorized agent reads a Topic through MCP

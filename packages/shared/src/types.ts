@@ -302,13 +302,14 @@ export interface ServiceExecution {
 }
 
 // API Token
-/** `personal`: user-managed (External API + /mcp). `agent`: one per user, injected into Codex runs (/mcp only). */
-export type ApiTokenKind = 'personal' | 'agent' | 'topic'
+/** `service`: a Plugins service (one per external app). `agent`: one per user, injected into Codex runs (/mcp only). */
+export type ApiTokenKind = 'service' | 'agent'
 
-/** Admin list row. `token` is masked for personal tokens and null for agent tokens (never shown). */
+/** Admin list row. `token` is always null (values are never shown); `name` is the service name. */
 export interface ApiToken {
   id: number
   kind: ApiTokenKind
+  name: string | null
   token: string | null
   user_id: number | null
   created_at: string
@@ -316,13 +317,8 @@ export interface ApiToken {
   revoked_at: string | null
 }
 
-/** The signed-in user's tokens (`GET /api/auth/me/tokens`). */
-export interface MyApiTokens {
-  /** Personal tokens, newest first; `token` is masked. */
-  personal: Array<{ id: number; token: string; created_at: string; revoked_at: string | null }>
-  /** The Codex agent token: metadata only, its value is never returned. */
-  agent: { created_at: string; rotated_at: string | null }
-}
+/** The signed-in user's Codex agent token (`GET /api/auth/me/agent-token`): metadata only, never its value. */
+export interface AgentTokenInfo { created_at: string; rotated_at: string | null }
 
 /** Permissions of an MCP service (Plugins page). Reading is always allowed. */
 export interface McpServicePermissions { write: boolean; delete_papers: boolean; delete_answers: boolean }
@@ -337,8 +333,8 @@ export interface McpService {
   revoked_at: string | null
 }
 
-/** Returned once on create/rotate: the service plus its secret URL path (`/mcp/s/<secret>`). */
-export interface McpServiceWithUrl extends McpService { url_path: string }
+/** Returned once on create/rotate: the service plus its key and service URL path (`/mcp/s/<key>`). */
+export interface McpServiceWithUrl extends McpService { key: string; url_path: string }
 
 // User accounts (stored in the DB; not in config.yml)
 export type UserRole = 'admin' | 'user'

@@ -1,6 +1,7 @@
 // Offline inventory of the MCP tool surface for design reviews (`/mcp-review`).
-// Drives the real `/mcp` route on a throwaway in-memory database with seeded personal, agent and
-// Topic tokens, so the output is exactly what clients receive. Never opens data/paperland.db and
+// Drives the real `/mcp` route on a throwaway in-memory database with a seeded agent token and
+// Plugins services (default permissions, read-only, and every permission), so the output is exactly
+// what clients receive. Never opens data/paperland.db and
 // never contacts external services (only initialize and tools/list are sent).
 //
 //   bun run packages/backend/src/testing/mcp_inventory.ts          # markdown
@@ -13,8 +14,8 @@ import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { loadConfig } from '../config.js'
 import * as schema from '../db/schema.js'
 import { setDatabaseForTesting } from '../db/index.js'
-import { createPersonalToken, ensureAgentToken } from '../services/api_tokens.js'
-import { issueTopicCredential } from '../services/topic_access.js'
+import { ensureAgentToken } from '../services/api_tokens.js'
+import { createMcpService } from '../services/mcp_services.js'
 import { mcpRoutes } from '../api/mcp.js'
 
 const args = process.argv.slice(2)
@@ -31,9 +32,10 @@ db.insert(schema.users).values({ id: 1, username: 'inventory', password_hash: 'x
 db.insert(schema.topics).values({ id: 1, owner_id: 1, title: 'Inventory', created_at: now, updated_at: now }).run()
 db.insert(schema.topicMembers).values({ topic_id: 1, user_id: 1, role: 'owner' }).run()
 const tokens = {
-  personal: createPersonalToken(1).token,
+  service_default: createMcpService(1, { name: 'Default' }).secret,
+  service_read_only: createMcpService(1, { name: 'Read only', permissions: { write: false } }).secret,
+  service_all: createMcpService(1, { name: 'All', permissions: { delete_papers: true, delete_answers: true } }).secret,
   agent: ensureAgentToken(1).token,
-  topic: (await issueTopicCredential(1, 1)).token,
 }
 
 const app = Fastify({ logger: false })
@@ -55,7 +57,7 @@ for (const [kind, token] of Object.entries(tokens)) {
 }
 await app.close()
 
-const base = perKind.personal
+const base = perKind.service_all
 const sameForAll = Object.values(perKind).every((k) => JSON.stringify(k) === JSON.stringify(base))
 const tools = base.tools.map((t) => {
   const props = Object.keys(t.inputSchema?.properties ?? {})

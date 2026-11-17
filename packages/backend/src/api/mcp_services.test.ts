@@ -55,8 +55,10 @@ describe('/api/auth/me/mcp-services', () => {
     const ping = (path: string) => app.inject({ method: 'POST', url: path, payload: { jsonrpc: '2.0', id: 1, method: 'ping' } }).then((r) => r.statusCode)
     expect(await ping(svc.url_path)).toBe(404)
     expect(await ping(rotated.url_path)).toBe(200)
-    // Hidden from the admin token table (managed on the Plugins page).
-    expect((await app.inject({ method: 'GET', url: '/api/settings/tokens', headers: as(3) })).json().data).toEqual([])
+    // Admins see the service (name, owner) but never a key value.
+    const adminList = await app.inject({ method: 'GET', url: '/api/settings/tokens', headers: as(3) })
+    expect(adminList.json().data).toEqual([expect.objectContaining({ id: svc.id, kind: 'service', name: 'Claude', token: null, user_id: 1 })])
+    expect(adminList.body).not.toContain(rotated.url_path.split('/').pop()!)
     expect((await app.inject({ method: 'DELETE', url: `/api/auth/me/mcp-services/${svc.id}`, headers: as(2) })).statusCode).toBe(404)
     expect((await app.inject({ method: 'DELETE', url: `/api/auth/me/mcp-services/${svc.id}`, headers: as(1) })).statusCode).toBe(200)
     expect(await ping(rotated.url_path)).toBe(404)

@@ -97,6 +97,8 @@ export interface TopicSummary {
   created_at: string
   updated_at: string
   legacy_research_session_id?: number | null
+  /** When the owner archived the Topic (content frozen); null when active. */
+  archived_at: string | null
 }
 export interface TopicVersion {
   commit: string
@@ -110,6 +112,8 @@ export interface TopicVersion {
   pushed_at: string
   pushed_by_user_id: number | null
   pushed_by_display_name: string
+  /** Name of the Plugins service the push came through (null for web/legacy pushes). */
+  pushed_via?: string | null
 }
 export interface TopicDetail extends TopicSummary {
   repository_schema: TopicSchemaStatus
@@ -134,12 +138,6 @@ export interface TopicMember {
   role: TopicRole
   effective_role: TopicRole
   active: boolean
-}
-export interface TopicCredential {
-  id: number
-  created_at: string
-  rotated_at: string | null
-  revoked_at: string | null
 }
 export interface TopicsConfig {
   repos_dir: string

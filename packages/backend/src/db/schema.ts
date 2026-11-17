@@ -414,6 +414,8 @@ export const topics = sqliteTable('topics', {
   snapshot: text('snapshot'),
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
+  // Set while the owner has archived the Topic: listed and readable, but its content is frozen.
+  archived_at: text('archived_at'),
 }, (t) => [uniqueIndex('topics_legacy_session_unq').on(t.legacy_research_session_id)])
 
 export const topicMembers = sqliteTable('topic_members', {

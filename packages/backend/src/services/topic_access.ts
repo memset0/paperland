@@ -1,6 +1,6 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { and, desc, eq, ne, sql } from 'drizzle-orm'
-import type { TopicCredential, TopicDefaultAccess, TopicMember, TopicRole } from '@paperland/shared'
+import type { TopicDefaultAccess, TopicMember, TopicRole } from '@paperland/shared'
 import { getDatabase, schema } from '../db/index.js'
 import { TopicError } from './topic_format.js'
 import { withTopicLock } from './topic_lock.js'
@@ -73,41 +73,4 @@ export async function setTopicMember(topicId: number, ownerId: number, username:
   })
 }
 
-function credentialInfo(row: typeof schema.apiTokens.$inferSelect): TopicCredential {
-  return { id: row.id, created_at: row.created_at, rotated_at: row.rotated_at, revoked_at: row.revoked_at }
-}
 
-export function listTopicCredentials(topicId: number, userId: number): TopicCredential[] {
-  requireTopicAccess(topicId, userId)
-  return getDatabase().select().from(schema.apiTokens)
-    .where(and(eq(schema.apiTokens.topic_id, topicId), eq(schema.apiTokens.user_id, userId), eq(schema.apiTokens.kind, 'topic')))
-    .orderBy(desc(schema.apiTokens.id)).all().map(credentialInfo)
-}
-
-export async function issueTopicCredential(topicId: number, userId: number, rotateId?: number) {
-  return withTopicLock(topicId, () => {
-    requireTopicAccess(topicId, userId)
-    const db = getDatabase()
-    const secret = `plt_${randomBytes(32).toString('hex')}`
-    const now = new Date().toISOString()
-    let row: typeof schema.apiTokens.$inferSelect | undefined
-    if (rotateId !== undefined) {
-      row = db.update(schema.apiTokens).set({ token: topicTokenVerifier(secret), rotated_at: now, revoked_at: null })
-        .where(and(eq(schema.apiTokens.id, rotateId), eq(schema.apiTokens.topic_id, topicId), eq(schema.apiTokens.user_id, userId), eq(schema.apiTokens.kind, 'topic'))).returning().get()
-      if (!row) throw new TopicError(404, 'Topic credential not found')
-    } else {
-      row = db.insert(schema.apiTokens).values({ token: topicTokenVerifier(secret), kind: 'topic', topic_id: topicId, user_id: userId, created_at: now }).returning().get()
-    }
-    return { ...credentialInfo(row), token: secret }
-  })
-}
-
-export async function revokeTopicCredential(topicId: number, userId: number, tokenId: number) {
-  return withTopicLock(topicId, () => {
-    requireTopicAccess(topicId, userId)
-    const row = getDatabase().update(schema.apiTokens).set({ revoked_at: new Date().toISOString() })
-      .where(and(eq(schema.apiTokens.id, tokenId), eq(schema.apiTokens.topic_id, topicId), eq(schema.apiTokens.user_id, userId), eq(schema.apiTokens.kind, 'topic'))).returning().get()
-    if (!row) throw new TopicError(404, 'Topic credential not found')
-    return credentialInfo(row)
-  })
-}

@@ -5,8 +5,8 @@ import { ref, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { myTokensApi, quickOpenApi, sharingApi } from '@/api/client'
-import type { MyApiTokens, SharingDataType, SharingPreferences } from '@paperland/shared'
-import { Copy, Plus, RefreshCw, Trash2, UserRound, Share2, KeyRound, Puzzle } from '@lucide/vue'
+import type { AgentTokenInfo, SharingDataType, SharingPreferences } from '@paperland/shared'
+import { Copy, RefreshCw, UserRound, Share2, KeyRound, Puzzle } from '@lucide/vue'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -66,39 +66,20 @@ async function toggleSharing(key: SharingDataType, value: boolean) {
   }
 }
 
-// API tokens: personal tokens for the External API / MCP in other tools (full value shown once),
-// plus the Codex agent token Paperland injects into Deep Research runs (never shown; reset only).
-const mcpUrl = `${siteUrl}/mcp`
-const tokens = ref<MyApiTokens | null>(null)
-const createdToken = ref('')
+// The Codex agent token Paperland injects into its own Q&A runs (never shown; reset only).
+// External apps connect through Plugins services instead (Plugins page).
+const agent = ref<AgentTokenInfo | null>(null)
 const tokenBusy = ref(false)
 
 async function loadTokens() {
-  try { tokens.value = (await myTokensApi.list()).data } catch { tokens.value = null }
-}
-
-async function createToken() {
-  tokenBusy.value = true
-  try {
-    createdToken.value = (await myTokensApi.create()).data.token
-    await loadTokens()
-  } finally {
-    tokenBusy.value = false
-  }
-}
-
-async function revokeToken(id: number) {
-  if (!confirm('Revoke this token? Services using it will lose access immediately.')) return
-  await myTokensApi.revoke(id)
-  await loadTokens()
+  try { agent.value = (await myTokensApi.agent()).data } catch { agent.value = null }
 }
 
 async function resetAgentToken() {
   if (!confirm('Reset the Codex agent token? The old value stops working immediately; tool calls in running Q&A and legacy research runs will fail.')) return
   tokenBusy.value = true
   try {
-    const agent = (await myTokensApi.resetAgent()).data
-    if (tokens.value) tokens.value = { ...tokens.value, agent }
+    agent.value = (await myTokensApi.resetAgent()).data
     toast.success('Codex agent token reset')
   } finally {
     tokenBusy.value = false
@@ -214,42 +195,14 @@ async function submit() {
   <Card class="overflow-hidden gap-0 py-0">
     <div class="flex items-center gap-2 border-b px-5 py-3">
       <KeyRound class="h-4 w-4 text-muted-foreground" />
-      <h3 class="text-sm font-semibold">API Tokens</h3>
+      <h3 class="text-sm font-semibold">Connections</h3>
     </div>
     <div class="space-y-3 px-5 py-4">
-      <p class="text-xs text-muted-foreground">Use these to access Paperland from other tools: the External API (e.g. the Zotero plugin) and the MCP server. Send as <code>Authorization: Bearer &lt;token&gt;</code>.</p>
-      <div class="space-y-2">
-        <Label for="acct-mcp-url">MCP URL</Label>
-        <div class="flex gap-2">
-          <Input id="acct-mcp-url" :model-value="mcpUrl" readonly class="font-mono text-xs" />
-          <Button type="button" variant="outline" size="icon" title="Copy" @click="copy(mcpUrl)"><Copy class="size-4" /></Button>
-        </div>
-      </div>
-      <div v-if="createdToken" class="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
-        <p class="text-xs font-medium">New token — shown only once, copy it now</p>
-        <div class="flex gap-2">
-          <Input :model-value="createdToken" readonly class="font-mono text-xs" />
-          <Button type="button" variant="outline" size="icon" title="Copy" @click="copy(createdToken)"><Copy class="size-4" /></Button>
-        </div>
-      </div>
-      <div class="space-y-1.5">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium">Personal tokens</span>
-          <Button type="button" variant="outline" size="sm" :disabled="tokenBusy" @click="createToken"><Plus />New token</Button>
-        </div>
-        <div v-if="tokens?.personal.length" class="divide-y rounded-md border">
-          <div v-for="t in tokens.personal" :key="t.id" class="flex items-center gap-2 px-2 py-1.5 text-xs">
-            <code class="font-mono" :class="{ 'line-through text-muted-foreground': t.revoked_at }">{{ t.token }}</code>
-            <span class="min-w-0 flex-1 truncate text-muted-foreground">{{ t.revoked_at ? 'Revoked' : formatTime(t.created_at) }}</span>
-            <Button v-if="!t.revoked_at" type="button" variant="ghost" size="icon-sm" class="text-destructive" title="Revoke" @click="revokeToken(t.id)"><Trash2 class="size-3.5" /></Button>
-          </div>
-        </div>
-        <p v-else class="text-xs text-muted-foreground">No personal tokens yet.</p>
-      </div>
-      <div v-if="tokens" class="flex items-center gap-2 rounded-md border px-2 py-1.5">
+      <p class="text-xs text-muted-foreground">To connect ChatGPT, Claude, Codex, the Zotero plugin or your own scripts, create a key for each app on the <RouterLink to="/plugins" class="font-medium text-foreground underline underline-offset-2">Plugins</RouterLink> page. One key works for MCP, the External API and Topic Git.</p>
+      <div v-if="agent" class="flex items-center gap-2 rounded-md border px-2 py-1.5">
         <div class="min-w-0 flex-1">
           <p class="text-xs font-medium">Codex agent token</p>
-          <p class="text-xs text-muted-foreground">Used automatically by Q&A and legacy research; cannot be viewed. {{ tokens.agent.rotated_at ? `Reset ${formatTime(tokens.agent.rotated_at)}` : `Created ${formatTime(tokens.agent.created_at)}` }}</p>
+          <p class="text-xs text-muted-foreground">Used automatically by Q&A and legacy research; cannot be viewed. {{ agent.rotated_at ? `Reset ${formatTime(agent.rotated_at)}` : `Created ${formatTime(agent.created_at)}` }}</p>
         </div>
         <Button type="button" variant="outline" size="sm" :disabled="tokenBusy" @click="resetAgentToken"><RefreshCw />Reset</Button>
       </div>

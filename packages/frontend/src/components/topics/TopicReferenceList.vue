@@ -16,7 +16,7 @@ const externalUrl = (id: string) => s2Url(normalizeCiteId(id) ?? id)
 
 <template>
   <div class="space-y-3">
-    <article v-for="entry in entries" :key="entry.id" :data-topic-entry="entry.id" :data-reference-number="detail.reference_numbers[entry.id]" tabindex="-1" class="min-w-0 rounded-lg border bg-card p-3.5 focus:outline-none focus:ring-2 focus:ring-primary/30">
+    <article v-for="entry in entries" :key="entry.id" :data-topic-entry="entry.id" :data-reference-number="detail.reference_numbers[entry.id]" tabindex="-1" class="min-w-0 rounded-lg bg-card p-3.5 ring-1 ring-foreground/10 focus:outline-none focus:ring-2 focus:ring-primary/30">
       <div class="flex items-start gap-2.5">
         <span class="mt-0.5 shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-primary">[{{ detail.reference_numbers[entry.id] }}]</span>
         <div class="min-w-0 flex-1 break-words">

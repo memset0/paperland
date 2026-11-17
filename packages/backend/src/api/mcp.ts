@@ -1,28 +1,29 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getConfig } from '../config.js'
-import { bearerFromHeader, checkBearerToken, type TokenKind } from '../services/api_tokens.js'
+import { bearerFromHeader, checkBearerToken } from '../services/api_tokens.js'
 import { AGENT_TOOLS, callAgentTool, toolAllowed, type AgentToolContext } from '../services/agent_tools.js'
 import { checkServiceSecret } from '../services/mcp_services.js'
 
 // MCP server for agents (Streamable HTTP, stateless): every POST carries one JSON-RPC message or a
 // batch and is answered with application/json — no SSE stream, no session id. Lives outside /api so
-// the cookie login wall does not apply; every request needs `Authorization: Bearer <api token>`
-// (a user's personal token, or the agent token Paperland injects into its own Codex runs), and the
-// tools run with that user's visibility (`upload_image` by path additionally needs an agent token;
-// the paper write tools need a personal token). Reachable from anywhere, like the External API.
+// the cookie login wall does not apply. Two credentials exist: a Plugins service key (external apps;
+// `Authorization: Bearer <key>` on /mcp or the key in the path /mcp/s/<key>, limited by the service's
+// permissions) and the agent token Paperland injects into its own Codex runs (Bearer on /mcp; also
+// needed for `upload_image` by path; refused by the paper write tools). Tools run with the owner's
+// visibility. Reachable from anywhere, like the External API.
 
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const SERVER_INFO = { name: 'paperland', version: '1.0.0' }
 const INSTRUCTIONS = 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
-  'Maintain Topics with list_topics / get_topic. Before editing read get_topic_schema for schema v1, reports.yml, reference rules and legacy migration; inspect get_topic.repository_schema for required upgrades. Topic tokens identify you and one Topic. ' +
+  'Maintain Topics with list_topics / get_topic; an archived Topic (archived_at set) is read-only. Before editing read get_topic_schema for schema v1, reports.yml, reference rules and legacy migration; inspect get_topic.repository_schema for required upgrades. ' +
   'Use read_pdf_page for a physical PDF page and its native Markdown citation; request image=true only when a page image is needed. ' +
   'Use s2_match / s2_search to get S2 paperIds instead of guessing them. To read a paper, use read_paper (Paperland\'s parsed full text) instead of fetching arXiv HTML or the PDF yourself; go to arXiv (or read_pdf_page with image=true) only for tables, figures or layout the text does not capture. ' +
   'Save answers the user wants kept with add_paper_qa (give your model name). ' +
-  'With a personal token, add_paper / update_paper / upload_paper_pdf / refresh_paper add and maintain papers ' +
+  'add_paper / update_paper / upload_paper_pdf / refresh_paper add and maintain papers ' +
   '(including work that is not on arXiv: a project page with a PDF, or a blog post). ' +
   'Before importing a blog post or other web article, read the guide with get_skill("blog-import"). ' +
-  'upload_image also takes a "url" (images and videos). Topic tokens can use upload_image with data or url; ' +
-  'native local-file uploads through POST /external-api/v1/images require a personal token.'
+  'upload_image also takes a "url" (images and videos); ' +
+  'native local-file uploads go through POST /external-api/v1/images with the same key.'
 
 interface RpcMessage {
   jsonrpc?: string
@@ -102,20 +103,19 @@ export async function mcpRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/mcp', { bodyLimit }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
-    const check = checkBearerToken(bearerFromHeader(request.headers.authorization), ['personal', 'agent', 'topic'])
+    // Plugins service key (same service as its /mcp/s/<key> URL) or the owner's internal agent token.
+    const check = checkBearerToken(bearerFromHeader(request.headers.authorization), ['service', 'agent'])
     if (!check.ok) {
       return reply.code(401).header('www-authenticate', 'Bearer').send(rpcError(null, -32001, check.message))
     }
-    const ctx: AgentToolContext = {
-      viewer: { id: check.user.id, role: check.user.role }, token_kind: check.token.kind as TokenKind,
-      ...(check.token.kind === 'topic' ? { topic_id: check.token.topic_id! } : {}),
-      site_origin: origin(request),
-    }
+    const ctx: AgentToolContext = check.token.kind === 'service'
+      ? { viewer: { id: check.user.id, role: check.user.role }, token_kind: 'service', service_permissions: check.permissions, service_name: check.token.name ?? undefined, site_origin: origin(request) }
+      : { viewer: { id: check.user.id, role: check.user.role }, token_kind: 'agent', site_origin: origin(request) }
     return serve(request, reply, ctx)
   })
 
-  // Per-application service URL (e.g. ChatGPT custom MCP with no authentication): the secret in the
-  // path authenticates; 404 (not 401) so clients do not start an OAuth discovery.
+  // Service URL (e.g. ChatGPT custom MCP with no authentication): the key in the path authenticates;
+  // 404 (not 401) so clients do not start an OAuth discovery.
   app.post<{ Params: { secret: string } }>('/mcp/s/:secret', { bodyLimit }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
     const service = checkServiceSecret(request.params.secret)

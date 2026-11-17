@@ -10,6 +10,7 @@ import * as schema from '../db/schema.js'
 import { setDatabaseForTesting } from '../db/index.js'
 import { tokenAuth } from '../auth/token_auth.js'
 import { ensureAgentToken, resetAgentToken } from '../services/api_tokens.js'
+import { createMcpService } from '../services/mcp_services.js'
 import { tokenRoutes } from './tokens.js'
 import { settingsRoutes } from './settings.js'
 import { userRoutes } from './users.js'
@@ -74,61 +75,42 @@ describe('agent token', () => {
     expect(agentRows(alice.id)).toHaveLength(1)
   })
 
-  it('is rejected by the External API, while personal tokens work there', async () => {
+  it('is rejected by the External API, while Plugins service keys work there', async () => {
     const agent = ensureAgentToken(alice.id).token
     const rejected = await app.inject({ url: '/external-api/v1/ping', headers: { authorization: `Bearer ${agent}` } })
     expect(rejected.statusCode).toBe(401)
-    const created = (await app.inject({ method: 'POST', url: '/api/auth/me/tokens', headers: as(alice) })).json().data
-    const ok = await app.inject({ url: '/external-api/v1/ping', headers: { authorization: `Bearer ${created.token}` } })
+    const key = createMcpService(alice.id, { name: 'Zotero' }).secret
+    const ok = await app.inject({ url: '/external-api/v1/ping', headers: { authorization: `Bearer ${key}` } })
     expect(ok.json()).toEqual({ user_id: alice.id })
   })
 
-  it('External API rejects tokens of inactive owners but keeps owner-less legacy tokens working', async () => {
-    const created = (await app.inject({ method: 'POST', url: '/api/auth/me/tokens', headers: as(alice) })).json().data
+  it('External API rejects keys of inactive owners and owner-less legacy tokens', async () => {
+    const key = createMcpService(alice.id, { name: 'Zotero' }).secret
     db.update(schema.users).set({ status: 'pending' }).where(eq(schema.users.id, alice.id)).run()
-    const rejected = await app.inject({ url: '/external-api/v1/ping', headers: { authorization: `Bearer ${created.token}` } })
+    const rejected = await app.inject({ url: '/external-api/v1/ping', headers: { authorization: `Bearer ${key}` } })
     expect(rejected.statusCode).toBe(401)
-    expect(rejected.json().error.message).toBe('Account is not active')
     db.insert(schema.apiTokens).values({ token: 'sk-legacy', created_at: new Date().toISOString() }).run()
-    const legacy = await app.inject({ url: '/external-api/v1/ping', headers: { authorization: 'Bearer sk-legacy' } })
-    expect(legacy.json()).toEqual({ user_id: null })
+    expect((await app.inject({ url: '/external-api/v1/ping', headers: { authorization: 'Bearer sk-legacy' } })).statusCode).toBe(401)
   })
 })
 
-describe('/api/auth/me/tokens', () => {
+describe('/api/auth/me/agent-token', () => {
   it('requires login', async () => {
-    expect((await app.inject({ url: '/api/auth/me/tokens' })).statusCode).toBe(401)
+    expect((await app.inject({ url: '/api/auth/me/agent-token' })).statusCode).toBe(401)
     expect((await app.inject({ method: 'POST', url: '/api/auth/me/agent-token/reset' })).statusCode).toBe(401)
   })
 
-  it('shows a new personal token once, then only masked; never returns the agent token value', async () => {
-    const created = await app.inject({ method: 'POST', url: '/api/auth/me/tokens', headers: as(alice) })
-    expect(created.statusCode).toBe(201)
-    const full = created.json().data.token
-    expect(full).toMatch(/^sk-[0-9a-f]{64}$/)
-    const list = await app.inject({ url: '/api/auth/me/tokens', headers: as(alice) })
-    const body = list.json().data
-    expect(body.personal).toHaveLength(1)
-    expect(body.personal[0].token).toBe(`${full.slice(0, 4)}...${full.slice(-4)}`)
-    expect(Object.keys(body.agent).sort()).toEqual(['created_at', 'rotated_at'])
+  it('returns only times, never the agent token value; personal token routes are gone', async () => {
+    const info = await app.inject({ url: '/api/auth/me/agent-token', headers: as(alice) })
+    expect(Object.keys(info.json().data).sort()).toEqual(['created_at', 'rotated_at'])
     const agentValue = agentRows(alice.id)[0].token
-    expect(list.body).not.toContain(agentValue)
+    expect(info.body).not.toContain(agentValue)
     const reset = await app.inject({ method: 'POST', url: '/api/auth/me/agent-token/reset', headers: as(alice) })
     expect(reset.json().data.rotated_at).not.toBeNull()
     expect(reset.body).not.toContain(agentRows(alice.id)[0].token)
     expect(agentRows(alice.id)[0].token).not.toBe(agentValue)
-  })
-
-  it("lists and revokes only the caller's own personal tokens", async () => {
-    const bobs = (await app.inject({ method: 'POST', url: '/api/auth/me/tokens', headers: as(bob) })).json().data
-    const alices = (await app.inject({ url: '/api/auth/me/tokens', headers: as(alice) })).json().data
-    expect(alices.personal).toEqual([])
-    expect((await app.inject({ method: 'DELETE', url: `/api/auth/me/tokens/${bobs.id}`, headers: as(alice) })).statusCode).toBe(404)
-    const agentId = ensureAgentToken(alice.id).id
-    expect((await app.inject({ method: 'DELETE', url: `/api/auth/me/tokens/${agentId}`, headers: as(alice) })).statusCode).toBe(404)
-    expect((await app.inject({ method: 'DELETE', url: `/api/auth/me/tokens/${bobs.id}`, headers: as(bob) })).statusCode).toBe(200)
-    const after = (await app.inject({ url: '/api/auth/me/tokens', headers: as(bob) })).json().data
-    expect(after.personal[0].revoked_at).not.toBeNull()
+    expect((await app.inject({ method: 'POST', url: '/api/auth/me/tokens', headers: as(alice) })).statusCode).toBe(404)
+    expect((await app.inject({ url: '/api/auth/me/tokens', headers: as(alice) })).statusCode).toBe(404)
   })
 })
 

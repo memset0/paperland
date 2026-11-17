@@ -5,7 +5,7 @@ import { getDatabase, schema } from '../db/index.js'
 import { ownerVisibilityFilter, ownerSharesCondition, type Viewer } from '../auth/visibility.js'
 import { recordMcpCall, registerMcpCounterTools } from './mcp_counts.js'
 import { TOPIC_TOOLS } from './topic_tools.js'
-import { scopedTopicId } from './topics.js'
+import { topicId } from './topics.js'
 import { requireTopicAccess } from './topic_access.js'
 import { readPdfPage, readPdfText } from './pdf_pages.js'
 import { isDoc2xParseEligible } from './doc2x_parse_service.js'
@@ -33,18 +33,16 @@ import { derivePdfStatus } from '../utils/pdf_status.js'
  * caller's visibility; S2 tools go through the backend's Semantic Scholar client (key, shared rate
  * gate, backoff) so the agent never sees the key, and cache what they find. `upload_image` stores
  * an image in the image host. The paper write tools (`write: true`: add_paper, update_paper,
- * upload_paper_pdf, refresh_paper) are for a user's own external agents (personal tokens only).
+ * upload_paper_pdf, refresh_paper) are for a user's own external agents (Plugins service keys only).
  * Deep Research rounds get every non-write tool; Q&A runs get only `upload_image`.
  */
 
 export interface AgentToolContext {
   viewer: Viewer
-  /** Kind of the bearer token; only agent tokens (Paperland's own Codex runs) may upload by path. */
+  /** `service` (Plugins service key) or `agent` (Paperland's own Codex runs, which alone may upload by path). */
   token_kind?: TokenKind
-  /** Set by authentication only, never from tool arguments. */
-  topic_id?: number
   site_origin?: string
-  /** Set only for MCP service URLs; tools beyond these permissions are hidden and refused. */
+  /** Set for Plugins services (header or URL form); tools beyond these permissions are hidden and refused. */
   service_permissions?: McpServicePermissions
   /** Display name of the MCP service (e.g. "ChatGPT"), for upload attribution. */
   service_name?: string
@@ -64,7 +62,7 @@ export interface AgentToolDef {
   inputSchema: Record<string, unknown>
   handler: (args: Record<string, unknown>, ctx: AgentToolContext) => unknown | Promise<unknown>
   annotations?: AgentToolAnnotations
-  /** Changes papers: personal tokens only, never enabled for Paperland's own agent runs. */
+  /** Changes papers: Plugins service keys only, never enabled for Paperland's own agent runs. */
   write?: boolean
   /** A dedicated Topic action, never an unrestricted paper/user mutation. */
   topic_scoped?: boolean
@@ -201,9 +199,9 @@ async function searchPapers(args: Record<string, unknown>, ctx: AgentToolContext
   })
   const db = getDatabase()
   let topic: number | null = null
-  if (args.topic_id !== undefined || ctx.topic_id != null) {
+  if (args.topic_id !== undefined) {
     // Library papers referenced anywhere in the Topic (external works are only in get_topic's catalog).
-    topic = scopedTopicId(args.topic_id, ctx.topic_id)
+    topic = topicId(args.topic_id)
     requireTopicAccess(topic, ctx.viewer.id)
     conds.push(inArray(schema.papers.id, db.select({ id: schema.topicPapers.paper_id }).from(schema.topicPapers)
       .where(and(eq(schema.topicPapers.topic_id, topic), isNotNull(schema.topicPapers.paper_id)))))
@@ -267,7 +265,7 @@ async function getPaper(args: Record<string, unknown>, ctx: AgentToolContext) {
     link: appLink(paper.id),
     listed: paper.listed === 1,
     in_my_library: libraryPaperIds(ctx.viewer, [paper.id]).has(paper.id),
-    my_tags: ctx.topic_id == null ? tags : [],
+    my_tags: tags,
     full_text: fullTextInfo(paper),
     precise_pending: precisePending(paper, resolvePaperContent(paper)?.source ?? null),
     ...pdfStatusOf(paper.id),
@@ -346,9 +344,7 @@ async function getPaperQA(args: Record<string, unknown>, ctx: AgentToolContext) 
   const cap = getConfig().agent_tools.qa_answer_max_chars
   const maxChars = int(args, 'max_chars_per_answer', cap, 100, cap)
   const db = getDatabase()
-  const visible = ctx.topic_id == null
-    ? ownerVisibilityFilter(ctx.viewer, 'qa', schema.qaEntries.user_id, 'all')
-    : ownerSharesCondition('qa', schema.qaEntries.user_id)
+  const visible = ownerVisibilityFilter(ctx.viewer, 'qa', schema.qaEntries.user_id, 'all')
   const entries = db.select().from(schema.qaEntries)
     .where(and(eq(schema.qaEntries.paper_id, paper.id), visible ? or(eq(schema.qaEntries.type, 'template'), visible) : undefined))
     .all()
@@ -602,7 +598,7 @@ async function uploadImage(args: Record<string, unknown>, ctx: AgentToolContext)
       const comma = data!.indexOf(',')
       buf = Buffer.from(data!.startsWith('data:') && comma !== -1 ? data!.slice(comma + 1) : data!, 'base64')
     }
-    const uploadedVia = `${ctx.service_name ?? (ctx.token_kind === 'agent' ? 'Paperland' : ctx.token_kind === 'topic' ? 'Topic token' : 'API token')} [MCP]`
+    const uploadedVia = `${ctx.service_name ?? (ctx.token_kind === 'agent' ? 'Paperland' : 'Plugins service')} [MCP]`
     return mediaUploadResult(storeImageBytes(buf, { originalName, userId: ctx.viewer.id, uploadedVia }), alt)
   } catch (error) {
     if (error instanceof ImageValidationError || error instanceof RemoteFetchError || error instanceof RemoteUrlNotAllowedError) {
@@ -648,11 +644,11 @@ function getSkill(args: Record<string, unknown>) {
   return { name, text: readFileSync(file, 'utf8') }
 }
 
-// ---- paper write tools (personal tokens only) ----
+// ---- paper write tools (Plugins services only) ----
 
 function requirePersonal(ctx: AgentToolContext): void {
-  if (ctx.token_kind !== 'personal' && ctx.token_kind !== 'service') {
-    throw new AgentToolError('Paper write tools need a personal API token or an MCP service; Paperland\'s own agent runs cannot change papers')
+  if (ctx.token_kind !== 'service') {
+    throw new AgentToolError('Paper write tools need a Plugins service key; Paperland\'s own agent runs cannot change papers')
   }
 }
 
@@ -798,7 +794,7 @@ const paperFieldProps = {
   modified_at: { type: ['string', 'null'], description: 'When the source was last updated (e.g. a blog post\'s dateModified); same format' },
   content: { type: 'string', description: 'Full text as Markdown (e.g. a blog post\'s main content, with figures uploaded via upload_image); shown as the Article view and used for Q&A' },
 }
-// ---- Q&A write and delete tools (personal tokens or MCP services with the matching permission) ----
+// ---- Q&A write and delete tools (Plugins services with the matching permission) ----
 
 const QA_ANSWER_MAX_CHARS = 200_000
 
@@ -1069,14 +1065,20 @@ export const AGENT_NON_WRITE_TOOL_NAMES = AGENT_TOOLS.filter((t) => !t.write && 
 
 const TOOLS_BY_NAME = new Map(AGENT_TOOLS.map((t) => [t.name, t]))
 
+/** Topic context for call counts: the call's own `topic_id` argument, when the caller can access that Topic. */
+function countedTopic(input: Record<string, unknown>, ctx: AgentToolContext): number | undefined {
+  const raw = input.topic_id
+  if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 1) return undefined
+  try { requireTopicAccess(raw, ctx.viewer.id); return raw } catch { return undefined }
+}
+
 /** Run a tool; failures come back as `isError` results with a message for the agent. */
 export async function callAgentTool(name: string, args: unknown, ctx: AgentToolContext): Promise<{ text: string; isError: boolean; content?: AgentContent[] }> {
   const tool = TOOLS_BY_NAME.get(name)
   if (!tool) return { text: `Unknown tool: ${name}`, isError: true }
   const input = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : {}
   try {
-    recordMcpCall(ctx.viewer.id, name, ctx.topic_id)
-    if (ctx.topic_id != null && tool.write && !tool.topic_scoped) throw new AgentToolError('Topic credentials cannot use unrestricted write tools; use a permitted Topic action')
+    recordMcpCall(ctx.viewer.id, name, countedTopic(input, ctx))
     if (!toolAllowed(tool, ctx)) throw new AgentToolError(`This MCP service is not permitted to use ${name} (needs the ${toolPermission(tool)} permission)`)
     const result = await tool.handler(input, ctx)
     if (result instanceof AgentRichResult) {
