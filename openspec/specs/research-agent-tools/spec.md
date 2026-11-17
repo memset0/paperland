@@ -305,3 +305,10 @@ The `initialize` instructions SHALL end with a per-user workspace overview compu
 #### Scenario: ChatGPT connects
 - **WHEN** a service whose owner has 4 active Topics, 1 archived Topic and 30 papers in their list sends `initialize`
 - **THEN** the instructions SHALL list the 4 active Topics (id, title, page and reference counts, last update) and the 5 most recently added papers (id, title, date added), and SHALL NOT list the archived Topic
+
+### Requirement: MCP server version follows Paperland version
+The MCP `initialize` result SHALL report `serverInfo.version` equal to the `version` field of the root `package.json`, read when the backend starts, and its instructions SHALL begin with `Paperland MCP server <version>.`.
+
+#### Scenario: Version reported on connect
+- **WHEN** the root `package.json` version is `2.3.16` and a client sends `initialize`
+- **THEN** `serverInfo.version` SHALL be `2.3.16` and the instructions SHALL start with `Paperland MCP server 2.3.16.`

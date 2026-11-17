@@ -28,7 +28,7 @@ const notesOpen = ref(false)
           <CollapsibleContent>
             <section v-for="directory in detail.snapshot.list.directories.filter((d) => d.description)" :key="directory.id" class="mt-4">
               <h3 class="mb-2 text-sm font-medium">{{ directory.name }}</h3>
-              <MarkdownContent :content="directory.description!" disable-highlights qa-answer />
+              <MarkdownContent :content="directory.description!" disable-highlights qa-answer allow-html />
             </section>
           </CollapsibleContent>
         </Collapsible>

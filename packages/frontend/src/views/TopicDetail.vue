@@ -70,7 +70,7 @@ usePageTitle(computed(() => currentDocument.value && currentDocument.value.path 
                 <span :title="currentDocument.path" class="min-w-0 truncate">{{ currentDocument.title }}</span>
               </div>
               <section class="topic-document min-w-0">
-                <MarkdownContent v-if="currentDocument.body.trim()" :key="currentDocument.path" :content="currentDocument.body" disable-highlights qa-answer />
+                <MarkdownContent v-if="currentDocument.body.trim()" :key="currentDocument.path" :content="currentDocument.body" disable-highlights qa-answer allow-html />
                 <div v-else class="flex flex-col items-center rounded-lg border border-dashed px-6 py-14 text-center">
                   <BookOpen class="mb-3 size-6 text-muted-foreground" />
                   <h2 class="text-sm font-medium">{{ isQuestions ? 'Research questions' : 'The report is ready to begin' }}</h2>

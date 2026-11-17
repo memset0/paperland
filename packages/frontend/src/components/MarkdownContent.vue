@@ -33,8 +33,9 @@ import { renderMarkdown } from '@/lib/markdown-renderer'
 // disabled everywhere it isn't explicitly passed (walkthrough, notes card, public notes, FAQ).
 // `qaAnswer` marks a Q&A answer: `#moonlight` links emit `moonlight` (open a pre-filled follow-up)
 // and `#cite:<id>` links become citation chips when the id resolves through the S2 paper cache (else plain text).
+// `allowHtml` renders raw HTML through the DOMPurify Topic policy (Topic content only).
 const props = withDefaults(
-  defineProps<{ content: string; highlightPathname?: string; paperId?: number; qaResultId?: number; disableHighlights?: boolean; publicNote?: boolean; applyImageWidth?: boolean; qaAnswer?: boolean }>(),
+  defineProps<{ content: string; highlightPathname?: string; paperId?: number; qaResultId?: number; disableHighlights?: boolean; publicNote?: boolean; applyImageWidth?: boolean; qaAnswer?: boolean; allowHtml?: boolean }>(),
   { applyImageWidth: true },
 )
 const emit = defineEmits<{ moonlight: [question: string] }>()
@@ -122,7 +123,7 @@ function renderAndHighlight() {
   if (!el) return
 
   // Render markdown to HTML
-  el.innerHTML = renderMarkdown(props.content)
+  el.innerHTML = renderMarkdown(props.content, { html: props.allowHtml })
 
   // Apply `w=sm|md|lg|<px>` image width directives encoded in image alt text.
   applyImageWidthDirectives(el)

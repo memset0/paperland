@@ -19,3 +19,47 @@ describe('video embeds', () => {
     expect(renderMarkdown('<video src="x.mp4" onerror="alert(1)">')).not.toContain('<video')
   })
 })
+
+describe('Topic HTML', () => {
+  // Offline DOM for DOMPurify (bun test has no window).
+  const { JSDOM } = require('jsdom')
+  const { createTopicSanitizer } = require('./markdown-renderer')
+  const purifier = createTopicSanitizer(new JSDOM('').window as any)
+  const topic = (s: string) => renderMarkdown(s, { html: true, purifier })
+
+  it('keeps inline styled spans', () => {
+    const html = topic('A <span style="background:#fef08a">key idea</span> here')
+    expect(html).toContain('<span style="background:#fef08a">key idea</span>')
+  })
+
+  it('removes scripts, handlers, javascript: URLs and fixed positioning', () => {
+    const html = topic([
+      '<script>alert(1)</script>',
+      '',
+      'x <img src="a.png" onerror="alert(2)"> <a href="javascript:alert(3)">l</a>',
+      '',
+      '<div style="position: fixed; inset: 0">cover</div>',
+      '',
+      '<style>body{display:none}</style><iframe src="https://e.com"></iframe>',
+    ].join('\n'))
+    expect(html).not.toContain('<script')
+    expect(html).not.toContain('onerror')
+    expect(html).not.toContain('javascript:')
+    expect(html).not.toMatch(/position\s*:\s*fixed/)
+    expect(html).toContain('cover')
+    expect(html).not.toContain('<style')
+    expect(html).not.toContain('<iframe')
+  })
+
+  it('keeps KaTeX, videos and data attributes', () => {
+    expect(topic('$x^2$')).toContain('katex')
+    const video = topic('![Clip w=md](/image/a.mp4)')
+    expect(video).toContain('<video')
+    expect(video).toContain('playsinline')
+    expect(video).toContain('data-alt="Clip w=md"')
+  })
+
+  it('leaves the default renderer with HTML disabled', () => {
+    expect(renderMarkdown('<span style="color:red">x</span>')).toContain('&lt;span')
+  })
+})

@@ -32,7 +32,7 @@ const externalUrl = (id: string) => s2Url(normalizeCiteId(id) ?? id)
         <CollapsibleTrigger class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ChevronDown :class="['size-3 transition-transform', (openNotes[entry.id] ?? !compact) ? 'rotate-0' : '-rotate-90']" />Notes and details</CollapsibleTrigger>
         <CollapsibleContent class="mt-3 space-y-3">
           <p v-if="entry.url && entry.citation" class="text-xs leading-relaxed text-muted-foreground">{{ [entry.citation.author?.join(', '), entry.citation.year, entry.citation.month, entry.citation.howpublished, entry.citation.note].filter(Boolean).join(' · ') }}</p>
-          <MarkdownContent v-if="entry.comment" :content="entry.comment" disable-highlights qa-answer class="text-xs" />
+          <MarkdownContent v-if="entry.comment" :content="entry.comment" disable-highlights qa-answer allow-html class="text-xs" />
 
         </CollapsibleContent>
       </Collapsible>

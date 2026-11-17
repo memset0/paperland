@@ -3,7 +3,7 @@ import katex from '@traptitech/markdown-it-katex'
 import { diffArrays } from 'diff'
 import type { TopicPaper, TopicSnapshot } from '@paperland/shared'
 
-const parser = new MarkdownIt({ html: false, breaks: true, linkify: true }).use(katex, { throwOnError: false })
+const parser = new MarkdownIt({ html: true, breaks: true, linkify: true }).use(katex, { throwOnError: false })
 export interface TopicSeen { schema_version: 1; commit: string; snapshot: TopicSnapshot }
 export interface TopicSurfaceSeen { schema_version: 2; commit: string; body: string; entries: TopicPaper[] }
 type ReadingStorage = Pick<Storage, 'getItem' | 'setItem'>

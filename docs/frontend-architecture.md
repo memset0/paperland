@@ -348,7 +348,7 @@ arXiv 导入的论文标题和作者字段显示为禁用状态（灰色背景�
 #### 源站日期与内联视频
 
 - 详情页两处 header 在创建日期 badge 后显示 "Published <date>"（`metadata.published_at`）与 "Updated <date>"（`metadata.modified_at`，与发布日不同时才显示）；按日期字符串的年月日构造本地日期显示，不做时区换算（`2026-10-12` 不会显示成 11 日）。编辑表单有 "Published" / "Last updated" 两个文本框（`YYYY-MM-DD` 或完整 ISO 时间，空 = 清空，服务端校验 `INVALID_DATE`）。
-- `lib/markdown-renderer.ts` 覆写 markdown-it 的 image 规则：URL 路径以 `.mp4` / `.webm` 结尾（忽略 query / hash）时输出 `<video controls preload="metadata" playsinline aria-label data-alt>`，`html: false` 不变。`MarkdownContent` 的 `w=` 宽度指令同时作用于 `img` 与 `video[data-alt]`。
+- `lib/markdown-renderer.ts` 覆写 markdown-it 的 image 规则：URL 路径以 `.mp4` / `.webm` 结尾（忽略 query / hash）时输出 `<video controls preload="metadata" playsinline aria-label data-alt>`，默认 `html: false` 不变（Topic 内容例外，见下文“原始 HTML”）。`MarkdownContent` 的 `w=` 宽度指令同时作用于 `img` 与 `video[data-alt]`。
 - 图床页（`ImageHostPage.vue`）接受 MP4 / WebM。网格分页加载（`stores/images.ts` 每页 48 条，`imagesApi.page`；网格下方的 sentinel 进入视口前 600px 时由 `IntersectionObserver` 自动加载下一页，另有 "Load more" 按钮兜底，并显示 "Showing N of M"；上传的新图插到最前，`total` / `next_offset` 同步 +1）。卡片显示 `/image-thumb/<hash>.webp` 缩略图（`loading="lazy"`），不再加载原图；视频卡片先显示封面缩略图加播放图标，指针移入或点击后才换成静音自动播放的 `<video preload="none" controls>`。
 
 - 博客详情页：「Full text」（`PaperFullTextCopy`）对 article 显示 "Copy full text"（复制 `contents.user_input`），PDF 解析的两个按钮只在存在时出现；「Reference links」（`ReferenceLinksSection` 的 `source-link` prop）把原文链接作为第一条 "Original post" 固定显示（由 `papers.link` 派生、不入库、不可编辑删除，Mine / All 都显示）。
@@ -627,6 +627,8 @@ content_priority:
 ### 渲染组件
 
 `MarkdownContent.vue` 是全站统一的 Markdown 渲染组件，基于 `markdown-it` + `@traptitech/markdown-it-katex` + `KaTeX`。
+
+**原始 HTML**：默认 `html: false`（Q&A 回答、笔记、论文正文里的标签按文字显示）。Topic 页面正文、目录描述与条目评论传 `allow-html`，走 `renderMarkdown(src, { html: true })`：另一个 `html: true` 的 markdown-it 实例（同样的 KaTeX 与视频规则），输出经 DOMPurify 净化（`lib/markdown-renderer.ts` 的 `sanitizeTopicHtml`）——去掉 script、事件属性、`javascript:` URL、`style`/`iframe`/`object`/`embed` 与表单控件，`style` 属性保留（可写 `<span style="background:#fef08a">` 高亮），但设置 `position: fixed|sticky` 的 `style` 整个丢弃。`lib/topic-reading.ts` 的分块解析同样 `html: true`，与渲染器分块一致。净化测试用 jsdom 离线运行。
 
 ### 图片宽度指令（alt 文本 `w=`）
 

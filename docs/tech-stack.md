@@ -671,6 +671,8 @@ notes:
 
 ### Backend (packages/backend)
 
+MCP `serverInfo.version` 取自根 `package.json` 的 Paperland 版本（`src/version.ts` 的 `APP_VERSION`，启动时读取一次）。
+
 | 依赖 | 用途 |
 |------|------|
 | fastify | Web 框架 |
@@ -701,6 +703,7 @@ notes:
 | class-variance-authority + clsx + tailwind-merge | cn() 与变体管理 |
 | vue-sonner | Toast 通知（由 `<Toaster>` 组件包装；完成通知用 `toast.custom` 渲染可点击卡片） |
 | pdfjs-dist | 嵌入式 PDF 查看器（替代浏览器原生插件）：canvas 渲染 + 文本层选区，支撑 `paperland://…?pdf=…` 页面/选区锚点。**版本精确 pin**（`ts/te` 为 pdf.js 文本偏移，需跨版本稳定）；动态 `import()` code-split，worker 经 `pdf.worker.min.mjs?url` 注册到 `GlobalWorkerOptions.workerSrc` |
+| dompurify | 净化 Topic Markdown 中的原始 HTML（`lib/markdown-renderer.ts` 的 `sanitizeTopicHtml`；其他 Markdown 仍 `html: false`）。dev 依赖 jsdom 用于离线净化测试 |
 | turndown + turndown-plugin-gfm | 选区 HTML→Markdown 还原（"Copy content and anchor link"：GFM 表格、数学按 `$`/`$$` 还原） |
 | monaco-editor | 笔记编辑器（`MonacoMarkdownEditor.vue`，浮窗 + 左面板 edit/split）：Markdown 语法高亮（`lib/monaco.ts` 用 `withMath` 扩展自带文法，加 `$…$`/`$$…$$` LaTeX 数学 token）、显示行号、跟随明暗主题。**懒加载**：`lib/monaco.ts` 动态 `import()` 仅取 `editor.api` + markdown 文法（独立 async chunk，不进首包），`editor.worker?worker` 注册到 `self.MonacoEnvironment`，`vite.config.ts` 设 `worker.format:'es'` |
 

@@ -39,6 +39,8 @@ See [3](#ref:3), [another question](rq7-future-prediction.md), or
 
 `title` 为 1–200 字符纯文本，覆盖侧栏标签；`fonticon` 用站内 Lucide 图标名，支持 PascalCase 或 kebab-case，未知名字安全退回 FileText。可用名称由 MCP `repository_contract.fonticons` 给出。目录树由 reports.yml 指定顺序/分组，当前文件的祖先会展开；旧提交回退到文件夹树。文件夹 `index.md` 使用文件夹地址；如 `pages/research-questions/index.md` 对应 `/topics/3/research-questions`，`pages/discussions.md` 对应 `/topics/3/discussions`。默认 `/topics/3` 对应 `pages/report.md`。旧 `?file=...`、旧主页和唯一同名文件的迁移链接仍兼容；历史版本用 `?version=<commit>`。
 
+**正文中的 HTML**：页面正文、目录描述与条目评论里的原始 HTML 会渲染（如 `<span style="background:#fef08a">重点</span>` 高亮），渲染前经 DOMPurify 净化：script、事件属性（`onerror` 等）、`javascript:` 链接、`style`/`iframe`/`object`/`embed` 标签与表单控件会被移除，设置 `position: fixed|sticky` 的 `style` 属性整个丢弃；其他 inline style 保留。站内其他 Markdown（Q&A、笔记）仍不渲染 HTML。
+
 ## 全局资料表
 
 `references.json`：

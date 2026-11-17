@@ -57,6 +57,8 @@ Deep Research（`/api/research/*`，研究会话、步骤、标题编辑、回�
 | `upload_paper_pdf` | `paper_id` + `data` 或 `url`（二选一），`replace?` | `data` 同 `POST /api/papers/:id/pdf`；`url` 写入 `pdf_url` 并下载（arXiv 论文不接受 `url`）。已有 PDF 时须 `replace: true`，内容不同则切换文件并重新生成解析 / 翻译 |
 | `refresh_paper` | `paper_id`，`pdf?`、`s2?` | 手动重新抓取 PDF（arXiv 给最新版本）/ 刷新 S2 引用数据，后台运行，返回已排队的服务与各自的错误 |
 
+**服务器版本**：`initialize` 的 `serverInfo.version` 等于 Paperland 版本（根 `package.json` 的 `version`，与前端页脚一致，后端启动时读取），`instructions` 以 `Paperland MCP server <version>.` 开头，客户端据此可知 MCP 服务器已更新。
+
 **连接时的工作区概要**：`initialize` 的 `instructions` 末尾按调用者实时追加 "Your workspace"：可读的未归档 Topic（最多 20 个：id、标题、页数、引用数、更新日期）与本人论文列表中最近加入的 5 篇论文（id、标题、加入日期），并提示用 `list_topics` / `list_archived_topics` / `search_papers` 获取更多；生成失败时省略，不影响握手。`list_topics` 只返回未归档的 Topic，归档的用 `list_archived_topics`（同样接受 `scope`）。
 
 **Plugins 服务（外部应用的唯一凭证）**：用户在 Plugins 页为每个应用（如 ChatGPT）创建服务，得到一个密钥 `pls_<64 hex>`（只显示一次，库中仅存 SHA-256）。同一密钥可用三种方式：服务地址 `https://<站点>/mcp/s/<密钥>`（对不能发送请求头的客户端以"无认证"方式直接使用）、`/mcp` 与 External API 的 `Authorization: Bearer <密钥>`、Topic Git 的 HTTPS 密码；服务地址中的密钥即凭据，按其属主身份执行，后端请求日志中路径被打码为 `/mcp/s/[redacted]`。无效、已换新或已撤销地址返回 404（不返回 401，避免客户端发起 OAuth 发现），GET/DELETE 返回 405。每个服务有权限 `write`（默认开：论文写工具、`upload_image`、Topic 写/管理、`add_paper_qa`）、`delete_papers`、`delete_answers`（默认关）；读工具总是可用，`tools/list` 只列出该服务权限允许的工具，越权调用为工具错误且不做改动。管理接口（会话鉴权，只作用于本人）：`GET/POST /api/auth/me/mcp-services`、`PATCH /api/auth/me/mcp-services/:id`（name / permissions）、`POST /api/auth/me/mcp-services/:id/rotate`、`DELETE /api/auth/me/mcp-services/:id`；create/rotate 返回 `key` 与 `url_path`（仅此一次）。服务行属于 `api_tokens`（kind `service`）；管理员 Settings → All credentials 可看到（名称、属主，无密钥值）并撤销。服务不限定 Topic，相当于属主本人（删除权限除外）。

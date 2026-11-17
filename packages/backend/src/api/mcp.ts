@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getConfig } from '../config.js'
+import { APP_VERSION } from '../version.js'
 import { bearerFromHeader, checkBearerToken } from '../services/api_tokens.js'
 import { workspaceOverview } from '../services/mcp_overview.js'
 import { AGENT_TOOLS, callAgentTool, toolAllowed, type AgentToolContext } from '../services/agent_tools.js'
@@ -14,8 +15,9 @@ import { checkServiceSecret } from '../services/mcp_services.js'
 // visibility. Reachable from anywhere, like the External API.
 
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
-const SERVER_INFO = { name: 'paperland', version: '1.0.0' }
-const INSTRUCTIONS = 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
+// Version follows Paperland's own (root package.json), so clients can tell when the server changed.
+const SERVER_INFO = { name: 'paperland', version: APP_VERSION }
+const INSTRUCTIONS = `Paperland MCP server ${APP_VERSION}. ` + 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
   'Maintain Topics with list_topics (active only) / get_topic; archived Topics are read-only and listed by list_archived_topics. Before editing read get_topic_schema for schema v1, reports.yml, reference rules and legacy migration; inspect get_topic.repository_schema for required upgrades. ' +
   'Use read_pdf_page for a physical PDF page and its native Markdown citation; request image=true only when a page image is needed. ' +
   'Use s2_match / s2_search to get S2 paperIds instead of guessing them. To read a paper, use read_paper (Paperland\'s parsed full text) instead of fetching arXiv HTML or the PDF yourself; go to arXiv (or read_pdf_page with image=true) only for tables, figures or layout the text does not capture. ' +

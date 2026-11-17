@@ -93,6 +93,10 @@ describe('POST /mcp', () => {
     const init = (await post({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } })).json()
     expect(init.result.protocolVersion).toBe('2025-03-26')
     expect(init.result.capabilities.tools).toBeDefined()
+    // Server version follows the root package.json version.
+    const rootVersion = JSON.parse(require('fs').readFileSync(resolve(import.meta.dir, '../../../../package.json'), 'utf-8')).version
+    expect(init.result.serverInfo.version).toBe(rootVersion)
+    expect(init.result.instructions.startsWith(`Paperland MCP server ${rootVersion}.`)).toBe(true)
     const unknown = (await post({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '1999-01-01' } })).json()
     expect(unknown.result.protocolVersion).toBe('2025-06-18')
     const list = (await post({ jsonrpc: '2.0', id: 3, method: 'tools/list' })).json()
