@@ -120,6 +120,11 @@ describe('Topic web and MCP operations (offline)', () => {
     expect((await call(key(1, { write: false }), 'set_topic_archived', { topic_id: topic.id, archived: false })).isError).toBe(true)
     expect((await call(key(1), 'set_topic_archived', { topic_id: topic.id, archived: false })).isError).toBe(false)
     expect(listTopics(1).find((t) => t.id === topic.id)!.archived_at).toBeNull()
+    // Summaries carry the published size: pages and catalog entries.
+    const counted = listTopics(1).find((t) => t.id === topic.id)!, detail = await getTopic(topic.id, 1)
+    expect(counted.page_count).toBe(Object.keys(detail.snapshot.pages ?? {}).length)
+    expect(counted.page_count).toBeGreaterThan(0)
+    expect(counted.reference_count).toBe(detail.snapshot.list.papers.length)
     viewer = 2
     expect((await app.inject({ method: 'PATCH', url: `/api/topics/${topic.id}`, payload: { title: 'Changed', base_commit: topic.commit } })).statusCode).toBe(200)
   })
@@ -226,4 +231,27 @@ test('MCP teaches schema v1, detects old encodings and counts Topic calls', asyn
   expect((await call(token, 'get_topic_schema', { schema_version: 2 })).isError).toBe(true)
   const after = await getTopic(topic.id, 1)
   expect(after.my_mcp_call_counts.get_topic).toBe(1)
+})
+
+test('initialize shows a workspace overview; list_topics hides archived Topics, list_archived_topics lists them', async () => {
+  const { setTopicArchived } = await import('../services/topics')
+  const active = await createTopic(1, { title: 'Active research' }), frozen = await createTopic(1, { title: 'Frozen research' })
+  await setTopicArchived(frozen.id, 1, true)
+  for (let i = 0; i < 7; i++) {
+    const paper = f.db.insert(schema.papers).values({ title: `Recent paper ${i}`, authors: '[]', created_at: f.now, updated_at: f.now }).returning().get()
+    f.db.insert(schema.userPapers).values({ user_id: 1, paper_id: paper.id, created_at: new Date(Date.UTC(2026, 10, 1 + i)).toISOString(), updated_at: f.now }).run()
+  }
+  const token = key(1)
+  const init = (await app.inject({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${token}` }, payload: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} } })).json().result.instructions as string
+  expect(init).toContain(`Topic ${active.id} "Active research"`)
+  expect(init).not.toContain('Frozen research')
+  expect(init).toContain('Recent paper 6')
+  expect(init).toContain('Recent paper 2')
+  expect(init).not.toContain('Recent paper 1"')
+  expect(init).toContain('list_archived_topics')
+  const listed = JSON.parse((await call(token, 'list_topics')).content[0].text).topics.map((t: any) => t.id)
+  expect(listed).toContain(active.id); expect(listed).not.toContain(frozen.id)
+  const archived = JSON.parse((await call(token, 'list_archived_topics')).content[0].text).topics
+  expect(archived.map((t: any) => t.id)).toEqual([frozen.id])
+  expect(archived[0].archived_at).toBeTruthy()
 })

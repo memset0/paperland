@@ -216,7 +216,7 @@ While a Topic is archived, its content SHALL NOT change: renaming SHALL be refus
 - **THEN** the change SHALL be applied
 
 ### Requirement: Topics list layout
-The web Topics list SHALL show Topics in shadcn cards (title, up to two lines of description, owner, last update, and the reader's role only when it is not Owner), with Mine/All and search above. Active and archived Topics SHALL be on separate "Active" and "Archived (N)" tabs. While loading, skeleton cards SHALL be shown. Each tab SHALL have its own empty state.
+The web Topics list SHALL show each Topic as a shadcn card with a monogram tile in a stable per-Topic color, the title, the description clamped to two lines (space reserved when empty), the Archived badge or the reader's role when it is not Owner, and a footer with page count, reference count, owner and last update. Cards in a row SHALL have equal heights. Mine/All and search SHALL be above the cards. Active and archived Topics SHALL be on separate "Active" and "Archived (N)" tabs. While loading, skeleton cards SHALL be shown. Each tab SHALL have its own empty state.
 
 #### Scenario: Archived Topics on their own tab
 - **WHEN** a reader opens the Topics list and one listed Topic is archived
@@ -225,6 +225,10 @@ The web Topics list SHALL show Topics in shadcn cards (title, up to two lines of
 #### Scenario: Search across tabs
 - **WHEN** a reader searches and matches exist only among archived Topics
 - **THEN** the Archived tab count SHALL reflect the matches and the Active tab SHALL say no active topics match
+
+#### Scenario: Card shows the Topic's size
+- **WHEN** a Topic's published version has 13 pages and 98 references
+- **THEN** its card SHALL show "13 pages" and "98 references"
 
 ### Requirement: Topic page header
 The Topic page SHALL show a breadcrumb back to Topics, the title with History and Share buttons, and a "More actions" menu for the remaining actions (All references, Browse linked papers, Refresh, Rename, Original research, Archive/Unarchive), each offered only when permitted. Owner, role, last update, reference count and short commit SHALL share one meta line. Archived and historical-version states SHALL be alerts. Rename SHALL use a dialog.
@@ -236,3 +240,10 @@ The Topic page SHALL show a breadcrumb back to Topics, the title with History an
 #### Scenario: Viewer sees no edit actions
 - **WHEN** a viewer opens "More actions"
 - **THEN** Rename and Archive SHALL NOT be offered
+
+### Requirement: Topic summary counts
+Topic summaries returned by the Topic list API and MCP `list_topics` SHALL include `page_count` (documents in the published version) and `reference_count` (entries in its reference catalog), both 0 when nothing is published.
+
+#### Scenario: Counts in the list API
+- **WHEN** a reader lists Topics and one Topic's published version has 2 pages and 3 references
+- **THEN** that summary SHALL have `page_count` 2 and `reference_count` 3

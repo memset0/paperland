@@ -16,7 +16,7 @@ All references 是单独入口，在右侧 Sheet 打开全局 references.json �
 
 Topic 页不再有 Connect 入口：外部应用（MCP 与 Git）统一在 Plugins 页管理。创建与 owner Share 使用 TopicAccessSelect（shadcn Select）选 Private/Public、默认 Viewer/Editor，实际权限为个人授权和默认的较高者；Share 抽屉的成员行用 Select 改权限，移除个人授权回到默认。History 抽屉为时间线，每条显示提交信息、推送人（有 `pushed_via` 时显示 "via <应用名>"）、相对时间、短 hash 与 Git 作者，点最新一条回到最新版。历史和权限由同一服务校验，旧全局 Research 开关不参与。owner/editor 在 "More actions" → Rename 对话框中改名，经 stale-aware PATCH 只改 topic.json，保留所有页面及工作区 blob。
 
-列表：`TopicsList` 顶部是 shadcn Tabs（"Active N" / "Archived N"，计数随搜索变化）加 Mine/All 与搜索（窄屏换行）；网格为 `TopicCard`（shadcn Card：标题、两行描述、owner · 相对更新时间，非 owner 时显示角色、归档时显示 "Archived"）。加载时显示 Skeleton 卡片，每个 Tab 有各自空状态。归档：`archived_at` 非空的 Topic 只出现在 Archived Tab。`TopicDetail` 的 "More actions" 对 owner 提供 Archive / Unarchive（均 `confirm`，调用 `topicsApi.archive`），归档时元信息行显示 Archived 徽标并显示 Alert，`canEdit`（非 viewer 且未归档）控制 Rename 菜单项和空报告里指向 Plugins 的提示。
+列表：`TopicsList` 顶部是 shadcn Tabs（"Active N" / "Archived N"，计数随搜索变化）加 Mine/All 与搜索（窄屏换行）；网格为 `TopicCard`（shadcn Card，同行等高：按 Topic id 取色的双字母方块（`oklch`，浅/深色各一套）、标题、固定两行高度的描述（空时显示 "No description"）、分隔线下的底栏：页数、引用数、owner 头像（窄屏只显示头像）· 相对更新时间；非 owner 时右上显示角色、归档时显示 "Archived" 并整体淡化；悬停轻微上浮）。加载时显示 Skeleton 卡片，每个 Tab 有各自空状态。归档：`archived_at` 非空的 Topic 只出现在 Archived Tab。`TopicDetail` 的 "More actions" 对 owner 提供 Archive / Unarchive（均 `confirm`，调用 `topicsApi.archive`），归档时元信息行显示 Archived 徽标并显示 Alert，`canEdit`（非 viewer 且未归档）控制 Rename 菜单项和空报告里指向 Plugins 的提示。
 
 原共享列表类型在 lib/paper-ref-types.ts；论文默认仅显示可访问 Topic 根标签，和私有手工标签分开。legacy layout 1 历史目录保持兼容，schema v1 使用平面全局表。
 

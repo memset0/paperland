@@ -29,15 +29,26 @@ function activeUser(userId: number) {
   if (!user) throw new TopicError(401, 'Active user required')
   return user
 }
-function summary(topic: typeof schema.topics.$inferSelect, permission: string): TopicSummary {
-  const owner = getDatabase().select({ username: schema.users.username, nickname: schema.users.nickname }).from(schema.users).where(eq(schema.users.id, topic.owner_id)).get()
-  return { id: topic.id, owner_id: topic.owner_id, owner_display_name: owner?.nickname || owner?.username || 'Former user', title: topic.title, description: topic.description, permission: permission as TopicRole, default_access: topic.default_access as TopicDefaultAccess, published_commit: topic.published_commit, created_at: topic.created_at, updated_at: topic.updated_at, legacy_research_session_id: topic.legacy_research_session_id, archived_at: topic.archived_at ?? null }
+/** Page and reference counts of the published snapshot (0 when unpublished or unreadable). */
+function snapshotCounts(raw: string | null): { page_count: number; reference_count: number } {
+  try {
+    const snapshot = JSON.parse(raw || 'null') as { pages?: Record<string, unknown>; report?: string; list?: { papers?: unknown[] } } | null
+    if (!snapshot) return { page_count: 0, reference_count: 0 }
+    const pages = Object.keys(snapshot.pages ?? {}).length
+    return { page_count: pages || (snapshot.report !== undefined ? 1 : 0), reference_count: snapshot.list?.papers?.length ?? 0 }
+  } catch { return { page_count: 0, reference_count: 0 } }
 }
 
-export function listTopics(userId: number, scope = 'all'): TopicSummary[] {
+function summary(topic: typeof schema.topics.$inferSelect, permission: string): TopicSummary {
+  const owner = getDatabase().select({ username: schema.users.username, nickname: schema.users.nickname }).from(schema.users).where(eq(schema.users.id, topic.owner_id)).get()
+  return { id: topic.id, owner_id: topic.owner_id, owner_display_name: owner?.nickname || owner?.username || 'Former user', title: topic.title, description: topic.description, permission: permission as TopicRole, default_access: topic.default_access as TopicDefaultAccess, published_commit: topic.published_commit, created_at: topic.created_at, updated_at: topic.updated_at, legacy_research_session_id: topic.legacy_research_session_id, archived_at: topic.archived_at ?? null, ...snapshotCounts(topic.snapshot) }
+}
+
+/** Topics the user can read; `archived` filters by archive state (omitted = both, as the web list needs). */
+export function listTopics(userId: number, scope = 'all', options: { archived?: boolean } = {}): TopicSummary[] {
   activeUser(userId)
   return getDatabase().select({ topic: schema.topics, role: topicAccessRole(userId) }).from(schema.topics)
-    .where(and(isNotNull(topicAccessRole(userId)), isNotNull(schema.topics.published_commit), sql`(${schema.topics.legacy_migration_state} is null or ${schema.topics.legacy_migration_state} = 'complete')`, scope === 'mine' ? eq(schema.topics.owner_id, userId) : undefined))
+    .where(and(isNotNull(topicAccessRole(userId)), isNotNull(schema.topics.published_commit), sql`(${schema.topics.legacy_migration_state} is null or ${schema.topics.legacy_migration_state} = 'complete')`, scope === 'mine' ? eq(schema.topics.owner_id, userId) : undefined, options.archived === undefined ? undefined : options.archived ? isNotNull(schema.topics.archived_at) : isNull(schema.topics.archived_at)))
     .orderBy(desc(schema.topics.updated_at), desc(schema.topics.id)).all().map((r) => summary(r.topic, r.role!))
 }
 

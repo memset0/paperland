@@ -148,7 +148,7 @@ push 先进入临时 bare 仓库；所有新版本校验完成后，先写恢复
 
 ## 归档
 
-owner 可归档 / 取消归档 Topic（网页 `PUT /api/topics/:id/archive {archived}`，MCP `set_topic_archived`，需有 write 的 Plugins 服务）。`topics.archived_at`（迁移 0050，可空）记录归档时间，列表与详情、`list_topics` / `get_topic` 均返回 `archived_at`。归档的 Topic 照常列出（API 顺序不变、不更新 `updated_at`；网页 Topics 列表把它们放在下方单独的折叠分区 "Archived (N)"，不与未归档的混排）并可阅读、查看历史、clone/pull、把引用论文导入自己的库；内容冻结：网页改名返回 403，Git `git-receive-pack`（advertisement 与 push）返回 403 和“已归档”提示，系统迁移脚本不受此限制。共享和成员仍可管理。
+owner 可归档 / 取消归档 Topic（网页 `PUT /api/topics/:id/archive {archived}`，MCP `set_topic_archived`，需有 write 的 Plugins 服务）。`topics.archived_at`（迁移 0050，可空）记录归档时间，列表与详情、`list_topics` / `get_topic` 均返回 `archived_at`；摘要另含 `page_count`（已发布版本的文档数）与 `reference_count`（引用目录条目数）。归档的 Topic 照常列出（API 顺序不变、不更新 `updated_at`；网页 Topics 列表把它们放在下方单独的折叠分区 "Archived (N)"，不与未归档的混排）并可阅读、查看历史、clone/pull、把引用论文导入自己的库；内容冻结：网页改名返回 403，Git `git-receive-pack`（advertisement 与 push）返回 403 和“已归档”提示，系统迁移脚本不受此限制。共享和成员仍可管理。
 
 ## 网页改名与旧结果迁移
 
@@ -175,7 +175,7 @@ MCP 只接受 Plugins 服务密钥（Bearer 或 `/mcp/s/<密钥>`）与站内 ag
 
 原站内 Q&A / 旧 Research 的工具 allowlist 保持原状；新增 Topic/PDF 工具供外部 MCP 客户端使用。有 write 的服务可用 `upload_image` 的 data/url 上传到既有图床，也可用同一密钥通过 External API 上传本机大文件。
 
-新增 `list_topics`、`get_topic`、`get_topic_history`、`create_topic`、`get_topic_members`、`set_topic_member`、`set_topic_sharing`、`set_topic_archived`、`import_topic_paper`。写入与管理操作需有 write 的 Plugins 服务；凭证管理不通过 MCP（原 `*_topic_token` 工具已移除），只在 Plugins 页进行。各工具的 JSON Schema 由 `tools/list` 给出。
+新增 `list_topics`（只列未归档的 Topic）、`list_archived_topics`（只列归档的 Topic）、`get_topic`、`get_topic_history`、`create_topic`、`get_topic_members`、`set_topic_member`、`set_topic_sharing`、`set_topic_archived`、`import_topic_paper`。写入与管理操作需有 write 的 Plugins 服务；凭证管理不通过 MCP（原 `*_topic_token` 工具已移除），只在 Plugins 页进行。各工具的 JSON Schema 由 `tools/list` 给出。
 
 `read_pdf_page({paper_id,page,image?,region?,offset?,max_chars?})` 使用物理 PDF 页码，返回 `paper_id`、`page`、`page_count`、文本分段与完整 Markdown 定位引用；`image:true` 时另返回真正的 MCP PNG image block。`region` 是 `{x,y,width,height}` 归一化坐标，仅改变引用定位，截图仍是整页。默认不生成图片，不下载远程 PDF，不批量转换全文。
 

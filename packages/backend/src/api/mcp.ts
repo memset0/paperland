@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getConfig } from '../config.js'
 import { bearerFromHeader, checkBearerToken } from '../services/api_tokens.js'
+import { workspaceOverview } from '../services/mcp_overview.js'
 import { AGENT_TOOLS, callAgentTool, toolAllowed, type AgentToolContext } from '../services/agent_tools.js'
 import { checkServiceSecret } from '../services/mcp_services.js'
 
@@ -15,7 +16,7 @@ import { checkServiceSecret } from '../services/mcp_services.js'
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const SERVER_INFO = { name: 'paperland', version: '1.0.0' }
 const INSTRUCTIONS = 'Tools over the Paperland paper library and Semantic Scholar, plus upload_image for figures. ' +
-  'Maintain Topics with list_topics / get_topic; an archived Topic (archived_at set) is read-only. Before editing read get_topic_schema for schema v1, reports.yml, reference rules and legacy migration; inspect get_topic.repository_schema for required upgrades. ' +
+  'Maintain Topics with list_topics (active only) / get_topic; archived Topics are read-only and listed by list_archived_topics. Before editing read get_topic_schema for schema v1, reports.yml, reference rules and legacy migration; inspect get_topic.repository_schema for required upgrades. ' +
   'Use read_pdf_page for a physical PDF page and its native Markdown citation; request image=true only when a page image is needed. ' +
   'Use s2_match / s2_search to get S2 paperIds instead of guessing them. To read a paper, use read_paper (Paperland\'s parsed full text) instead of fetching arXiv HTML or the PDF yourself; go to arXiv (or read_pdf_page with image=true) only for tables, figures or layout the text does not capture. ' +
   'Save answers the user wants kept with add_paper_qa (give your model name). ' +
@@ -55,7 +56,7 @@ async function handleMessage(message: RpcMessage, ctx: AgentToolContext): Promis
         protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : SUPPORTED_PROTOCOL_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions: INSTRUCTIONS,
+        instructions: [INSTRUCTIONS, workspaceOverview(ctx.viewer.id)].filter(Boolean).join('\n\n'),
       })
     }
     case 'ping':

@@ -99,6 +99,10 @@ export interface TopicSummary {
   legacy_research_session_id?: number | null
   /** When the owner archived the Topic (content frozen); null when active. */
   archived_at: string | null
+  /** Documents in the published version (0 when unpublished). */
+  page_count: number
+  /** Entries in the published reference catalog. */
+  reference_count: number
 }
 export interface TopicVersion {
   commit: string

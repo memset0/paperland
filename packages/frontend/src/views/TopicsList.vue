@@ -85,7 +85,7 @@ onBeforeUnmount(() => { alive = false; generation++ })
       </div>
 
       <div v-if="loading && !topics.length" class="grid gap-4 sm:grid-cols-2">
-        <div v-for="n in 4" :key="n" class="space-y-3 rounded-lg p-5 ring-1 ring-foreground/10"><Skeleton class="h-5 w-2/3" /><Skeleton class="h-4 w-full" /><Skeleton class="h-4 w-4/5" /><Skeleton class="mt-6 h-3 w-1/3" /></div>
+        <div v-for="n in 4" :key="n" class="rounded-xl ring-1 ring-foreground/10"><div class="space-y-3 p-5"><div class="flex items-center gap-3"><Skeleton class="size-10 rounded-lg" /><Skeleton class="h-5 w-1/2" /></div><Skeleton class="h-4 w-full" /><Skeleton class="h-4 w-4/5" /></div><div class="flex gap-4 border-t px-5 py-3"><Skeleton class="h-3 w-16" /><Skeleton class="h-3 w-20" /><Skeleton class="ml-auto h-3 w-24" /></div></div>
         <span class="sr-only">Loading topics…</span>
       </div>
       <div v-else-if="error" class="rounded-lg border border-dashed p-10 text-center">
